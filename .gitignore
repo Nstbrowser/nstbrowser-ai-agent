@@ -1,0 +1,90 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Native binaries (keep the launcher scripts)
+bin/nstbrowser-ai-agent-*
+!bin/nstbrowser-ai-agent
+!bin/nstbrowser-ai-agent.cmd
+
+# Rust build artifacts
+cli/target/
+cli/*.o
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+.kiro/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+
+# Test artifacts
+*.png
+*.jpeg
+*.jpg
+*.webm
+test/e2e/.dogfood-output/
+
+# Package manager
+package-lock.json
+yarn.lock
+
+# Environment
+.env
+.env.local
+
+# opensrc - source code for packages
+opensrc/
+
+# Docs site
+docs/node_modules/
+docs/.next/
+docs/out/
+docs/package-lock.json
+
+# pnpm
+.pnpm-store/
+
+# Temporary test scripts (not for production)
+test-*.sh
+test-*.js
+debug-*.js
+verify-*.sh
+diagnose-*.sh
+cleanup-*.sh
+quick-test.sh
+build-and-install.sh
+check-installation.sh
+create-test-package.sh
+
+# Temporary documentation files
+*-SUMMARY.md
+*-REPORT.md
+*-COMPLETE.md
+*-GUIDE.md
+*-PLAN.md
+*-STATUS.md
+TEST-*.md
+SUMMARY-*.md
+SKILLS.md
+README-TEST-PACKAGE.md
+HOW-TO-USE-TEST-PACKAGE.md
+
+# Test packages
+nstbrowser-ai-agent-skills-test-package/
+nstbrowser-skills-test-package-*.tar.gz
+nstbrowser-skills-test-package-*.zip
+skills/test-nstbrowser-profile/

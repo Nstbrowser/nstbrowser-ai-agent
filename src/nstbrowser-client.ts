@@ -1,0 +1,576 @@
+/**
+ * Nstbrowser API client
+ * Handles all communication with Nstbrowser API v2
+ */
+
+import type {
+  BrowserInstance,
+  StartBrowserOptions,
+  StartBrowserResponse,
+  Profile,
+  ProfileQuery,
+  ProfileConfig,
+  ProxyConfig,
+  Tag,
+  TagConfig,
+  ProfileGroup,
+  ConnectResponse,
+  OnceBrowserConfig,
+  NstApiResponse,
+} from './nstbrowser-types.js';
+import {
+  NstbrowserError,
+  NstbrowserAuthError,
+  handleNstbrowserError,
+} from './nstbrowser-errors.js';
+
+export class NstbrowserClient {
+  private baseUrl: string;
+  private apiKey: string;
+
+  constructor(host: string, port: number, apiKey: string) {
+    this.baseUrl = `http://${host}:${port}`;
+    this.apiKey = apiKey;
+
+    this.validateEndpoint(host, port);
+
+    if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+      console.error('[SECURITY] Debug mode enabled - API keys may be logged');
+    }
+  }
+
+  /**
+   * Validate endpoint configuration
+   */
+  private validateEndpoint(host: string, port: number): void {
+    if (!host || host.trim() === '') {
+      throw new Error('Invalid Nstbrowser host');
+    }
+
+    if (port < 1 || port > 65535) {
+      throw new Error('Invalid Nstbrowser port (must be 1-65535)');
+    }
+
+    const dangerousHosts = ['0.0.0.0', '169.254.169.254'];
+    if (dangerousHosts.includes(host)) {
+      throw new Error(`Connecting to ${host} is not allowed for security reasons`);
+    }
+  }
+
+  /**
+   * Make HTTP request to Nstbrowser API
+   */
+  private async request<T>(
+    method: string,
+    endpoint: string,
+    data?: unknown,
+    options?: { timeout?: number; retries?: number }
+  ): Promise<T> {
+    const timeout = options?.timeout || 30000;
+    const retries = options?.retries || 3;
+    const url = `${this.baseUrl}${endpoint}`;
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        this.logRequest(method, endpoint, data);
+
+        const response = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': this.apiKey,
+          },
+          body: data ? JSON.stringify(data) : undefined,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new NstbrowserAuthError();
+          }
+
+          if (response.status === 404) {
+            const errorText = await response.text().catch(() => 'No response body');
+            if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+              console.error('[DEBUG] 404 Error details:', {
+                url,
+                status: response.status,
+                statusText: response.statusText,
+                body: errorText,
+              });
+            }
+            throw new NstbrowserError(`Resource not found: ${url}`, 'NST_NOT_FOUND', 404);
+          }
+
+          const errorData = (await response.json().catch(() => ({}))) as {
+            message?: string;
+            code?: number;
+          };
+          throw new NstbrowserError(
+            errorData.message || `HTTP ${response.status}: ${response.statusText}`,
+            errorData.code?.toString(),
+            response.status
+          );
+        }
+
+        const result = (await response.json()) as NstApiResponse<T>;
+
+        if (result.err) {
+          throw new NstbrowserError(result.msg || 'Unknown error', result.code?.toString());
+        }
+
+        return result.data as T;
+      } catch (error) {
+        if (error instanceof NstbrowserError) {
+          throw error;
+        }
+
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt === retries - 1) {
+          throw handleNstbrowserError(lastError);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
+
+    throw lastError || new Error('Request failed');
+  }
+
+  /**
+   * Log request details in debug mode
+   */
+  private logRequest(method: string, endpoint: string, data?: unknown): void {
+    if (process.env.NSTBROWSER_AI_AGENT_DEBUG !== '1') return;
+
+    console.log(`[NST] ${method} ${this.baseUrl}${endpoint}`);
+    if (data) {
+      console.log(`[NST] Request body:`, JSON.stringify(data, null, 2));
+    }
+  }
+
+  /**
+   * Get all running browser instances
+   */
+  async getBrowsers(): Promise<BrowserInstance[]> {
+    const result = await this.request<BrowserInstance[] | null>('GET', '/api/v2/browsers');
+    return result || [];
+  }
+
+  /**
+   * Start a browser instance for a profile
+   */
+  async startBrowser(
+    profileId: string,
+    options?: StartBrowserOptions
+  ): Promise<StartBrowserResponse> {
+    const response = await this.request<{
+      profileId: string;
+      port: number;
+      webSocketDebuggerUrl: string;
+      proxy: string;
+    }>('POST', `/api/v2/browsers/${profileId}`);
+
+    return {
+      profileId: response.profileId,
+      webSocketDebuggerUrl: response.webSocketDebuggerUrl,
+      remoteDebuggingPort: response.port,
+    };
+  }
+
+  /**
+   * Start a temporary browser (once browser)
+   */
+  async startOnceBrowser(config: OnceBrowserConfig): Promise<StartBrowserResponse> {
+    return this.request<StartBrowserResponse>('POST', '/api/v2/browsers/once', config);
+  }
+
+  /**
+   * Start multiple browsers in batch
+   */
+  async startBrowsersBatch(
+    profileIds: string[],
+    options?: StartBrowserOptions
+  ): Promise<StartBrowserResponse[]> {
+    return this.request<StartBrowserResponse[]>('POST', '/api/v2/browsers/batch', {
+      profileIds,
+      ...options,
+    });
+  }
+
+  /**
+   * Stop a browser instance
+   */
+  async stopBrowser(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/browsers/${profileId}`);
+  }
+
+  /**
+   * Stop all browser instances
+   * API Doc: https:
+   * Note: Requires empty array as request body to stop all browsers
+   * Note: Endpoint requires trailing slash to avoid 307 redirect
+   */
+  async stopAllBrowsers(): Promise<void> {
+    await this.request<void>('DELETE', '/api/v2/browsers/', []);
+  }
+
+  /**
+   * Get all pages for a browser instance
+   */
+  async getBrowserPages(profileId: string): Promise<unknown[]> {
+    return this.request<unknown[]>('GET', `/api/v2/browsers/${profileId}/pages`);
+  }
+
+  /**
+   * Get remote debugging address for a browser
+   */
+  async getBrowserDebugger(profileId: string): Promise<{ debuggerUrl: string }> {
+    return this.request<{ debuggerUrl: string }>('GET', `/api/v2/browsers/${profileId}/debugger`);
+  }
+
+  /**
+   * Get profiles with optional query
+   * API Doc: https:
+   */
+  async getProfiles(query?: ProfileQuery): Promise<Profile[]> {
+    const params = new URLSearchParams();
+
+    if (query) {
+      if (query.name) {
+        params.append('s', query.name);
+      }
+      if (query.groupId) {
+        params.append('groupId', query.groupId);
+      }
+      if (query.tags) {
+        const tagsStr = Array.isArray(query.tags) ? query.tags.join(',') : query.tags;
+        params.append('tags', tagsStr);
+      }
+    }
+
+    const queryString = params.toString();
+    const endpoint = queryString ? `/api/v2/profiles?${queryString}` : '/api/v2/profiles';
+
+    const response = await this.request<{ docs: Profile[] }>('GET', endpoint);
+    let profiles = response.docs || [];
+
+    if (query?.platform) {
+      const platformMap: Record<string, number> = { Windows: 0, macOS: 1, Linux: 2 };
+      const platformNum = platformMap[query.platform];
+      if (platformNum !== undefined) {
+        profiles = profiles.filter((p) => p.platform === platformNum);
+      }
+    }
+
+    return profiles;
+  }
+
+  /**
+   * Get profiles with cursor-based pagination
+   * API Doc: https:
+   * Note: Requires Nstbrowser 1.17.3+
+   */
+  async getProfilesByCursor(
+    cursor?: string,
+    pageSize?: number,
+    direction?: 'next' | 'prev'
+  ): Promise<{
+    docs: Profile[];
+    hasMore: boolean;
+    nextCursor?: string;
+    prevCursor?: string;
+  }> {
+    const params = new URLSearchParams();
+
+    if (pageSize) {
+      params.append('pageSize', pageSize.toString());
+    }
+    if (cursor) {
+      params.append('cursor', cursor);
+    }
+    if (direction) {
+      params.append('direction', direction);
+    }
+
+    const queryString = params.toString();
+    const endpoint = queryString
+      ? `/api/v2/profiles/cursor?${queryString}`
+      : '/api/v2/profiles/cursor';
+
+    return this.request<{
+      docs: Profile[];
+      hasMore: boolean;
+      nextCursor?: string;
+      prevCursor?: string;
+    }>('GET', endpoint);
+  }
+
+  /**
+   * Create a new profile
+   */
+  async createProfile(config: ProfileConfig): Promise<Profile> {
+    const response = await this.request<Profile>('POST', '/api/v2/profiles', config);
+
+    if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+      console.error('[DEBUG] Create profile response:', JSON.stringify(response, null, 2));
+    }
+
+    return response;
+  }
+
+  /**
+   * Delete a profile
+   */
+  async deleteProfile(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}`);
+  }
+
+  /**
+   * Delete multiple profiles in batch
+   * API Doc: https:
+   */
+  async deleteProfilesBatch(profileIds: string[]): Promise<void> {
+    await this.request<void>('DELETE', '/api/v2/profiles', profileIds);
+  }
+
+  /**
+   * Update profile proxy configuration
+   * API Doc: https:
+   */
+  async updateProfileProxy(profileId: string, proxy: ProxyConfig): Promise<void> {
+    const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
+    const proxyUrl = `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/proxy`, { url: proxyUrl });
+  }
+
+  /**
+   * Update proxy for multiple profiles in batch
+   * API Doc: https:
+   */
+  async batchUpdateProxy(profileIds: string[], proxy: ProxyConfig): Promise<void> {
+    const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
+    const proxyUrl = `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+
+    await this.request<void>('PUT', '/api/v2/profiles/proxy/batch', {
+      profileIds,
+      proxyConfig: {
+        url: proxyUrl,
+      },
+    });
+  }
+
+  /**
+   * Reset profile proxy to local type
+   */
+  async resetProfileProxy(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/proxy`);
+  }
+
+  /**
+   * Reset proxy for multiple profiles in batch
+   */
+  async batchResetProfileProxy(profileIds: string[]): Promise<void> {
+    await this.request<void>('POST', '/api/v2/profiles/proxy/batch-reset', { profileIds });
+  }
+
+  /**
+   * Get all available tags
+   */
+  async getProfileTags(): Promise<Tag[]> {
+    return this.request<Tag[]>('GET', '/api/v2/profiles/tags');
+  }
+
+  /**
+   * Create tags for a profile
+   */
+  async createProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
+    await this.request<void>('POST', `/api/v2/profiles/${profileId}/tags`, tags);
+  }
+
+  /**
+   * Create tags for multiple profiles in batch
+   */
+  async batchCreateProfileTags(profileIds: string[], tags: TagConfig[]): Promise<void> {
+    await this.request<void>('POST', '/api/v2/profiles/tags/batch', {
+      profileIds,
+      tags,
+    });
+  }
+
+  /**
+   * Update tags for a profile
+   */
+  async updateProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
+    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/tags`, { tags });
+  }
+
+  /**
+   * Update tags for multiple profiles in batch
+   */
+  async batchUpdateProfileTags(profileIds: string[], tags: TagConfig[]): Promise<void> {
+    await this.request<void>('PUT', '/api/v2/profiles/tags/batch', {
+      profileIds,
+      tags,
+    });
+  }
+
+  /**
+   * Clear tags for a profile
+   */
+  async clearProfileTags(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/tags`);
+  }
+
+  /**
+   * Clear tags for multiple profiles in batch
+   */
+  async batchClearProfileTags(profileIds: string[]): Promise<void> {
+    await this.request<void>('POST', '/api/v2/profiles/tags/batch-clear', { profileIds });
+  }
+
+  /**
+   * Get all profile groups
+   */
+  async getAllProfileGroups(): Promise<ProfileGroup[]> {
+    return this.request<ProfileGroup[]>('GET', '/api/v2/profiles/groups');
+  }
+
+  /**
+   * Change profile group
+   */
+  async changeProfileGroup(profileId: string, groupId: string): Promise<void> {
+    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/group`, { groupId });
+  }
+
+  /**
+   * Change group for multiple profiles in batch
+   */
+  async batchChangeProfileGroup(profileIds: string[], groupId: string): Promise<void> {
+    await this.request<void>('PUT', '/api/v2/profiles/group/batch', {
+      profileIds,
+      groupId,
+    });
+  }
+
+  /**
+   * Clear profile cache
+   */
+  async clearProfileCache(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/cache`);
+  }
+
+  /**
+   * Clear profile cookies
+   */
+  async clearProfileCookies(profileId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/cookies`);
+  }
+
+  /**
+   * Get CDP WebSocket URL for a profile browser
+   * Uses the correct CDP endpoint: GET /api/v2/connect/{profileId}
+   */
+  async getCdpUrl(profileId: string): Promise<{ webSocketDebuggerUrl: string }> {
+    const response = await this.request<{
+      webSocketDebuggerUrl: string;
+    }>('GET', `/api/v2/connect/${profileId}`);
+
+    return {
+      webSocketDebuggerUrl: response.webSocketDebuggerUrl,
+    };
+  }
+
+  /**
+   * Get CDP WebSocket URL for once browser
+   * Uses the correct CDP endpoint: GET /api/v2/connect
+   */
+  async getCdpUrlOnce(): Promise<{ webSocketDebuggerUrl: string }> {
+    const response = await this.request<{
+      webSocketDebuggerUrl: string;
+    }>('GET', '/api/v2/connect');
+
+    return {
+      webSocketDebuggerUrl: response.webSocketDebuggerUrl,
+    };
+  }
+
+  /**
+   * Connect to a browser (start and get CDP URL)
+   */
+  async connectBrowser(profileId: string): Promise<ConnectResponse> {
+    const response = await this.request<{
+      profileId: string;
+      port: number;
+      webSocketDebuggerUrl: string;
+      proxy: string;
+    }>('POST', `/api/v2/browsers/${profileId}`);
+
+    return {
+      profileId: response.profileId,
+      webSocketDebuggerUrl: response.webSocketDebuggerUrl,
+      remoteDebuggingPort: response.port,
+    };
+  }
+
+  /**
+   * Connect to a temporary browser (once browser)
+   */
+  async connectOnceBrowser(config: OnceBrowserConfig): Promise<ConnectResponse> {
+    const response = await this.request<{
+      profileId: string;
+      port: number;
+      webSocketDebuggerUrl: string;
+      proxy: string;
+    }>('POST', '/api/v2/browsers/once', config);
+
+    return {
+      profileId: response.profileId,
+      webSocketDebuggerUrl: response.webSocketDebuggerUrl,
+      remoteDebuggingPort: response.port,
+    };
+  }
+
+  /**
+   * Alias for getProfiles()
+   */
+  async listProfiles(query?: ProfileQuery): Promise<Profile[]> {
+    return this.getProfiles(query);
+  }
+
+  /**
+   * Alias for deleteProfilesBatch()
+   */
+  async deleteProfiles(profileIds: string[]): Promise<void> {
+    return this.deleteProfilesBatch(profileIds);
+  }
+
+  /**
+   * Alias for getBrowsers()
+   */
+  async listBrowsers(): Promise<BrowserInstance[]> {
+    return this.getBrowsers();
+  }
+
+  /**
+   * Alias for getProfileTags()
+   */
+  async listTags(): Promise<Tag[]> {
+    return this.getProfileTags();
+  }
+
+  /**
+   * Alias for getAllProfileGroups()
+   */
+  async listGroups(): Promise<ProfileGroup[]> {
+    return this.getAllProfileGroups();
+  }
+}

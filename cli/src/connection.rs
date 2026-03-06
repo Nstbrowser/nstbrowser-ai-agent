@@ -1,0 +1,751 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::env;
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
+#[derive(Serialize)]
+#[allow(dead_code)]
+pub struct Request {
+    pub id: String,
+    pub action: String,
+    #[serde(flatten)]
+    pub extra: Value,
+}
+
+#[derive(Deserialize, Serialize, Default)]
+pub struct Response {
+    pub success: bool,
+    pub data: Option<Value>,
+    pub error: Option<String>,
+}
+
+#[allow(dead_code)]
+pub enum Connection {
+    #[cfg(unix)]
+    Unix(UnixStream),
+    Tcp(TcpStream),
+}
+
+impl Read for Connection {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            #[cfg(unix)]
+            Connection::Unix(s) => s.read(buf),
+            Connection::Tcp(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for Connection {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            #[cfg(unix)]
+            Connection::Unix(s) => s.write(buf),
+            Connection::Tcp(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            #[cfg(unix)]
+            Connection::Unix(s) => s.flush(),
+            Connection::Tcp(s) => s.flush(),
+        }
+    }
+}
+
+impl Connection {
+    pub fn set_read_timeout(&self, dur: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            #[cfg(unix)]
+            Connection::Unix(s) => s.set_read_timeout(dur),
+            Connection::Tcp(s) => s.set_read_timeout(dur),
+        }
+    }
+
+    pub fn set_write_timeout(&self, dur: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            #[cfg(unix)]
+            Connection::Unix(s) => s.set_write_timeout(dur),
+            Connection::Tcp(s) => s.set_write_timeout(dur),
+        }
+    }
+}
+
+pub fn get_socket_dir() -> PathBuf {
+    if let Ok(dir) = env::var("NSTBROWSER_AI_AGENT_SOCKET_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+
+    if let Ok(runtime_dir) = env::var("XDG_RUNTIME_DIR") {
+        if !runtime_dir.is_empty() {
+            return PathBuf::from(runtime_dir).join("nstbrowser-ai-agent");
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        return home.join(".nstbrowser-ai-agent");
+    }
+
+    env::temp_dir().join("nstbrowser-ai-agent")
+}
+
+#[cfg(unix)]
+fn get_socket_path(session: &str) -> PathBuf {
+    get_socket_dir().join(format!("{}.sock", session))
+}
+
+fn get_pid_path(session: &str) -> PathBuf {
+    get_socket_dir().join(format!("{}.pid", session))
+}
+
+fn cleanup_stale_files(session: &str) {
+    let pid_path = get_pid_path(session);
+    let _ = fs::remove_file(&pid_path);
+
+    #[cfg(unix)]
+    {
+        let socket_path = get_socket_path(session);
+        let _ = fs::remove_file(&socket_path);
+    }
+
+    #[cfg(windows)]
+    {
+        let port_path = get_port_path(session);
+        let _ = fs::remove_file(&port_path);
+    }
+}
+
+#[cfg(windows)]
+fn get_port_path(session: &str) -> PathBuf {
+    get_socket_dir().join(format!("{}.port", session))
+}
+
+#[cfg(windows)]
+fn get_port_for_session(session: &str) -> u16 {
+    let mut hash: i32 = 0;
+    for c in session.chars() {
+        hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(c as i32);
+    }
+    49152 + ((hash.unsigned_abs() as u32 % 16383) as u16)
+}
+
+#[cfg(unix)]
+fn is_daemon_running(session: &str) -> bool {
+    let pid_path = get_pid_path(session);
+    if !pid_path.exists() {
+        return false;
+    }
+    if let Ok(pid_str) = fs::read_to_string(&pid_path) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            unsafe {
+                if libc::kill(pid, 0) == 0 {
+                    return true;
+                }
+                return std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+            }
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn is_daemon_running(session: &str) -> bool {
+    let pid_path = get_pid_path(session);
+    if !pid_path.exists() {
+        return false;
+    }
+    let port = get_port_for_session(session);
+    TcpStream::connect_timeout(
+        &format!("127.0.0.1:{}", port).parse().unwrap(),
+        Duration::from_millis(100),
+    )
+    .is_ok()
+}
+
+fn daemon_ready(session: &str) -> bool {
+    #[cfg(unix)]
+    {
+        let socket_path = get_socket_path(session);
+        UnixStream::connect(&socket_path).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        let port = get_port_for_session(session);
+        TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", port).parse().unwrap(),
+            Duration::from_millis(50),
+        )
+        .is_ok()
+    }
+}
+
+pub struct DaemonResult {
+    pub already_running: bool,
+}
+
+pub struct DaemonOptions<'a> {
+    pub headed: bool,
+    pub executable_path: Option<&'a str>,
+    pub extensions: &'a [String],
+    pub args: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
+    pub proxy: Option<&'a str>,
+    pub proxy_bypass: Option<&'a str>,
+    pub ignore_https_errors: bool,
+    pub allow_file_access: bool,
+    pub profile: Option<&'a str>,
+    pub state: Option<&'a str>,
+    pub provider: Option<&'a str>,
+    pub device: Option<&'a str>,
+    pub session_name: Option<&'a str>,
+    pub download_path: Option<&'a str>,
+    pub allowed_domains: Option<&'a [String]>,
+    pub action_policy: Option<&'a str>,
+    pub confirm_actions: Option<&'a str>,
+    pub native: bool,
+}
+
+fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
+    cmd.env("NSTBROWSER_AI_AGENT_DAEMON", "1")
+        .env("NSTBROWSER_AI_AGENT_SESSION", session);
+
+    if opts.headed {
+        cmd.env("NSTBROWSER_AI_AGENT_HEADED", "1");
+    }
+    if let Some(path) = opts.executable_path {
+        cmd.env("NSTBROWSER_AI_AGENT_EXECUTABLE_PATH", path);
+    }
+    if !opts.extensions.is_empty() {
+        cmd.env("NSTBROWSER_AI_AGENT_EXTENSIONS", opts.extensions.join(","));
+    }
+    if let Some(a) = opts.args {
+        cmd.env("NSTBROWSER_AI_AGENT_ARGS", a);
+    }
+    if let Some(ua) = opts.user_agent {
+        cmd.env("NSTBROWSER_AI_AGENT_USER_AGENT", ua);
+    }
+    if let Some(p) = opts.proxy {
+        cmd.env("NSTBROWSER_AI_AGENT_PROXY", p);
+    }
+    if let Some(pb) = opts.proxy_bypass {
+        cmd.env("NSTBROWSER_AI_AGENT_PROXY_BYPASS", pb);
+    }
+    if opts.ignore_https_errors {
+        cmd.env("NSTBROWSER_AI_AGENT_IGNORE_HTTPS_ERRORS", "1");
+    }
+    if opts.allow_file_access {
+        cmd.env("NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS", "1");
+    }
+    if let Some(prof) = opts.profile {
+        cmd.env("NSTBROWSER_AI_AGENT_PROFILE", prof);
+    }
+    if let Some(st) = opts.state {
+        cmd.env("NSTBROWSER_AI_AGENT_STATE", st);
+    }
+    if let Some(p) = opts.provider {
+        cmd.env("NSTBROWSER_AI_AGENT_PROVIDER", p);
+    }
+    if let Some(d) = opts.device {
+        cmd.env("NSTBROWSER_AI_AGENT_IOS_DEVICE", d);
+    }
+    if let Some(sn) = opts.session_name {
+        cmd.env("NSTBROWSER_AI_AGENT_SESSION_NAME", sn);
+    }
+    if let Some(dp) = opts.download_path {
+        cmd.env("NSTBROWSER_AI_AGENT_DOWNLOAD_PATH", dp);
+    }
+    if let Some(ad) = opts.allowed_domains {
+        cmd.env("NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS", ad.join(","));
+    }
+    if let Some(ap) = opts.action_policy {
+        cmd.env("NSTBROWSER_AI_AGENT_ACTION_POLICY", ap);
+    }
+    if let Some(ca) = opts.confirm_actions {
+        cmd.env("NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS", ca);
+    }
+
+    if let Ok(nst_api_key) = env::var("NST_API_KEY") {
+        cmd.env("NST_API_KEY", nst_api_key);
+    }
+    if let Ok(nst_host) = env::var("NST_HOST") {
+        cmd.env("NST_HOST", nst_host);
+    }
+    if let Ok(nst_port) = env::var("NST_PORT") {
+        cmd.env("NST_PORT", nst_port);
+    }
+    if let Ok(nst_profile) = env::var("NST_PROFILE") {
+        cmd.env("NST_PROFILE", nst_profile);
+    }
+
+    if let Ok(debug) = env::var("NSTBROWSER_AI_AGENT_DEBUG") {
+        cmd.env("NSTBROWSER_AI_AGENT_DEBUG", debug);
+    }
+}
+
+pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult, String> {
+    if is_daemon_running(session) && daemon_ready(session) {
+        thread::sleep(Duration::from_millis(150));
+        if daemon_ready(session) {
+            return Ok(DaemonResult {
+                already_running: true,
+            });
+        }
+    }
+
+    cleanup_stale_files(session);
+
+    let socket_dir = get_socket_dir();
+    if !socket_dir.exists() {
+        fs::create_dir_all(&socket_dir)
+            .map_err(|e| format!("Failed to create socket directory: {}", e))?;
+    }
+
+    #[cfg(unix)]
+    {
+        let socket_path = get_socket_path(session);
+        let path_len = socket_path.as_os_str().len();
+        if path_len > 103 {
+            return Err(format!(
+                "Session name '{}' is too long. Socket path would be {} bytes (max 103).\n\
+                 Use a shorter session name or set NSTBROWSER_AI_AGENT_SOCKET_DIR to a shorter path.",
+                session, path_len
+            ));
+        }
+    }
+
+    {
+        let test_file = socket_dir.join(".write_test");
+        match fs::write(&test_file, b"") {
+            Ok(_) => {
+                let _ = fs::remove_file(&test_file);
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Socket directory '{}' is not writable: {}",
+                    socket_dir.display(),
+                    e
+                ));
+            }
+        }
+    }
+
+    let exe_path = env::current_exe().map_err(|e| e.to_string())?;
+    let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+    #[cfg(windows)]
+    let exe_path = {
+        let p = exe_path.to_string_lossy();
+        if let Some(stripped) = p.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            exe_path
+        }
+    };
+
+    if opts.native {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+
+            let mut cmd = Command::new(&exe_path);
+            cmd.env("NSTBROWSER_AI_AGENT_DAEMON", "1");
+            apply_daemon_env(&mut cmd, session, opts);
+
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::setsid();
+                    Ok(())
+                });
+            }
+
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start native daemon: {}", e))?;
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+
+            let mut cmd = Command::new(&exe_path);
+            cmd.env("NSTBROWSER_AI_AGENT_DAEMON", "1");
+            apply_daemon_env(&mut cmd, session, opts);
+
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start native daemon: {}", e))?;
+        }
+    } else {
+        let exe_dir = exe_path.parent().unwrap();
+
+        let mut daemon_paths = vec![
+            exe_dir.join("daemon.js"),
+            exe_dir.join("../dist/daemon.js"),
+            PathBuf::from("dist/daemon.js"),
+        ];
+
+        if let Ok(home) = env::var("NSTBROWSER_AI_AGENT_HOME") {
+            let home_path = PathBuf::from(&home);
+            daemon_paths.insert(0, home_path.join("dist/daemon.js"));
+            daemon_paths.insert(1, home_path.join("daemon.js"));
+        }
+
+        let daemon_path = daemon_paths
+            .iter()
+            .find(|p| p.exists())
+            .ok_or("Daemon not found. Set NSTBROWSER_AI_AGENT_HOME environment variable or run from project directory.")?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+
+            let mut cmd = Command::new("node");
+            cmd.arg(daemon_path);
+            apply_daemon_env(&mut cmd, session, opts);
+
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::setsid();
+                    Ok(())
+                });
+            }
+
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start daemon: {}", e))?;
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+
+            let mut cmd = Command::new("node.exe");
+            cmd.arg(daemon_path)
+                .env("MSYS_NO_PATHCONV", "1")
+                .env("MSYS2_ARG_CONV_EXCL", "*");
+            apply_daemon_env(&mut cmd, session, opts);
+
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to start daemon: {}", e))?;
+        }
+    }
+
+    for _ in 0..50 {
+        if daemon_ready(session) {
+            return Ok(DaemonResult {
+                already_running: false,
+            });
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    #[cfg(unix)]
+    let endpoint_info = format!(
+        "socket: {}",
+        get_socket_dir().join(format!("{}.sock", session)).display()
+    );
+    #[cfg(windows)]
+    let endpoint_info = format!("port: 127.0.0.1:{}", get_port_for_session(session));
+
+    Err(format!("Daemon failed to start ({})", endpoint_info))
+}
+
+fn connect(session: &str) -> Result<Connection, String> {
+    #[cfg(unix)]
+    {
+        let socket_path = get_socket_path(session);
+        UnixStream::connect(&socket_path)
+            .map(Connection::Unix)
+            .map_err(|e| format!("Failed to connect: {}", e))
+    }
+    #[cfg(windows)]
+    {
+        let port = get_port_for_session(session);
+        TcpStream::connect(format!("127.0.0.1:{}", port))
+            .map(Connection::Tcp)
+            .map_err(|e| format!("Failed to connect: {}", e))
+    }
+}
+
+pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
+    const MAX_RETRIES: u32 = 5;
+    const RETRY_DELAY_MS: u64 = 200;
+
+    let mut last_error = String::new();
+
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            thread::sleep(Duration::from_millis(RETRY_DELAY_MS * (attempt as u64)));
+        }
+
+        match send_command_once(&cmd, session) {
+            Ok(response) => return Ok(response),
+            Err(e) => {
+                if is_transient_error(&e) {
+                    last_error = e;
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    Err(format!(
+        "{} (after {} retries - daemon may be busy or unresponsive)",
+        last_error, MAX_RETRIES
+    ))
+}
+
+fn is_transient_error(error: &str) -> bool {
+    error.contains("os error 35") 
+        || error.contains("os error 11") 
+        || error.contains("WouldBlock")
+        || error.contains("Resource temporarily unavailable")
+        || error.contains("EOF")
+        || error.contains("line 1 column 0") 
+        || error.contains("Connection reset")
+        || error.contains("Broken pipe")
+        || error.contains("os error 54") 
+        || error.contains("os error 104") 
+        || error.contains("os error 2") 
+        || error.contains("os error 61") 
+        || error.contains("os error 111") 
+}
+
+fn send_command_once(cmd: &Value, session: &str) -> Result<Response, String> {
+    let mut stream = connect(session)?;
+
+    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+
+    let mut json_str = serde_json::to_string(cmd).map_err(|e| e.to_string())?;
+    json_str.push('\n');
+
+    stream
+        .write_all(json_str.as_bytes())
+        .map_err(|e| format!("Failed to send: {}", e))?;
+
+    let mut reader = BufReader::new(stream);
+    let mut response_line = String::new();
+    reader
+        .read_line(&mut response_line)
+        .map_err(|e| format!("Failed to read: {}", e))?;
+
+    serde_json::from_str(&response_line).map_err(|e| format!("Invalid response: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard<'a> {
+        _lock: MutexGuard<'a, ()>,
+        vars: Vec<(String, Option<String>)>,
+    }
+
+    impl<'a> EnvGuard<'a> {
+        fn new(var_names: &[&str]) -> Self {
+            let lock = ENV_MUTEX.lock().unwrap();
+            let vars = var_names
+                .iter()
+                .map(|&name| (name.to_string(), env::var(name).ok()))
+                .collect();
+            Self { _lock: lock, vars }
+        }
+    }
+
+    impl Drop for EnvGuard<'_> {
+        fn drop(&mut self) {
+            for (name, value) in &self.vars {
+                match value {
+                    Some(v) => env::set_var(name, v),
+                    None => env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_socket_dir_explicit_override() {
+        let _guard = EnvGuard::new(&["NSTBROWSER_AI_AGENT_SOCKET_DIR", "XDG_RUNTIME_DIR"]);
+
+        env::set_var("NSTBROWSER_AI_AGENT_SOCKET_DIR", "/custom/socket/path");
+        env::remove_var("XDG_RUNTIME_DIR");
+
+        assert_eq!(get_socket_dir(), PathBuf::from("/custom/socket/path"));
+    }
+
+    #[test]
+    fn test_get_socket_dir_ignores_empty_socket_dir() {
+        let _guard = EnvGuard::new(&["NSTBROWSER_AI_AGENT_SOCKET_DIR", "XDG_RUNTIME_DIR"]);
+
+        env::set_var("NSTBROWSER_AI_AGENT_SOCKET_DIR", "");
+        env::remove_var("XDG_RUNTIME_DIR");
+
+        assert!(get_socket_dir()
+            .to_string_lossy()
+            .ends_with(".nstbrowser-ai-agent"));
+    }
+
+    #[test]
+    fn test_get_socket_dir_xdg_runtime() {
+        let _guard = EnvGuard::new(&["NSTBROWSER_AI_AGENT_SOCKET_DIR", "XDG_RUNTIME_DIR"]);
+
+        env::remove_var("NSTBROWSER_AI_AGENT_SOCKET_DIR");
+        env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+
+        assert_eq!(
+            get_socket_dir(),
+            PathBuf::from("/run/user/1000/nstbrowser-ai-agent")
+        );
+    }
+
+    #[test]
+    fn test_get_socket_dir_ignores_empty_xdg_runtime() {
+        let _guard = EnvGuard::new(&["NSTBROWSER_AI_AGENT_SOCKET_DIR", "XDG_RUNTIME_DIR"]);
+
+        env::set_var("NSTBROWSER_AI_AGENT_SOCKET_DIR", "");
+        env::set_var("XDG_RUNTIME_DIR", "");
+
+        assert!(get_socket_dir()
+            .to_string_lossy()
+            .ends_with(".nstbrowser-ai-agent"));
+    }
+
+    #[test]
+    fn test_get_socket_dir_home_fallback() {
+        let _guard = EnvGuard::new(&["NSTBROWSER_AI_AGENT_SOCKET_DIR", "XDG_RUNTIME_DIR"]);
+
+        env::remove_var("NSTBROWSER_AI_AGENT_SOCKET_DIR");
+        env::remove_var("XDG_RUNTIME_DIR");
+
+        let result = get_socket_dir();
+        assert!(result.to_string_lossy().ends_with(".nstbrowser-ai-agent"));
+        assert!(
+            result.to_string_lossy().contains("home") || result.to_string_lossy().contains("Users")
+        );
+    }
+
+
+    #[test]
+    fn test_is_transient_error_eagain_macos() {
+        assert!(is_transient_error(
+            "Failed to read: Resource temporarily unavailable (os error 35)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_eagain_linux() {
+        assert!(is_transient_error(
+            "Failed to read: Resource temporarily unavailable (os error 11)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_would_block() {
+        assert!(is_transient_error("operation WouldBlock"));
+    }
+
+    #[test]
+    fn test_is_transient_error_resource_unavailable() {
+        assert!(is_transient_error("Resource temporarily unavailable"));
+    }
+
+    #[test]
+    fn test_is_transient_error_eof() {
+        assert!(is_transient_error(
+            "Invalid response: EOF while parsing a value at line 1 column 0"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_empty_json() {
+        assert!(is_transient_error(
+            "Invalid response: expected value at line 1 column 0"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_connection_reset() {
+        assert!(is_transient_error("Connection reset by peer"));
+    }
+
+    #[test]
+    fn test_is_transient_error_broken_pipe() {
+        assert!(is_transient_error("Broken pipe"));
+    }
+
+    #[test]
+    fn test_is_transient_error_connection_reset_macos() {
+        assert!(is_transient_error(
+            "Failed to send: Connection reset by peer (os error 54)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_connection_reset_linux() {
+        assert!(is_transient_error(
+            "Failed to send: Connection reset by peer (os error 104)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_socket_not_found() {
+        assert!(is_transient_error(
+            "Failed to connect: No such file or directory (os error 2)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_connection_refused_macos() {
+        assert!(is_transient_error(
+            "Failed to connect: Connection refused (os error 61)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_connection_refused_linux() {
+        assert!(is_transient_error(
+            "Failed to connect: Connection refused (os error 111)"
+        ));
+    }
+
+    #[test]
+    fn test_is_transient_error_non_transient() {
+        assert!(!is_transient_error("Unknown command: foo"));
+        assert!(!is_transient_error("Invalid JSON syntax"));
+        assert!(!is_transient_error("Permission denied"));
+        assert!(!is_transient_error("Daemon not found"));
+    }
+}
