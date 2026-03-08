@@ -6,6 +6,11 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
 jobs:
   version-sync:
     name: Version Sync Check
