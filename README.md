@@ -375,6 +375,34 @@ Each session has its own:
 - Navigation history
 - Authentication state
 
+## Configuration
+
+Configure NST API credentials once and use forever:
+
+```bash
+# Set API key (required)
+nstbrowser-ai-agent config set key <your-api-key>
+
+# Set custom host (optional, default: 127.0.0.1)
+nstbrowser-ai-agent config set host api.example.com
+
+# Set custom port (optional, default: 8848)
+nstbrowser-ai-agent config set port 9000
+
+# View current configuration
+nstbrowser-ai-agent config show
+
+# Get specific value
+nstbrowser-ai-agent config get key
+
+# Remove configuration
+nstbrowser-ai-agent config unset key
+```
+
+Configuration is stored in `~/.nst-ai-agent/config.json` and takes priority over environment variables.
+
+**Priority order:** Config file > Environment variables > Defaults
+
 ## Persistent Profiles
 
 By default, browser state (cookies, localStorage, login sessions) is ephemeral and lost when the browser closes. Use `--profile` to persist state across browser restarts:
@@ -463,6 +491,8 @@ nstbrowser-ai-agent includes security features for safe AI agent deployments. Al
 | `NST_HOST` | Nstbrowser API host (default: localhost) |
 | `NST_PORT` | Nstbrowser API port (default: 8848) |
 
+See the Security section below for details on environment variable handling.
+
 ## Snapshot Options
 
 The `snapshot` command supports filtering to reduce output size:
@@ -525,9 +555,8 @@ This is useful for multimodal AI models that can reason about visual layout, unl
 | `--proxy-bypass <hosts>` | Hosts to bypass proxy (or `NSTBROWSER_AI_AGENT_PROXY_BYPASS` env)                                                      |
 | `--ignore-https-errors` | Ignore HTTPS certificate errors (useful for self-signed certs)                                                   |
 | `--allow-file-access` | Allow file:// URLs to access local files (Chromium only)                                                         |
-| `-p, --provider <name>` | Browser provider: `ios`, `browserbase`, `kernel`, `browseruse`, `nst` (default: `nst`) (or `NSTBROWSER_AI_AGENT_PROVIDER` env)   |
+| `-p, --provider <name>` | Browser provider: `nst` (default), `local` (or `NSTBROWSER_AI_AGENT_PROVIDER` env)   |
 | `--local` | Use local browser instead of Nstbrowser (or `NSTBROWSER_AI_AGENT_LOCAL` env)                                           |
-| `--device <name>` | iOS device name, e.g. "iPhone 15 Pro" (or `NSTBROWSER_AI_AGENT_IOS_DEVICE` env)                                        |
 | `--json` | JSON output (for agents)                                                                                         |
 | `--full, -f` | Full page screenshot                                                                                             |
 | `--annotate` | Annotated screenshot with numbered element labels (or `NSTBROWSER_AI_AGENT_ANNOTATE` env)                              |
@@ -791,6 +820,22 @@ nstbrowser-ai-agent --executable-path /path/to/chromium open example.com
 
 # Via environment variable
 NSTBROWSER_AI_AGENT_EXECUTABLE_PATH=/path/to/chromium nstbrowser-ai-agent open example.com
+```
+
+### Serverless Example (AWS Lambda)
+
+```typescript
+import chromium from '@sparticuz/chromium';
+import { BrowserManager } from 'nstbrowser-ai-agent';
+
+export async function handler() {
+  const browser = new BrowserManager();
+  await browser.launch({
+    executablePath: await chromium.executablePath(),
+    headless: true,
+  });
+  // ... use browser
+}
 ```
 
 ## Local Files
@@ -1081,183 +1126,7 @@ Core workflow:
 4. Re-snapshot after page changes
 ```
 
-## Integrations
-
-### iOS Simulator
-
-Control real Mobile Safari in the iOS Simulator for authentic mobile web testing. Requires macOS with Xcode.
-
-**Setup:**
-
-```bash
-# Install Appium and XCUITest driver
-npm install -g appium
-appium driver install xcuitest
-```
-
-**Usage:**
-
-```bash
-# List available iOS simulators
-nstbrowser-ai-agent device list
-
-# Launch Safari on a specific device
-nstbrowser-ai-agent -p ios --device "iPhone 16 Pro" open https://example.com
-
-# Same commands as desktop
-nstbrowser-ai-agent -p ios snapshot -i
-nstbrowser-ai-agent -p ios tap @e1
-nstbrowser-ai-agent -p ios fill @e2 "text"
-nstbrowser-ai-agent -p ios screenshot mobile.png
-
-# Mobile-specific commands
-nstbrowser-ai-agent -p ios swipe up
-nstbrowser-ai-agent -p ios swipe down 500
-
-# Close session
-nstbrowser-ai-agent -p ios close
-```
-
-Or use environment variables:
-
-```bash
-export NSTBROWSER_AI_AGENT_PROVIDER=ios
-export NSTBROWSER_AI_AGENT_IOS_DEVICE="iPhone 16 Pro"
-nstbrowser-ai-agent open https://example.com
-```
-
-| Variable | Description |
-|----------|-------------|
-| `NSTBROWSER_AI_AGENT_PROVIDER` | Set to `ios` to enable iOS mode |
-| `NSTBROWSER_AI_AGENT_IOS_DEVICE` | Device name (e.g., "iPhone 16 Pro", "iPad Pro") |
-| `NSTBROWSER_AI_AGENT_IOS_UDID` | Device UDID (alternative to device name) |
-
-**Supported devices:** All iOS Simulators available in Xcode (iPhones, iPads), plus real iOS devices.
-
-**Note:** The iOS provider boots the simulator, starts Appium, and controls Safari. First launch takes ~30-60 seconds; subsequent commands are fast.
-
-#### Real Device Support
-
-Appium also supports real iOS devices connected via USB. This requires additional one-time setup:
-
-**1. Get your device UDID:**
-```bash
-xcrun xctrace list devices
-# or
-system_profiler SPUSBDataType | grep -A 5 "iPhone\|iPad"
-```
-
-**2. Sign WebDriverAgent (one-time):**
-```bash
-# Open the WebDriverAgent Xcode project
-cd ~/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent
-open WebDriverAgent.xcodeproj
-```
-
-In Xcode:
-- Select the `WebDriverAgentRunner` target
-- Go to Signing & Capabilities
-- Select your Team (requires Apple Developer account, free tier works)
-- Let Xcode manage signing automatically
-
-**3. Use with nstbrowser-ai-agent:**
-```bash
-# Connect device via USB, then:
-nstbrowser-ai-agent -p ios --device "<DEVICE_UDID>" open https://example.com
-
-# Or use the device name if unique
-nstbrowser-ai-agent -p ios --device "John's iPhone" open https://example.com
-```
-
-**Real device notes:**
-- First run installs WebDriverAgent to the device (may require Trust prompt)
-- Device must be unlocked and connected via USB
-- Slightly slower initial connection than simulator
-- Tests against real Safari performance and behavior
-
-### Browserbase
-
-[Browserbase](https://browserbase.com) provides remote browser infrastructure to make deployment of agentic browsing agents easy. Use it when running the nstbrowser-ai-agent CLI in an environment where a local browser isn't feasible.
-
-To enable Browserbase, use the `-p` flag:
-
-```bash
-export BROWSERBASE_API_KEY="your-api-key"
-export BROWSERBASE_PROJECT_ID="your-project-id"
-nstbrowser-ai-agent -p browserbase open https://example.com
-```
-
-Or use environment variables for CI/scripts:
-
-```bash
-export NSTBROWSER_AI_AGENT_PROVIDER=browserbase
-export BROWSERBASE_API_KEY="your-api-key"
-export BROWSERBASE_PROJECT_ID="your-project-id"
-nstbrowser-ai-agent open https://example.com
-```
-
-When enabled, nstbrowser-ai-agent connects to a Browserbase session instead of launching a local browser. All commands work identically.
-
-Get your API key and project ID from the [Browserbase Dashboard](https://browserbase.com/overview).
-
-### Browser Use
-
-[Browser Use](https://browser-use.com) provides cloud browser infrastructure for AI agents. Use it when running nstbrowser-ai-agent in environments where a local browser isn't available (serverless, CI/CD, etc.).
-
-To enable Browser Use, use the `-p` flag:
-
-```bash
-export BROWSER_USE_API_KEY="your-api-key"
-nstbrowser-ai-agent -p browseruse open https://example.com
-```
-
-Or use environment variables for CI/scripts:
-
-```bash
-export NSTBROWSER_AI_AGENT_PROVIDER=browseruse
-export BROWSER_USE_API_KEY="your-api-key"
-nstbrowser-ai-agent open https://example.com
-```
-
-When enabled, nstbrowser-ai-agent connects to a Browser Use cloud session instead of launching a local browser. All commands work identically.
-
-Get your API key from the [Browser Use Cloud Dashboard](https://cloud.browser-use.com/settings?tab=api-keys). Free credits are available to get started, with pay-as-you-go pricing after.
-
-### Kernel
-
-[Kernel](https://www.kernel.sh) provides cloud browser infrastructure for AI agents with features like stealth mode and persistent profiles.
-
-To enable Kernel, use the `-p` flag:
-
-```bash
-export KERNEL_API_KEY="your-api-key"
-nstbrowser-ai-agent -p kernel open https://example.com
-```
-
-Or use environment variables for CI/scripts:
-
-```bash
-export NSTBROWSER_AI_AGENT_PROVIDER=kernel
-export KERNEL_API_KEY="your-api-key"
-nstbrowser-ai-agent open https://example.com
-```
-
-Optional configuration via environment variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KERNEL_HEADLESS` | Run browser in headless mode (`true`/`false`) | `false` |
-| `KERNEL_STEALTH` | Enable stealth mode to avoid bot detection (`true`/`false`) | `true` |
-| `KERNEL_TIMEOUT_SECONDS` | Session timeout in seconds | `300` |
-| `KERNEL_PROFILE_NAME` | Browser profile name for persistent cookies/logins (created if it doesn't exist) | (none) |
-
-When enabled, nstbrowser-ai-agent connects to a Kernel cloud session instead of launching a local browser. All commands work identically.
-
-**Profile Persistence:** When `KERNEL_PROFILE_NAME` is set, the profile will be created if it doesn't already exist. Cookies, logins, and session data are automatically saved back to the profile when the browser session ends, making them available for future sessions.
-
-Get your API key from the [Kernel Dashboard](https://dashboard.onkernel.com).
-
-### Nstbrowser
+## Nstbrowser Integration
 
 [Nstbrowser](https://www.nstbrowser.io) provides advanced browser fingerprinting and anti-detection capabilities for web automation. It offers local browser instances with customizable fingerprints, proxy management, and profile persistence.
 
@@ -1322,6 +1191,10 @@ nstbrowser-ai-agent profile tags list
 nstbrowser-ai-agent profile groups list
 nstbrowser-ai-agent profile groups change group-id profile-123
 
+# List profiles with cursor pagination (for large datasets)
+nstbrowser-ai-agent profile list-cursor --page-size 50
+nstbrowser-ai-agent profile list-cursor --cursor "token" --page-size 50
+
 # Clear cache and cookies
 nstbrowser-ai-agent profile cache clear profile-123
 nstbrowser-ai-agent profile cookies clear profile-123
@@ -1330,18 +1203,46 @@ nstbrowser-ai-agent profile cookies clear profile-123
 nstbrowser-ai-agent profile delete profile-1 profile-2 profile-3
 ```
 
+**Profile Selection (Name or ID):**
+
+The `--profile` flag accepts either a profile name or profile ID (UUID). The system automatically detects UUID patterns:
+
+```bash
+# By profile name
+nstbrowser-ai-agent --profile my-profile open example.com
+nstbrowser-ai-agent browser start proxy_ph
+
+# By profile ID (UUID format auto-detected)
+nstbrowser-ai-agent --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b open example.com
+nstbrowser-ai-agent browser start ef2b083a-8f77-4a7f-8441-a8d56bbd832b
+
+# Both work the same way - no need to remember which flag to use
+# The system automatically detects if you're using a UUID or a name
+```
+
+You can still use `--profile-id` for explicit ID specification if preferred, but `--profile` now handles both formats automatically.
+
 **Browser Instance Management:**
 
 ```bash
 # With default NST provider (NST_API_KEY set), no 'nst' prefix needed:
 nstbrowser-ai-agent browser list                    # List running instances
 nstbrowser-ai-agent browser start profile-123       # Start browser for profile
+nstbrowser-ai-agent browser start-batch p1 p2 p3    # Start multiple browsers
+nstbrowser-ai-agent browser start-once              # Start temporary browser
 nstbrowser-ai-agent browser stop profile-123        # Stop browser instance
 nstbrowser-ai-agent browser stop-all                # Stop all instances
+nstbrowser-ai-agent browser pages profile-123       # Get browser pages/tabs
+nstbrowser-ai-agent browser debugger profile-123    # Get debugger URL
+nstbrowser-ai-agent browser cdp-url profile-123     # Get CDP WebSocket URL
+nstbrowser-ai-agent browser cdp-url-once            # Get CDP URL for temp browser
+nstbrowser-ai-agent browser connect profile-123     # Connect and get CDP URL
+nstbrowser-ai-agent browser connect-once            # Connect to temp browser
 
 # Traditional explicit syntax still works:
 nstbrowser-ai-agent nst browser list
 nstbrowser-ai-agent nst browser start profile-123
+nstbrowser-ai-agent nst browser start-batch p1 p2 p3
 nstbrowser-ai-agent nst browser stop profile-123
 nstbrowser-ai-agent nst browser stop-all
 ```

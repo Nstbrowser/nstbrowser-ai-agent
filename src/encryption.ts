@@ -8,9 +8,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import os from 'node:os';
 
+// ============================================
+// Constants
+// ============================================
 export const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 export const ENCRYPTION_KEY_ENV = 'NSTBROWSER_AI_AGENT_ENCRYPTION_KEY';
-export const IV_LENGTH = 12;
+export const IV_LENGTH = 12; // 96 bits for GCM
 const KEY_FILE_NAME = '.encryption-key';
 
 /**
@@ -19,9 +22,9 @@ const KEY_FILE_NAME = '.encryption-key';
 export interface EncryptedPayload {
   version: 1;
   encrypted: true;
-  iv: string;
-  authTag: string;
-  data: string;
+  iv: string; // Base64 encoded
+  authTag: string; // Base64 encoded
+  data: string; // Base64 encoded ciphertext
 }
 
 export function getKeyFilePath(): string {
@@ -40,7 +43,9 @@ export function restrictFilePermissions(filePath: string): void {
       stdio: 'ignore',
       windowsHide: true,
     });
-  } catch {}
+  } catch {
+    // Best-effort; may fail in some environments (containers, restricted shells)
+  }
 }
 
 /**
@@ -55,7 +60,9 @@ export function restrictDirPermissions(dirPath: string): void {
       stdio: 'ignore',
       windowsHide: true,
     });
-  } catch {}
+  } catch {
+    // Best-effort
+  }
 }
 
 function parseKeyHex(keyHex: string): Buffer | null {

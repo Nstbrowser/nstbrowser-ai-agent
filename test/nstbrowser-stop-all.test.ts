@@ -31,7 +31,7 @@ describe('NstbrowserClient.stopAllBrowsers', () => {
 
     // Verify fetch was called with correct parameters
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:8848/api/v2/browsers/', // Note: trailing slash required
+      'http://127.0.0.1:8848/api/v2/browsers/',  // Note: trailing slash required
       expect.objectContaining({
         method: 'DELETE',
         headers: expect.objectContaining({

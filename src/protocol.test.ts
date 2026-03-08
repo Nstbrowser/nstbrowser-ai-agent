@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseCommand } from './protocol.js';
 
+// Helper to create command JSON string
 const cmd = (obj: object) => JSON.stringify(obj);
 
 describe('parseCommand', () => {
@@ -221,6 +222,7 @@ describe('parseCommand', () => {
     });
 
     it('should accept cookies_set with empty cookies array', () => {
+      // Empty array is technically valid (no-op)
       const result = parseCommand(cmd({ id: '1', action: 'cookies_set', cookies: [] }));
       expect(result.success).toBe(true);
     });
@@ -913,7 +915,7 @@ describe('parseCommand', () => {
             type: 'mousePressed',
             x: 100,
             y: 200,
-            modifiers: 6,
+            modifiers: 6, // Ctrl + Meta
           })
         );
         expect(result.success).toBe(true);
@@ -1031,7 +1033,7 @@ describe('parseCommand', () => {
             action: 'input_keyboard',
             type: 'keyDown',
             key: 'c',
-            modifiers: 2,
+            modifiers: 2, // Ctrl
           })
         );
         expect(result.success).toBe(true);
@@ -1133,7 +1135,7 @@ describe('parseCommand', () => {
             action: 'input_touch',
             type: 'touchStart',
             touchPoints: [{ x: 100, y: 200 }],
-            modifiers: 8,
+            modifiers: 8, // Shift
           })
         );
         expect(result.success).toBe(true);
@@ -1177,7 +1179,7 @@ describe('parseCommand', () => {
 
     it('should parse addscript with url', () => {
       const result = parseCommand(
-        cmd({ id: '1', action: 'addscript', url: 'https://example.com' })
+        cmd({ id: '1', action: 'addscript', url: 'https://example.com/script.js' })
       );
       expect(result.success).toBe(true);
     });
@@ -1195,7 +1197,9 @@ describe('parseCommand', () => {
     });
 
     it('should parse addstyle with url', () => {
-      const result = parseCommand(cmd({ id: '1', action: 'addstyle', url: 'https://example.com' }));
+      const result = parseCommand(
+        cmd({ id: '1', action: 'addstyle', url: 'https://example.com/style.css' })
+      );
       expect(result.success).toBe(true);
     });
 
@@ -1292,17 +1296,12 @@ describe('parseCommand', () => {
 
     it('should parse diff_url with two URLs', () => {
       const result = parseCommand(
-        cmd({
-          id: '1',
-          action: 'diff_url',
-          url1: 'https://example.com',
-          url2: 'https://example.org',
-        })
+        cmd({ id: '1', action: 'diff_url', url1: 'https://a.com', url2: 'https://b.com' })
       );
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.command.url1).toBe('https://example.com');
-        expect(result.command.url2).toBe('https://example.org');
+        expect(result.command.url1).toBe('https://a.com');
+        expect(result.command.url2).toBe('https://b.com');
       }
     });
 
@@ -1311,7 +1310,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           screenshot: true,
           fullPage: true,
@@ -1329,7 +1328,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           waitUntil: 'networkidle',
         })
@@ -1341,16 +1340,12 @@ describe('parseCommand', () => {
     });
 
     it('should reject diff_url without url1', () => {
-      const result = parseCommand(
-        cmd({ id: '1', action: 'diff_url', url2: 'https://example.com' })
-      );
+      const result = parseCommand(cmd({ id: '1', action: 'diff_url', url2: 'https://b.com' }));
       expect(result.success).toBe(false);
     });
 
     it('should reject diff_url without url2', () => {
-      const result = parseCommand(
-        cmd({ id: '1', action: 'diff_url', url1: 'https://example.com' })
-      );
+      const result = parseCommand(cmd({ id: '1', action: 'diff_url', url1: 'https://a.com' }));
       expect(result.success).toBe(false);
     });
 
@@ -1359,7 +1354,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           waitUntil: 'invalid',
         })
@@ -1372,7 +1367,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           selector: '#main',
         })
@@ -1388,7 +1383,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           selector: '#content',
           compact: true,
@@ -1408,7 +1403,7 @@ describe('parseCommand', () => {
         cmd({
           id: '1',
           action: 'diff_url',
-          url1: 'https://example.com',
+          url1: 'https://a.com',
           url2: 'https://b.com',
           maxDepth: -1,
         })

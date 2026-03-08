@@ -35,7 +35,9 @@ describe('auth-vault', () => {
   afterEach(() => {
     try {
       fs.rmSync(tempHome, { recursive: true, force: true });
-    } catch {}
+    } catch {
+      // ignore cleanup errors
+    }
   });
 
   function cleanAuthDir() {
@@ -103,7 +105,7 @@ describe('auth-vault', () => {
     it('should save with custom selectors', () => {
       saveAuthProfile({
         name: 'myapp',
-        url: 'https://github.com/login',
+        url: 'https://example.com/login',
         username: 'user',
         password: 'pass',
         usernameSelector: '#email',
@@ -122,7 +124,7 @@ describe('auth-vault', () => {
       expect(() =>
         saveAuthProfile({
           name: '../escape',
-          url: 'https://github.com/login',
+          url: 'https://example.com',
           username: 'user',
           password: 'pass',
         })
@@ -138,7 +140,7 @@ describe('auth-vault', () => {
     it('should return full profile with password', () => {
       saveAuthProfile({
         name: 'test',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'secret',
       });
@@ -153,7 +155,7 @@ describe('auth-vault', () => {
     it('should return metadata without password', () => {
       saveAuthProfile({
         name: 'test',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'secret',
       });
@@ -186,7 +188,7 @@ describe('auth-vault', () => {
       });
       saveAuthProfile({
         name: 'gitlab',
-        url: 'https://github.com/login',
+        url: 'https://gitlab.com/login',
         username: 'user2',
         password: 'pass2',
       });
@@ -202,7 +204,7 @@ describe('auth-vault', () => {
     it('should delete an existing profile', () => {
       saveAuthProfile({
         name: 'test',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'pass',
       });
@@ -220,7 +222,7 @@ describe('auth-vault', () => {
     it('should update lastLoginAt timestamp', () => {
       saveAuthProfile({
         name: 'test',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'pass',
       });
@@ -241,7 +243,7 @@ describe('auth-vault', () => {
 
       saveAuthProfile({
         name: 'autokey',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'secret',
       });
@@ -263,7 +265,7 @@ describe('auth-vault', () => {
 
       saveAuthProfile({
         name: 'readback',
-        url: 'https://github.com/login',
+        url: 'https://example.com',
         username: 'user',
         password: 'secret123',
       });

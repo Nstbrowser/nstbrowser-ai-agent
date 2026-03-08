@@ -1,5 +1,6 @@
 mod color;
 mod commands;
+mod config;
 mod connection;
 mod flags;
 mod install;
@@ -29,6 +30,9 @@ use output::{
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
+/// Run a local auth command (auth_save/list/show/delete) via node auth-cli.js.
+/// These commands don't need a browser, so we handle them directly to avoid
+/// sending passwords through the daemon's Unix socket channel.
 fn run_auth_cli(cmd: &serde_json::Value, json_mode: bool) -> ! {
     let exe_path = env::current_exe().unwrap_or_default();
     let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
@@ -98,6 +102,7 @@ fn run_auth_cli(cmd: &serde_json::Value, json_mode: bool) -> ! {
             if json_mode {
                 println!("{}", stdout);
             } else {
+                // Parse the JSON response and use the standard output formatter
                 match serde_json::from_str::<connection::Response>(stdout) {
                     Ok(resp) => {
                         let action = cmd.get("action").and_then(|v| v.as_str());
@@ -132,8 +137,159 @@ fn run_auth_cli(cmd: &serde_json::Value, json_mode: bool) -> ! {
     }
 }
 
+/// Handle config commands locally without starting the daemon.
+/// These commands manage persistent configuration and don't need a browser.
+fn handle_config_command(cmd: &serde_json::Value, flags: &flags::Flags) -> ! {
+    use config::ConfigManager;
+
+    let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    match action {
+        "config_set" => {
+            let key = cmd.get("key").and_then(|v| v.as_str()).unwrap_or("");
+            let value = cmd.get("value").and_then(|v| v.as_str()).unwrap_or("");
+
+            match ConfigManager::set(key, value) {
+                Ok(_) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":true,"message":"Configuration updated successfully"}}"#
+                        );
+                    } else {
+                        println!(
+                            "{} Configuration updated successfully",
+                            color::success_indicator()
+                        );
+
+                        // Inform user about daemon restart if needed
+                        if config_affects_daemon(key) {
+                            eprintln!("{} Configuration will take effect on next command (daemon will restart)", color::info_indicator());
+                        }
+                    }
+                    exit(0);
+                }
+                Err(e) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":false,"error":"{}"}}"#,
+                            e.replace('"', "\\\"")
+                        );
+                    } else {
+                        eprintln!("{} {}", color::error_indicator(), e);
+                    }
+                    exit(1);
+                }
+            }
+        }
+        "config_get" => {
+            let key = cmd.get("key").and_then(|v| v.as_str()).unwrap_or("");
+
+            match ConfigManager::get(key) {
+                Ok(value) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":true,"value":"{}"}}"#,
+                            value.replace('"', "\\\"")
+                        );
+                    } else {
+                        println!("{}", value);
+                    }
+                    exit(0);
+                }
+                Err(e) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":false,"error":"{}"}}"#,
+                            e.replace('"', "\\\"")
+                        );
+                    } else {
+                        eprintln!("{} {}", color::error_indicator(), e);
+                    }
+                    exit(1);
+                }
+            }
+        }
+        "config_show" => {
+            match ConfigManager::show() {
+                Ok(output) => {
+                    if flags.json {
+                        // Parse the output and format as JSON
+                        println!(
+                            r#"{{"success":true,"config":"{}"}}"#,
+                            output.replace('"', "\\\"").replace('\n', "\\n")
+                        );
+                    } else {
+                        println!("{}", output);
+                    }
+                    exit(0);
+                }
+                Err(e) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":false,"error":"{}"}}"#,
+                            e.replace('"', "\\\"")
+                        );
+                    } else {
+                        eprintln!("{} {}", color::error_indicator(), e);
+                    }
+                    exit(1);
+                }
+            }
+        }
+        "config_unset" => {
+            let key = cmd.get("key").and_then(|v| v.as_str()).unwrap_or("");
+
+            match ConfigManager::unset(key) {
+                Ok(_) => {
+                    if flags.json {
+                        println!(r#"{{"success":true,"message":"Configuration cleared"}}"#);
+                    } else {
+                        println!("{} Configuration cleared", color::success_indicator());
+
+                        // Inform user about daemon restart if needed
+                        if config_affects_daemon(key) {
+                            eprintln!("{} Configuration will take effect on next command (daemon will restart)", color::info_indicator());
+                        }
+                    }
+                    exit(0);
+                }
+                Err(e) => {
+                    if flags.json {
+                        println!(
+                            r#"{{"success":false,"error":"{}"}}"#,
+                            e.replace('"', "\\\"")
+                        );
+                    } else {
+                        eprintln!("{} {}", color::error_indicator(), e);
+                    }
+                    exit(1);
+                }
+            }
+        }
+        _ => {
+            if flags.json {
+                println!(
+                    r#"{{"success":false,"error":"Unknown config action: {}"}}"#,
+                    action
+                );
+            } else {
+                eprintln!(
+                    "{} Unknown config action: {}",
+                    color::error_indicator(),
+                    action
+                );
+            }
+            exit(1);
+        }
+    }
+}
+
+/// Check if a config key affects the daemon
+fn config_affects_daemon(key: &str) -> bool {
+    matches!(key, "key" | "host" | "port")
+}
+
 fn parse_proxy(proxy_str: &str) -> serde_json::Value {
-    let Some(protocol_end) = proxy_str.find(":
+    let Some(protocol_end) = proxy_str.find("://") else {
         return json!({ "server": proxy_str });
     };
     let protocol = &proxy_str[..protocol_end + 3];
@@ -173,9 +329,11 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
             if let Ok(entries) = fs::read_dir(&socket_dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
+                    // Look for pid files in socket directory
                     if name.ends_with(".pid") {
                         let session_name = name.strip_suffix(".pid").unwrap_or("");
                         if !session_name.is_empty() {
+                            // Check if session is actually running
                             let pid_path = socket_dir.join(&name);
                             if let Ok(pid_str) = fs::read_to_string(&pid_path) {
                                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
@@ -217,7 +375,7 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
                 println!("Active sessions:");
                 for s in &sessions {
                     let marker = if s == session {
-                        color::cyan("->")
+                        color::cyan("→")
                     } else {
                         " ".to_string()
                     };
@@ -226,6 +384,7 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
             }
         }
         None | Some(_) => {
+            // Just show current session
             if json_mode {
                 println!(r#"{{"success":true,"data":{{"session":"{}"}}}}"#, session);
             } else {
@@ -236,19 +395,24 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
 }
 
 fn main() {
+    // Ignore SIGPIPE to prevent panic when piping to head/tail
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
+    // Prevent MSYS/Git Bash path translation from mangling arguments
     #[cfg(windows)]
     {
         env::set_var("MSYS_NO_PATHCONV", "1");
         env::set_var("MSYS2_ARG_CONV_EXCL", "*");
     }
 
+    // Load environment variables from .env files before processing arguments
+    // This allows .env files to set NST_API_KEY and other configuration
     flags::load_env_files();
 
+    // Native daemon mode: when NSTBROWSER_AI_AGENT_DAEMON is set, run as the daemon process
     if env::var("NSTBROWSER_AI_AGENT_DAEMON").is_ok() {
         let session =
             env::var("NSTBROWSER_AI_AGENT_SESSION").unwrap_or_else(|_| "default".to_string());
@@ -284,12 +448,14 @@ fn main() {
         return;
     }
 
+    // Handle install separately
     if clean.first().map(|s| s.as_str()) == Some("install") {
         let with_deps = args.iter().any(|a| a == "--with-deps" || a == "-d");
         run_install(with_deps);
         return;
     }
 
+    // Handle session separately (doesn't need daemon)
     if clean.first().map(|s| s.as_str()) == Some("session") {
         run_session(&clean, &flags.session, flags.json);
         return;
@@ -318,6 +484,7 @@ fn main() {
         }
     };
 
+    // Handle --password-stdin for auth save
     if cmd.get("action").and_then(|v| v.as_str()) == Some("auth_save") {
         if cmd.get("password").is_some() {
             eprintln!(
@@ -348,6 +515,8 @@ fn main() {
         }
     }
 
+    // Handle local auth commands without starting the daemon.
+    // These don't need a browser, so we avoid sending passwords through the socket.
     if let Some(action) = cmd.get("action").and_then(|v| v.as_str()) {
         if matches!(
             action,
@@ -355,8 +524,17 @@ fn main() {
         ) {
             run_auth_cli(&cmd, flags.json);
         }
+
+        // Handle config commands without starting the daemon
+        if matches!(
+            action,
+            "config_set" | "config_get" | "config_show" | "config_unset"
+        ) {
+            handle_config_command(&cmd, &flags);
+        }
     }
 
+    // Validate session name before starting daemon
     if let Some(ref name) = flags.session_name {
         if !validation::is_valid_session_name(name) {
             let msg = validation::session_name_error(name);
@@ -385,7 +563,6 @@ fn main() {
         profile: flags.profile.as_deref(),
         state: flags.state.as_deref(),
         provider: flags.provider.as_deref(),
-        device: flags.device.as_deref(),
         session_name: flags.session_name.as_deref(),
         download_path: flags.download_path.as_deref(),
         allowed_domains: flags.allowed_domains.as_deref(),
@@ -405,6 +582,9 @@ fn main() {
         }
     };
 
+    // Warn if launch-time options were explicitly passed via CLI but daemon was already running
+    // Only warn about flags that were passed on the command line, not those set via environment
+    // variables (since the daemon already uses the env vars when it starts).
     if daemon_result.already_running {
         let ignored_flags: Vec<&str> = [
             if flags.cli_executable_path {
@@ -461,6 +641,7 @@ fn main() {
         }
     }
 
+    // Validate mutually exclusive options
     if flags.cdp.is_some() && flags.provider.is_some() {
         let msg = "Cannot use --cdp and -p/--provider together";
         if flags.json {
@@ -511,6 +692,7 @@ fn main() {
         exit(1);
     }
 
+    // Auto-connect to existing browser
     if flags.auto_connect {
         let mut launch_cmd = json!({
             "id": gen_id(),
@@ -549,18 +731,22 @@ fn main() {
         }
     }
 
+    // Connect via CDP if --cdp flag is set
+    // Accepts either a port number (e.g., "9222") or a full URL (e.g., "ws://..." or "wss://...")
     if let Some(ref cdp_value) = flags.cdp {
         let mut launch_cmd = if cdp_value.starts_with("ws://")
             || cdp_value.starts_with("wss://")
             || cdp_value.starts_with("http://")
             || cdp_value.starts_with("https://")
         {
+            // It's a URL - use cdpUrl field
             json!({
                 "id": gen_id(),
                 "action": "launch",
                 "cdpUrl": cdp_value
             })
         } else {
+            // It's a port number - validate and use cdpPort field
             let cdp_port: u16 = match cdp_value.parse::<u32>() {
                 Ok(0) => {
                     let msg = "Invalid CDP port: port must be greater than 0".to_string();
@@ -635,6 +821,8 @@ fn main() {
         }
     }
 
+    // Launch with cloud provider if -p flag is set
+    // Skip launch for NST API-only commands (they don't need a browser)
     let is_nst_api_command = cmd
         .get("action")
         .and_then(|v| v.as_str())
@@ -642,17 +830,47 @@ fn main() {
         .unwrap_or(false);
 
     if let Some(ref provider) = flags.provider {
+        // Validate Nstbrowser configuration if using nst provider
         if provider == "nst" {
             if let Err(err_msg) = validate_nst_config() {
                 if flags.json {
                     println!(r#"{{"success":false,"error":"{}"}}"#, err_msg);
                 } else {
-                    output::show_nst_not_configured_error(&err_msg);
+                    // Use context-aware error message
+                    if is_nst_api_command {
+                        // For NST-specific commands (profile, browser), show NST-only error
+                        let action = cmd
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("command");
+                        // Extract user-friendly command name (e.g., "nst_profile_show" -> "profile show")
+                        let command_name = if action.starts_with("nst_profile_") {
+                            format!(
+                                "profile {}",
+                                action.strip_prefix("nst_profile_").unwrap_or("")
+                            )
+                        } else if action.starts_with("nst_browser_") {
+                            format!(
+                                "browser {}",
+                                action.strip_prefix("nst_browser_").unwrap_or("")
+                            )
+                        } else {
+                            action.to_string()
+                        };
+                        output::show_nst_not_configured_error_for_nst_command(
+                            &err_msg,
+                            &command_name,
+                        );
+                    } else {
+                        // For general commands, show error with local mode alternative
+                        output::show_nst_not_configured_error_with_local_alternative(&err_msg);
+                    }
                 }
                 exit(1);
             }
         }
 
+        // Skip launch for NST API commands - they only need API access, not a browser
         if !is_nst_api_command {
             let mut launch_cmd = json!({
                 "id": gen_id(),
@@ -664,6 +882,7 @@ fn main() {
                 launch_cmd["colorScheme"] = json!(cs);
             }
 
+            // Add Nstbrowser profile connection options
             if let Some(ref profile_name) = flags.nst_profile {
                 launch_cmd["nstProfileName"] = json!(profile_name);
             }
@@ -703,6 +922,7 @@ fn main() {
         }
     }
 
+    // Launch headed browser or configure browser options (without CDP or provider)
     if (flags.headed
         || flags.executable_path.is_some()
         || flags.profile.is_some()
@@ -726,20 +946,24 @@ fn main() {
             .as_object_mut()
             .expect("json! macro guarantees object type");
 
+        // Add executable path if specified
         if let Some(ref exec_path) = flags.executable_path {
             cmd_obj.insert("executablePath".to_string(), json!(exec_path));
         }
 
+        // Add profile path if specified
         if let Some(ref profile_path) = flags.profile {
             cmd_obj.insert("profile".to_string(), json!(profile_path));
         }
 
+        // Add state path if specified
         if let Some(ref state_path) = flags.state {
             cmd_obj.insert("storageState".to_string(), json!(state_path));
         }
 
         if let Some(ref proxy_str) = flags.proxy {
             let mut proxy_obj = parse_proxy(proxy_str);
+            // Add bypass if specified
             if let Some(ref bypass) = flags.proxy_bypass {
                 if let Some(obj) = proxy_obj.as_object_mut() {
                     obj.insert("bypass".to_string(), json!(bypass));
@@ -753,6 +977,7 @@ fn main() {
         }
 
         if let Some(ref a) = flags.args {
+            // Parse args (comma or newline separated)
             let args_vec: Vec<String> = a
                 .split(&[',', '\n'][..])
                 .map(|s| s.trim().to_string())
@@ -783,6 +1008,7 @@ fn main() {
 
         match send_command(launch_cmd, &flags.session) {
             Ok(resp) if !resp.success => {
+                // Launch command failed (e.g., invalid state file, profile error)
                 let error_msg = resp
                     .error
                     .unwrap_or_else(|| "Browser launch failed".to_string());
@@ -806,6 +1032,7 @@ fn main() {
                 exit(1);
             }
             Ok(_) => {
+                // Launch succeeded
             }
         }
     }
@@ -816,10 +1043,13 @@ fn main() {
         max_output: flags.max_output,
     };
 
+    // Enrich command with NST profile context if using NST provider
     if flags.provider.as_deref() == Some("nst") {
         let action = cmd.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        
+
+        // Only enrich browser commands (not NST management commands)
         if nst_profile::is_browser_action(action) {
+            // Resolve profile from flags or environment
             if let Some((profile_id, profile_name)) = nst_profile::resolve_nst_profile(
                 flags.nst_profile.as_deref(),
                 flags.nst_profile_id.as_deref(),
@@ -829,10 +1059,12 @@ fn main() {
                     profile_id.as_deref(),
                     profile_name.as_deref(),
                 );
-                
+
                 if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
-                    eprintln!("[CLI DEBUG] Enriched command with profile: id={:?}, name={:?}", 
-                        profile_id, profile_name);
+                    eprintln!(
+                        "[CLI DEBUG] Enriched command with profile: id={:?}, name={:?}",
+                        profile_id, profile_name
+                    );
                 }
             }
         }
@@ -848,6 +1080,7 @@ fn main() {
                 );
             }
             let success = resp.success;
+            // Handle interactive confirmation
             if flags.confirm_interactive {
                 if let Some(data) = &resp.data {
                     if data
@@ -900,6 +1133,7 @@ fn main() {
                     }
                 }
             }
+            // Extract action for context-specific output handling
             let action = cmd.get("action").and_then(|v| v.as_str());
             print_response_with_opts(&resp, action, &output_opts);
             if !success {
@@ -923,24 +1157,24 @@ mod tests {
 
     #[test]
     fn test_parse_proxy_simple() {
-        let result = parse_proxy("http:
-        assert_eq!(result["server"], "http:
+        let result = parse_proxy("http://proxy.com:8080");
+        assert_eq!(result["server"], "http://proxy.com:8080");
         assert!(result.get("username").is_none());
         assert!(result.get("password").is_none());
     }
 
     #[test]
     fn test_parse_proxy_with_auth() {
-        let result = parse_proxy("http:
-        assert_eq!(result["server"], "http:
+        let result = parse_proxy("http://user:pass@proxy.com:8080");
+        assert_eq!(result["server"], "http://proxy.com:8080");
         assert_eq!(result["username"], "user");
         assert_eq!(result["password"], "pass");
     }
 
     #[test]
     fn test_parse_proxy_username_only() {
-        let result = parse_proxy("http:
-        assert_eq!(result["server"], "http:
+        let result = parse_proxy("http://user@proxy.com:8080");
+        assert_eq!(result["server"], "http://proxy.com:8080");
         assert_eq!(result["username"], "user");
         assert_eq!(result["password"], "");
     }
@@ -954,23 +1188,23 @@ mod tests {
 
     #[test]
     fn test_parse_proxy_socks5() {
-        let result = parse_proxy("socks5:
-        assert_eq!(result["server"], "socks5:
+        let result = parse_proxy("socks5://proxy.com:1080");
+        assert_eq!(result["server"], "socks5://proxy.com:1080");
         assert!(result.get("username").is_none());
     }
 
     #[test]
     fn test_parse_proxy_socks5_with_auth() {
-        let result = parse_proxy("socks5:
-        assert_eq!(result["server"], "socks5:
+        let result = parse_proxy("socks5://admin:secret@proxy.com:1080");
+        assert_eq!(result["server"], "socks5://proxy.com:1080");
         assert_eq!(result["username"], "admin");
         assert_eq!(result["password"], "secret");
     }
 
     #[test]
     fn test_parse_proxy_complex_password() {
-        let result = parse_proxy("http:
-        assert_eq!(result["server"], "http:
+        let result = parse_proxy("http://user:p@ss:w0rd@proxy.com:8080");
+        assert_eq!(result["server"], "http://proxy.com:8080");
         assert_eq!(result["username"], "user");
         assert_eq!(result["password"], "p@ss:w0rd");
     }

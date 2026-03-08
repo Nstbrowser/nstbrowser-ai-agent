@@ -162,6 +162,7 @@ impl DaemonState {
         loop {
             match rx.try_recv() {
                 Ok(event) => {
+                    // Target events are not session-scoped; handle them first
                     match event.method.as_str() {
                         "Target.targetCreated" => {
                             if let Ok(te) =
@@ -393,6 +394,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         .unwrap_or("")
         .to_string();
 
+    // Drain pending CDP events (console, errors, screencast frames, target lifecycle, fetch)
     let (pending_acks, new_targets, destroyed_targets, fetch_paused) = state.drain_cdp_events();
     if !pending_acks.is_empty() {
         if let Some(ref browser) = state.browser {
@@ -427,6 +429,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             if let Ok(attach) = attach_result {
                 let _ = mgr.enable_domains_pub(&attach.session_id).await;
 
+                // Install domain filter on new pages
                 if let Some(ref filter) = state.domain_filter {
                     let _ = network::install_domain_filter(
                         &mgr.client,
@@ -446,6 +449,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         }
     }
 
+    // Handle Fetch.requestPaused events (route interception + domain filter)
     for paused in &fetch_paused {
         if let Some(ref browser) = state.browser {
             resolve_fetch_paused(browser, state.domain_filter.as_ref(), &state.routes, paused)
@@ -453,6 +457,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         }
     }
 
+    // Hot-reload and check action policy
     if let Some(ref mut policy) = state.policy {
         let _ = policy.reload();
         match policy.check(action) {
@@ -477,6 +482,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         }
     }
 
+    // Check NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS (category-based, independent of policy file)
     if action != "confirm" && action != "deny" {
         if let Some(ref ca) = state.confirm_actions {
             if ca.requires_confirmation(action) {
@@ -517,6 +523,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "device_list"
     );
     if !skip_launch {
+        // Check if existing connection is stale and needs re-launch
         let needs_launch = if let Some(ref mgr) = state.browser {
             !mgr.is_connection_alive().await
         } else {
@@ -542,6 +549,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         }
     }
 
+    // WebDriver backend: reject unsupported CDP-only actions
     if matches!(state.backend_type, BackendType::WebDriver) {
         if WEBDRIVER_UNSUPPORTED_ACTIONS.contains(&action) {
             return error_response(
@@ -704,6 +712,22 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "mousemove" => handle_mousemove(cmd, state).await,
         "mousedown" => handle_mousedown(cmd, state).await,
         "mouseup" => handle_mouseup(cmd, state).await,
+        // NSTBrowser commands (not yet implemented in native daemon)
+        "nst_browser_start_batch" => {
+            Err("Not yet implemented: nst_browser_start_batch".to_string())
+        }
+        "nst_browser_start_once" => Err("Not yet implemented: nst_browser_start_once".to_string()),
+        "nst_profile_list_cursor" => {
+            Err("Not yet implemented: nst_profile_list_cursor".to_string())
+        }
+        "nst_browser_connect" => Err("Not yet implemented: nst_browser_connect".to_string()),
+        "nst_browser_connect_once" => {
+            Err("Not yet implemented: nst_browser_connect_once".to_string())
+        }
+        "nst_browser_cdp_url" => Err("Not yet implemented: nst_browser_cdp_url".to_string()),
+        "nst_browser_cdp_url_once" => {
+            Err("Not yet implemented: nst_browser_cdp_url_once".to_string())
+        }
         _ => Err(format!("Not yet implemented: {}", action)),
     };
 
@@ -714,6 +738,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-launch
 // ---------------------------------------------------------------------------
 
 async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
@@ -811,6 +836,7 @@ async fn try_auto_restore_state(state: &mut DaemonState) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 1 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -825,6 +851,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    // Relaunch logic: check if we can reuse the existing connection
     let needs_relaunch = if let Some(ref mgr) = state.browser {
         let has_cdp_arg = cdp_url.is_some() || cdp_port.is_some();
         let was_cdp = mgr.is_cdp_connection();
@@ -1012,18 +1039,23 @@ async fn launch_ios(cmd: &Value, state: &mut DaemonState) -> Result<Value, Strin
     let device_udid = cmd.get("udid").and_then(|v| v.as_str());
     let platform_version = cmd.get("platformVersion").and_then(|v| v.as_str());
 
+    // Select device (or use default)
     let device = ios::select_device(device_name, device_udid)?;
 
+    // Boot simulator if it's not real and not already booted
     if !device.is_real && device.state != "Booted" {
         ios::boot_simulator(&device.udid)?;
     }
 
+    // Start Appium
     let mut appium = AppiumManager::connect_or_launch(Some(&device.udid)).await?;
 
+    // Create iOS Safari session
     appium
         .create_ios_session(Some(&device.name), platform_version)
         .await?;
 
+    // Create a WebDriverBackend from the Appium session for common commands
     if let Some(sid) = appium.client.session_id_pub().map(String::from) {
         let wd_client = super::webdriver::client::WebDriverClient::new_with_session(4723, sid);
         state.webdriver_backend = Some(WebDriverBackend::new(wd_client));
@@ -1049,9 +1081,11 @@ async fn launch_safari(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .unwrap_or(0);
     let driver_port = if port > 0 { port } else { 0 };
 
+    // Find a free port if none specified
     let actual_port = if driver_port > 0 {
         driver_port
     } else {
+        // Use any available high port
         let listener = std::net::TcpListener::bind("127.0.0.1:0")
             .map_err(|e| format!("Failed to find free port: {}", e))?;
         listener
@@ -1091,6 +1125,7 @@ async fn handle_navigate(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         filter.check_url(url)?;
     }
 
+    // WebDriver backend path
     if let Some(ref wb) = state.webdriver_backend {
         if state.browser.is_none() {
             state.ref_map.clear();
@@ -1217,6 +1252,7 @@ async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
     }
     state.browser = None;
 
+    // Close WebDriver sessions
     if let Some(ref mut wb) = state.webdriver_backend {
         let _ = wb.close().await;
     }
@@ -1236,6 +1272,7 @@ async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -1562,6 +1599,7 @@ async fn handle_wait(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
         return Ok(json!({ "waited": "load", "state": load_state }));
     }
 
+    // Just a timeout wait
     tokio::time::sleep(tokio::time::Duration::from_millis(timeout_ms)).await;
     Ok(json!({ "waited": "timeout", "ms": timeout_ms }))
 }
@@ -1720,6 +1758,7 @@ async fn handle_reload(state: &mut DaemonState) -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Wait helpers
 // ---------------------------------------------------------------------------
 
 async fn wait_for_selector(
@@ -1838,6 +1877,7 @@ async fn poll_until_true(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_cookies_get(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -2034,6 +2074,7 @@ async fn handle_state_rename(cmd: &Value) -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 6 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_diff_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -2100,12 +2141,14 @@ async fn handle_diff_url(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         .map(WaitUntil::from_str)
         .unwrap_or(WaitUntil::Load);
 
+    // Navigate to URL1 and snapshot
     mgr.navigate(url1, wait_until).await?;
     let session_id = mgr.active_session_id()?.to_string();
     let options = SnapshotOptions::default();
     let snap1 =
         snapshot::take_snapshot(&mgr.client, &session_id, &options, &mut state.ref_map).await?;
 
+    // Navigate to URL2 and snapshot
     mgr.navigate(url2, wait_until).await?;
     state.ref_map.clear();
     let snap2 =
@@ -2227,6 +2270,7 @@ async fn handle_keyboard(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_tab_list(state: &DaemonState) -> Result<Value, String> {
@@ -2311,6 +2355,7 @@ async fn handle_download(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_trace_start(state: &mut DaemonState) -> Result<Value, String> {
@@ -2364,6 +2409,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
     let old_session_id = mgr.active_session_id()?.to_string();
 
+    // Capture current URL if no URL specified
     let nav_url = if let Some(u) = recording_url {
         u.to_string()
     } else {
@@ -2372,12 +2418,14 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
             .unwrap_or_else(|_| "about:blank".to_string())
     };
 
+    // Capture current cookies
     let cookies_result = mgr
         .client
         .send_command_no_params("Network.getAllCookies", Some(&old_session_id))
         .await
         .ok();
 
+    // Create new browser context
     let ctx_result = mgr
         .client
         .send_command_no_params("Target.createBrowserContext", None)
@@ -2388,6 +2436,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         .ok_or("Failed to get browserContextId")?
         .to_string();
 
+    // Create page in new context
     let create_result: CreateTargetResult = mgr
         .client
         .send_command_typed(
@@ -2412,6 +2461,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
     let new_session_id = attach_result.session_id.clone();
     mgr.enable_domains_pub(&new_session_id).await?;
 
+    // Transfer cookies to new context
     if let Some(ref cr) = cookies_result {
         if let Some(cookie_arr) = cr.get("cookies").and_then(|v| v.as_array()) {
             if !cookie_arr.is_empty() {
@@ -2427,6 +2477,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         }
     }
 
+    // Add page and switch to it
     mgr.add_page(super::browser::PageInfo {
         target_id: create_result.target_id,
         session_id: new_session_id.clone(),
@@ -2434,6 +2485,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         title: String::new(),
     });
 
+    // Navigate to URL
     if nav_url != "about:blank" {
         let _ = mgr
             .client
@@ -2448,6 +2500,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
 
     let result = recording::recording_start(&mut state.recording_state, path)?;
 
+    // Start screencast on new page
     stream::start_screencast(&mgr.client, &new_session_id, "jpeg", 80, 1280, 720).await?;
     state.screencasting = true;
 
@@ -2455,6 +2508,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
 }
 
 async fn handle_recording_stop(state: &mut DaemonState) -> Result<Value, String> {
+    // Stop screencast
     if state.screencasting {
         if let Some(ref browser) = state.browser {
             if let Ok(session_id) = browser.active_session_id() {
@@ -2464,6 +2518,7 @@ async fn handle_recording_stop(state: &mut DaemonState) -> Result<Value, String>
         state.screencasting = false;
     }
 
+    // Drain remaining frames before stopping
     let (ack_ids, _, _, _) = state.drain_cdp_events();
     if !ack_ids.is_empty() {
         if let Some(ref browser) = state.browser {
@@ -2485,6 +2540,7 @@ async fn handle_recording_restart(cmd: &Value, state: &mut DaemonState) -> Resul
         .and_then(|v| v.as_str())
         .ok_or("Missing 'path' parameter")?;
 
+    // Stop screencast, restart recording, start screencast again
     if state.screencasting {
         if let Some(ref browser) = state.browser {
             if let Ok(session_id) = browser.active_session_id() {
@@ -2553,6 +2609,7 @@ async fn handle_pdf(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 8 handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_focus(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -2644,6 +2701,7 @@ async fn handle_highlight(cmd: &Value, state: &mut DaemonState) -> Result<Value,
 async fn handle_tap(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let selector = cmd.get("selector").and_then(|v| v.as_str());
 
+    // Route through Appium for iOS/WebDriver using coordinate-based tap
     if let Some(ref appium) = state.appium {
         if state.browser.is_none() {
             let x = cmd.get("x").and_then(|v| v.as_f64()).unwrap_or(200.0);
@@ -3049,6 +3107,7 @@ async fn handle_device(cmd: &Value, state: &DaemonState) -> Result<Value, String
 }
 
 // ---------------------------------------------------------------------------
+// Screencast handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_screencast_start(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -3093,6 +3152,7 @@ async fn handle_screencast_stop(state: &mut DaemonState) -> Result<Value, String
 }
 
 // ---------------------------------------------------------------------------
+// Wait variant handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_waitforurl(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -3154,6 +3214,7 @@ async fn handle_waitforfunction(cmd: &Value, state: &DaemonState) -> Result<Valu
 }
 
 // ---------------------------------------------------------------------------
+// Frame handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_frame(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -3207,6 +3268,7 @@ async fn handle_frame(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
 
     let frame_tree = &tree_result["frameTree"];
 
+    // If selector, resolve via JS to find the iframe's contentWindow
     if let Some(sel) = selector {
         let js = format!(
             r#"(() => {{
@@ -3242,6 +3304,7 @@ async fn handle_mainframe(state: &mut DaemonState) -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Semantic locator handlers
 // ---------------------------------------------------------------------------
 
 async fn execute_subaction(
@@ -3447,6 +3510,7 @@ async fn handle_getbyrole(cmd: &Value, state: &mut DaemonState) -> Result<Value,
     let selector = "[data-nstbrowser-ai-agent-located='true']";
     let result = execute_subaction(cmd, state, selector).await;
 
+    // Clean up the marker attribute
     if let Some(ref browser) = state.browser {
         if let Ok(sid) = browser.active_session_id() {
             let _ = browser
@@ -3533,6 +3597,7 @@ async fn handle_semantic_locator(
             val = serde_json::to_string(value).unwrap_or_default(),
         ),
         _ => {
+            // "text" strategy
             format!(
                 r#"(() => {{
                     const all = document.querySelectorAll('*');
@@ -3727,6 +3792,7 @@ async fn handle_evalhandle(cmd: &Value, state: &DaemonState) -> Result<Value, St
 }
 
 // ---------------------------------------------------------------------------
+// Advanced interaction handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -3748,6 +3814,7 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
         super::element::resolve_element_center(&mgr.client, &session_id, &state.ref_map, target)
             .await?;
 
+    // Mouse down at source
     mgr.client
         .send_command(
             "Input.dispatchMouseEvent",
@@ -3763,6 +3830,7 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
         )
         .await?;
 
+    // Move in steps to target
     let steps = 10;
     for i in 1..=steps {
         let cx = sx + (tx - sx) * (i as f64) / (steps as f64);
@@ -3777,6 +3845,7 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
+    // Mouse up at target
     mgr.client
         .send_command(
             "Input.dispatchMouseEvent",
@@ -3967,6 +4036,7 @@ async fn handle_waitfordownload(cmd: &Value, state: &DaemonState) -> Result<Valu
 async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
 
+    // Create a new browser context
     let context_result = mgr
         .client
         .send_command_no_params("Target.createBrowserContext", None)
@@ -4076,6 +4146,7 @@ async fn handle_diff_screenshot(cmd: &Value, state: &DaemonState) -> Result<Valu
 }
 
 // ---------------------------------------------------------------------------
+// Video and HAR handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_video_start(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -4187,6 +4258,7 @@ async fn handle_har_stop(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
 }
 
 // ---------------------------------------------------------------------------
+// Fetch interception resolver (routes + domain filter)
 // ---------------------------------------------------------------------------
 
 async fn resolve_fetch_paused(
@@ -4197,6 +4269,7 @@ async fn resolve_fetch_paused(
 ) {
     let session_id = &paused.session_id;
 
+    // Domain filter check (takes priority over routes)
     if let Some(filter) = domain_filter {
         if let Ok(parsed) = url::Url::parse(&paused.url) {
             let scheme = parsed.scheme();
@@ -4271,6 +4344,7 @@ async fn resolve_fetch_paused(
         }
     }
 
+    // Route matching
     for route in routes {
         let matches = if route.url_pattern == "*" {
             true
@@ -4336,6 +4410,7 @@ async fn resolve_fetch_paused(
         }
     }
 
+    // No matching route -- continue the request
     let _ = browser
         .client
         .send_command(
@@ -4347,6 +4422,7 @@ async fn resolve_fetch_paused(
 }
 
 // ---------------------------------------------------------------------------
+// Route handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_route(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -4386,6 +4462,9 @@ async fn handle_route(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         abort,
     });
 
+    // Re-enable Fetch with all route patterns combined.
+    // When domain filtering is active, include a wildcard so all requests
+    // continue to be intercepted for domain checks.
     let mut patterns: Vec<Value> = state
         .routes
         .iter()
@@ -4423,6 +4502,7 @@ async fn handle_unroute(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
 
     if state.routes.is_empty() {
         if state.domain_filter.is_some() {
+            // Domain filtering still needs Fetch interception; reset to wildcard
             mgr.client
                 .send_command(
                     "Fetch.enable",
@@ -4511,6 +4591,7 @@ async fn handle_http_credentials(cmd: &Value, state: &DaemonState) -> Result<Val
 }
 
 // ---------------------------------------------------------------------------
+// Auth handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_auth_save(cmd: &Value) -> Result<Value, String> {
@@ -4591,6 +4672,7 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
         .map(String::from)
         .or(cred.submit_selector);
 
+    // Find and fill username
     let user_sel = if let Some(s) = username_sel {
         s
     } else {
@@ -4618,6 +4700,7 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
     )
     .await?;
 
+    // Find and fill password
     let pass_sel = password_sel.unwrap_or_else(|| "input[type=password]".to_string());
     interaction::fill(
         &mgr.client,
@@ -4628,6 +4711,7 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
     )
     .await?;
 
+    // Find and click submit
     let sub_sel = if let Some(s) = submit_sel {
         s
     } else {
@@ -4656,6 +4740,7 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
     )
     .await?;
 
+    // Wait for navigation after submit (with fallback timeout)
     let mut rx = mgr.client.subscribe();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
     let mut navigated = false;
@@ -4687,6 +4772,7 @@ async fn handle_auth_login(cmd: &Value, state: &mut DaemonState) -> Result<Value
 }
 
 // ---------------------------------------------------------------------------
+// Confirmation handlers (stub)
 // ---------------------------------------------------------------------------
 
 async fn handle_confirm(_cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -4695,6 +4781,7 @@ async fn handle_confirm(_cmd: &Value, state: &mut DaemonState) -> Result<Value, 
         .take()
         .ok_or("No pending confirmation")?;
 
+    // Temporarily remove policy and confirm_actions to avoid re-triggering confirmation
     let policy = state.policy.take();
     let confirm_actions = state.confirm_actions.take();
     let result = Box::pin(execute_command(&pending.cmd, state)).await;
@@ -4714,9 +4801,11 @@ async fn handle_deny(_cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
 }
 
 // ---------------------------------------------------------------------------
+// iOS handlers (stub)
 // ---------------------------------------------------------------------------
 
 async fn handle_swipe(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    // Route through Appium for iOS/WebDriver
     if let Some(ref appium) = state.appium {
         if state.browser.is_none() {
             let start_x = cmd.get("startX").and_then(|v| v.as_f64()).unwrap_or(200.0);
@@ -4809,6 +4898,7 @@ async fn handle_swipe(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         return Ok(json!({ "swiped": direction }));
     }
 
+    // Manual coordinates
     mgr.client
         .send_command(
             "Input.dispatchTouchEvent",
@@ -4857,6 +4947,7 @@ async fn handle_device_list() -> Result<Value, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Input event handlers
 // ---------------------------------------------------------------------------
 
 async fn handle_input_mouse(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -5028,6 +5119,7 @@ async fn handle_mouseup(cmd: &Value, state: &DaemonState) -> Result<Value, Strin
 }
 
 // ---------------------------------------------------------------------------
+// Response helpers
 // ---------------------------------------------------------------------------
 
 fn success_response(id: &str, data: Value) -> Value {
@@ -5052,11 +5144,11 @@ mod tests {
 
     #[test]
     fn test_success_response_structure() {
-        let resp = success_response("cmd-1", json!({"url": "https:
+        let resp = success_response("cmd-1", json!({"url": "https://example.com"}));
         assert_eq!(resp["id"], "cmd-1");
         assert_eq!(resp["success"], true);
         assert!(resp["data"].is_object());
-        assert_eq!(resp["data"]["url"], "https:
+        assert_eq!(resp["data"]["url"], "https://example.com");
     }
 
     #[test]
@@ -5104,6 +5196,7 @@ mod tests {
         let mut state = DaemonState::new();
         let cmd = json!({ "id": "test-2" });
         let result = execute_command(&cmd, &mut state).await;
+        // Empty action triggers auto-launch which will fail without a browser
         assert_eq!(result["success"], false);
     }
 
@@ -5122,10 +5215,12 @@ mod tests {
         state.domain_filter = Some(DomainFilter::new("example.com"));
         let cmd = json!({
             "action": "navigate",
-            "url": "https:
+            "url": "https://blocked.com",
             "id": "test-4"
         });
         let result = execute_command(&cmd, &mut state).await;
+        // Will fail because auto-launch fails, but the domain filter won't block since
+        // auto-launch happens first
         assert_eq!(result["success"], false);
     }
 

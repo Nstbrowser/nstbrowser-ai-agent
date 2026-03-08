@@ -4,6 +4,7 @@
  * This provides 1:1 command parity with BrowserManager for iOS Safari.
  */
 
+// Declare browser globals used in execute() callbacks - these run in browser context, not Node
 declare const document: any;
 declare const window: any;
 
@@ -11,9 +12,10 @@ import { Simctl } from 'node-simctl';
 import { remote, type Browser as WDIOBrowser } from 'webdriverio';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import path from 'node:path';
+import os from 'node:os';
 
+// Ref map for element targeting (mirrors snapshot.ts)
 export interface IOSRefMap {
   [ref: string]: {
     selector: string;
@@ -57,6 +59,7 @@ export class IOSManager {
   private lastSnapshot: string = '';
   private refCounter: number = 0;
 
+  // Default Appium port
   private static readonly APPIUM_PORT = 4723;
   private static readonly APPIUM_HOST = '127.0.0.1';
 
@@ -78,12 +81,17 @@ export class IOSManager {
     const devices: IOSDeviceInfo[] = [];
 
     try {
+      // Use xcrun xctrace to list connected devices
       const { execSync } = await import('node:child_process');
       const output = execSync('xcrun xctrace list devices 2>/dev/null || true', {
         encoding: 'utf-8',
         timeout: 10000,
       });
 
+      // Parse output - format is:
+      // == Devices ==
+      // Device Name (OS Version) (UDID)
+      // Real devices show version as just "26.2", simulators as "iOS 18.0"
       const lines = output.split('\n');
       let inDevicesSection = false;
 
@@ -92,15 +100,19 @@ export class IOSManager {
           inDevicesSection = true;
           continue;
         }
+        // Stop at Simulators or Devices Offline section
         if (line.includes('== Simulators ==') || line.includes('== Devices Offline ==')) {
           break;
         }
 
         if (inDevicesSection && line.trim()) {
+          // Match pattern: "Device Name (version) (UDID)"
           const match = line.match(/^(.+?)\s+\(([^)]+)\)\s+\(([A-F0-9-]+)\)$/i);
           if (match) {
             const [, name, version, udid] = match;
             const nameLower = name.toLowerCase();
+            // Include iOS devices: either name contains iPhone/iPad, or version looks like iOS
+            // (a simple version number like "26.2" or "18.6") and isn't a Mac
             const isIOS =
               nameLower.includes('iphone') ||
               nameLower.includes('ipad') ||
@@ -124,7 +136,9 @@ export class IOSManager {
           }
         }
       }
-    } catch {}
+    } catch {
+      // Ignore errors - real device listing is optional
+    }
 
     return devices;
   }
@@ -142,6 +156,7 @@ export class IOSManager {
         if (!Array.isArray(deviceList)) continue;
 
         for (const device of deviceList) {
+          // Only include iPhone and iPad simulators
           if (device.name && (device.name.includes('iPhone') || device.name.includes('iPad'))) {
             devices.push({
               name: device.name,
@@ -172,6 +187,7 @@ export class IOSManager {
       this.listRealDevices(),
     ]);
 
+    // Real devices first, then simulators
     return [...realDevices, ...simulators];
   }
 
@@ -181,13 +197,16 @@ export class IOSManager {
   private async findDefaultDevice(): Promise<IOSDeviceInfo | null> {
     const devices = await this.listDevices();
 
+    // Filter to available iPhones, prefer Pro models, then by name (which typically indicates recency)
     const iphones = devices
       .filter((d) => d.isAvailable && d.name.includes('iPhone'))
       .sort((a, b) => {
+        // Prefer Pro models
         const aIsPro = a.name.includes('Pro') ? 1 : 0;
         const bIsPro = b.name.includes('Pro') ? 1 : 0;
         if (aIsPro !== bIsPro) return bIsPro - aIsPro;
 
+        // Then sort by name descending (iPhone 15 > iPhone 14)
         return b.name.localeCompare(a.name);
       });
 
@@ -200,12 +219,15 @@ export class IOSManager {
   private async findDevice(nameOrUdid: string): Promise<IOSDeviceInfo | null> {
     const devices = await this.listAllDevices();
 
+    // Try exact UDID match first
     const byUdid = devices.find((d) => d.udid === nameOrUdid);
     if (byUdid) return byUdid;
 
+    // Try exact name match
     const byExactName = devices.find((d) => d.name === nameOrUdid);
     if (byExactName) return byExactName;
 
+    // Try partial name match
     const byPartialName = devices.find((d) =>
       d.name.toLowerCase().includes(nameOrUdid.toLowerCase())
     );
@@ -242,7 +264,7 @@ export class IOSManager {
    */
   private async startAppiumServer(): Promise<void> {
     if (await this.isAppiumRunning()) {
-      return;
+      return; // Already running
     }
 
     if (!(await this.checkAppiumInstalled())) {
@@ -279,6 +301,7 @@ export class IOSManager {
 
       this.appiumProcess.stderr?.on('data', (data: Buffer) => {
         const output = data.toString();
+        // Appium logs to stderr for info messages too
         if (output.includes('Appium REST http interface listener started')) {
           started = true;
           clearTimeout(timeout);
@@ -308,6 +331,7 @@ export class IOSManager {
       const devices = await this.simctl.getDevices();
       let currentState: string | undefined;
 
+      // Find current device state
       for (const deviceList of Object.values(devices)) {
         if (!Array.isArray(deviceList)) continue;
         const device = (deviceList as any[]).find((d: any) => d.udid === udid);
@@ -318,12 +342,14 @@ export class IOSManager {
       }
 
       if (currentState === 'Booted') {
-        return;
+        return; // Already booted
       }
 
+      // node-simctl expects udid to be set on the instance
       this.simctl.udid = udid;
       await this.simctl.bootDevice();
 
+      // Wait for device to be fully booted
       let attempts = 0;
       while (attempts < 60) {
         const updatedDevices = await this.simctl.getDevices();
@@ -357,9 +383,10 @@ export class IOSManager {
     } = {}
   ): Promise<void> {
     if (this.isLaunched()) {
-      return;
+      return; // Already launched
     }
 
+    // Find device
     let device: IOSDeviceInfo | null = null;
 
     if (options.udid) {
@@ -375,6 +402,7 @@ export class IOSManager {
         );
       }
     } else {
+      // Check environment variable
       const envDevice = process.env.NSTBROWSER_AI_AGENT_IOS_DEVICE;
       const envUdid = process.env.NSTBROWSER_AI_AGENT_IOS_UDID;
 
@@ -403,12 +431,15 @@ export class IOSManager {
     this.deviceUdid = device.udid;
     this.deviceName = device.name;
 
+    // Start Appium server
     await this.startAppiumServer();
 
+    // Boot simulator (skip for real devices - they're already running)
     if (!device.isRealDevice) {
       await this.bootSimulator(device.udid);
     }
 
+    // Connect to Safari via Appium
     try {
       this.browser = await remote({
         hostname: IOSManager.APPIUM_HOST,
@@ -444,6 +475,7 @@ export class IOSManager {
 
     await this.browser.url(url);
 
+    // Wait for page to load
     await this.browser.waitUntil(
       async () => {
         const state = (await this.browser!.execute(
@@ -517,6 +549,7 @@ export class IOSManager {
       await element.clearValue();
     }
 
+    // WebdriverIO doesn't have a delay option, so we simulate it
     if (options?.delay && options.delay > 0) {
       for (const char of text) {
         await element.addValue(char);
@@ -548,6 +581,7 @@ export class IOSManager {
       throw new Error('iOS browser not launched');
     }
 
+    // Check if it's a ref
     const refData = this.getRefData(selectorOrRef);
     if (refData) {
       if (refData.xpath) {
@@ -556,6 +590,7 @@ export class IOSManager {
       return this.browser.$(refData.selector);
     }
 
+    // Regular CSS selector
     return this.browser.$(selectorOrRef);
   }
 
@@ -617,6 +652,8 @@ export class IOSManager {
     this.refCounter = 0;
     this.refMap = {};
 
+    // Get page structure via JavaScript execution
+    // Note: The function runs in browser context, so we use 'any' for DOM types
     const snapshot = await this.browser.execute(function (interactiveOnly: boolean): any {
       const INTERACTIVE_ROLES = new Set([
         'button',
@@ -655,6 +692,7 @@ export class IOSManager {
         let current: any = element;
 
         while (current && current.nodeType === 1) {
+          // Node.ELEMENT_NODE = 1
           let index = 1;
           let sibling: any = current.previousElementSibling;
 
@@ -674,9 +712,11 @@ export class IOSManager {
       }
 
       function getAccessibleName(element: any): string {
+        // aria-label takes precedence
         const ariaLabel = element.getAttribute('aria-label');
         if (ariaLabel) return ariaLabel;
 
+        // For inputs, check placeholder and label
         const tagName = element.tagName;
         if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
           const id = element.id;
@@ -687,10 +727,12 @@ export class IOSManager {
           if (element.placeholder) return element.placeholder;
         }
 
+        // For buttons and links, use text content
         if (tagName === 'BUTTON' || tagName === 'A') {
           return element.textContent?.trim() || '';
         }
 
+        // aria-labelledby
         const labelledBy = element.getAttribute('aria-labelledby');
         if (labelledBy) {
           const labelElement = (document as any).getElementById(labelledBy);
@@ -701,9 +743,11 @@ export class IOSManager {
       }
 
       function getRole(element: any): string | null {
+        // Explicit role
         const role = element.getAttribute('role');
         if (role) return role;
 
+        // Implicit roles
         const tag = element.tagName;
         if (tag === 'A' && element.hasAttribute('href')) return 'link';
         if (tag === 'BUTTON') return 'button';
@@ -736,7 +780,7 @@ export class IOSManager {
       }
 
       function traverse(element: any, depth: number): any {
-        if (depth > 10) return null;
+        if (depth > 10) return null; // Limit depth
 
         const tag = element.tagName;
         const role = getRole(element);
@@ -744,6 +788,7 @@ export class IOSManager {
         const isInteractive =
           INTERACTIVE_TAGS.has(tag) || (role !== null && INTERACTIVE_ROLES.has(role));
 
+        // Skip hidden elements
         const style = (window as any).getComputedStyle(element);
         if (style.display === 'none' || style.visibility === 'hidden') {
           return null;
@@ -757,6 +802,7 @@ export class IOSManager {
           }
         }
 
+        // In interactive mode, skip non-interactive elements without interactive children
         if (interactiveOnly && !isInteractive && children.length === 0) {
           return null;
         }
@@ -776,6 +822,7 @@ export class IOSManager {
       return root;
     }, options?.interactive ?? false);
 
+    // Build tree string and refs
     const lines: string[] = [];
     const buildTree = (node: any, indent: number) => {
       if (!node) return;
@@ -789,6 +836,7 @@ export class IOSManager {
         line += ` "${name}"`;
       }
 
+      // Add ref for interactive elements
       if (node.isInteractive) {
         const ref = `e${++this.refCounter}`;
         line += ` [ref=${ref}]`;
@@ -847,6 +895,7 @@ export class IOSManager {
       return;
     }
 
+    // Use JavaScript scrolling
     let deltaX = options?.x ?? 0;
     let deltaY = options?.y ?? 0;
 
@@ -889,6 +938,7 @@ export class IOSManager {
 
     const distance = options?.distance ?? 300;
 
+    // Map direction to scroll (opposite direction)
     const scrollDirection = {
       up: 'down',
       down: 'up',
@@ -907,8 +957,10 @@ export class IOSManager {
       throw new Error('iOS browser not launched');
     }
 
+    // Execute the script directly - WebdriverIO handles the context
     const result = await this.browser.execute(
       function (code: string, evalArgs: any[]) {
+        // Create a function from the code and execute it
         const fn = new Function(...evalArgs.map((_: any, i: number) => `arg${i}`), code);
         return fn(...evalArgs);
       },
@@ -952,6 +1004,7 @@ export class IOSManager {
           break;
       }
     } else {
+      // Just wait for timeout
       await new Promise((r) => setTimeout(r, timeout));
     }
   }
@@ -964,6 +1017,7 @@ export class IOSManager {
       throw new Error('iOS browser not launched');
     }
 
+    // Map common key names
     const keyMap: Record<string, string> = {
       Enter: '\uE007',
       Tab: '\uE004',
@@ -1219,7 +1273,9 @@ export class IOSManager {
     if (this.browser) {
       try {
         await this.browser.deleteSession();
-      } catch {}
+      } catch {
+        // Ignore cleanup errors
+      }
       this.browser = null;
     }
 
@@ -1228,11 +1284,14 @@ export class IOSManager {
       this.appiumProcess = null;
     }
 
+    // Optionally shutdown simulator
     if (this.deviceUdid) {
       try {
         this.simctl.udid = this.deviceUdid;
         await this.simctl.shutdownDevice();
-      } catch {}
+      } catch {
+        // Ignore - simulator might already be shutdown
+      }
     }
 
     this.deviceUdid = null;

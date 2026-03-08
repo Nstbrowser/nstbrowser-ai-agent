@@ -1,81 +1,248 @@
 #!/bin/bash
-# Template: Profile Setup and Configuration
-# Purpose: Create and configure a new Nstbrowser profile
-# Usage: ./profile-setup.sh <profile-name> [proxy-host] [proxy-port]
+
+# Profile Setup Template
+# 
+# This script creates and configures an NST profile with optional proxy, tags, and group settings.
 #
-# This template demonstrates:
-# 1. Creating a new profile
-# 2. Configuring proxy settings
-# 3. Verifying the setup
-# 4. Testing the profile
+# Usage:
+#   ./profile-setup.sh <profile-name> [options]
+#
+# Options:
+#   --proxy-host <host>       Proxy server host
+#   --proxy-port <port>       Proxy server port
+#   --proxy-type <type>       Proxy type (http|https|socks5)
+#   --proxy-username <user>   Proxy username
+#   --proxy-password <pass>   Proxy password
+#   --tags <tag1,tag2>        Comma-separated tags
+#   --group-id <id>           Group ID
+#   --platform <platform>     Platform (Windows|macOS|Linux)
+#   --kernel <version>        Kernel version (e.g., 126)
+#
+# Examples:
+#   # Create basic profile
+#   ./profile-setup.sh my-profile
+#
+#   # Create profile with proxy
+#   ./profile-setup.sh my-profile \
+#     --proxy-host proxy.example.com \
+#     --proxy-port 8080 \
+#     --proxy-type http
+#
+#   # Create profile with proxy authentication and tags
+#   ./profile-setup.sh my-profile \
+#     --proxy-host proxy.example.com \
+#     --proxy-port 8080 \
+#     --proxy-username user \
+#     --proxy-password pass \
+#     --tags "testing,automation"
+#
+#   # Create profile with all options
+#   ./profile-setup.sh my-profile \
+#     --proxy-host proxy.example.com \
+#     --proxy-port 8080 \
+#     --proxy-type socks5 \
+#     --proxy-username user \
+#     --proxy-password pass \
+#     --tags "production,us-east" \
+#     --group-id abc123 \
+#     --platform Windows \
+#     --kernel 126
 
-set -euo pipefail
+set -e  # Exit on error
 
-PROFILE_NAME="${1:?Usage: $0 <profile-name> [proxy-host] [proxy-port]}"
-PROXY_HOST="${2:-}"
-PROXY_PORT="${3:-}"
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-echo "=========================================="
-echo "Profile Setup: $PROFILE_NAME"
-echo "=========================================="
-echo ""
-
-# Step 1: Check if profile already exists
-echo "Checking if profile exists..."
-if nstbrowser-ai-agent profile show "$PROFILE_NAME" --json >/dev/null 2>&1; then
-    echo "✓ Profile '$PROFILE_NAME' already exists"
-    PROFILE_ID=$(nstbrowser-ai-agent profile show "$PROFILE_NAME" --json | grep -o '"profileId":"[^"]*"' | cut -d'"' -f4)
-    echo "  Profile ID: $PROFILE_ID"
-else
-    # Step 2: Create new profile
-    echo "Creating new profile..."
-    CREATE_OUTPUT=$(nstbrowser-ai-agent profile create "$PROFILE_NAME" --json)
-    PROFILE_ID=$(echo "$CREATE_OUTPUT" | grep -o '"profileId":"[^"]*"' | cut -d'"' -f4)
-    echo "✓ Profile created"
-    echo "  Profile ID: $PROFILE_ID"
+# Check if NO_COLOR is set
+if [ -n "$NO_COLOR" ]; then
+  RED=''
+  GREEN=''
+  YELLOW=''
+  NC=''
 fi
 
-echo ""
+# Helper functions
+error() {
+  echo -e "${RED}✗ Error: $1${NC}" >&2
+  exit 1
+}
 
-# Step 3: Configure proxy if provided
+success() {
+  echo -e "${GREEN}✓ $1${NC}"
+}
+
+info() {
+  echo -e "${YELLOW}→ $1${NC}"
+}
+
+# Check if nstbrowser-ai-agent is installed
+if ! command -v nstbrowser-ai-agent &> /dev/null; then
+  error "nstbrowser-ai-agent is not installed. Run: npm install -g nstbrowser-ai-agent"
+fi
+
+# Parse arguments
+PROFILE_NAME=""
+PROXY_HOST=""
+PROXY_PORT=""
+PROXY_TYPE=""
+PROXY_USERNAME=""
+PROXY_PASSWORD=""
+TAGS=""
+GROUP_ID=""
+PLATFORM=""
+KERNEL=""
+
+if [ $# -eq 0 ]; then
+  error "Profile name is required. Usage: $0 <profile-name> [options]"
+fi
+
+PROFILE_NAME="$1"
+shift
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --proxy-host)
+      PROXY_HOST="$2"
+      shift 2
+      ;;
+    --proxy-port)
+      PROXY_PORT="$2"
+      shift 2
+      ;;
+    --proxy-type)
+      PROXY_TYPE="$2"
+      shift 2
+      ;;
+    --proxy-username)
+      PROXY_USERNAME="$2"
+      shift 2
+      ;;
+    --proxy-password)
+      PROXY_PASSWORD="$2"
+      shift 2
+      ;;
+    --tags)
+      TAGS="$2"
+      shift 2
+      ;;
+    --group-id)
+      GROUP_ID="$2"
+      shift 2
+      ;;
+    --platform)
+      PLATFORM="$2"
+      shift 2
+      ;;
+    --kernel)
+      KERNEL="$2"
+      shift 2
+      ;;
+    *)
+      error "Unknown option: $1"
+      ;;
+  esac
+done
+
+# Validate profile name
+if [ -z "$PROFILE_NAME" ]; then
+  error "Profile name cannot be empty"
+fi
+
+info "Setting up profile: $PROFILE_NAME"
+
+# Check NST API connectivity
+info "Checking NST API connectivity..."
+if ! nstbrowser-ai-agent profile list &> /dev/null; then
+  error "Failed to connect to NST API. Check NST_API_KEY, NST_HOST, and NST_PORT environment variables."
+fi
+success "NST API is accessible"
+
+# Build create command
+CREATE_CMD="nstbrowser-ai-agent profile create \"$PROFILE_NAME\""
+
+if [ -n "$PLATFORM" ]; then
+  CREATE_CMD="$CREATE_CMD --platform $PLATFORM"
+fi
+
+if [ -n "$KERNEL" ]; then
+  CREATE_CMD="$CREATE_CMD --kernel $KERNEL"
+fi
+
+if [ -n "$GROUP_ID" ]; then
+  CREATE_CMD="$CREATE_CMD --group-id $GROUP_ID"
+fi
+
+# Add proxy options if provided
 if [ -n "$PROXY_HOST" ] && [ -n "$PROXY_PORT" ]; then
-    echo "Configuring proxy..."
-    nstbrowser-ai-agent profile proxy update "$PROFILE_ID" \
-        --host "$PROXY_HOST" \
-        --port "$PROXY_PORT" \
-        --type http
-    echo "✓ Proxy configured"
-    echo "  Host: $PROXY_HOST"
-    echo "  Port: $PROXY_PORT"
-    echo ""
+  CREATE_CMD="$CREATE_CMD --proxy-host $PROXY_HOST --proxy-port $PROXY_PORT"
+  
+  if [ -n "$PROXY_TYPE" ]; then
+    CREATE_CMD="$CREATE_CMD --proxy-type $PROXY_TYPE"
+  fi
+  
+  if [ -n "$PROXY_USERNAME" ]; then
+    CREATE_CMD="$CREATE_CMD --proxy-username $PROXY_USERNAME"
+  fi
+  
+  if [ -n "$PROXY_PASSWORD" ]; then
+    CREATE_CMD="$CREATE_CMD --proxy-password $PROXY_PASSWORD"
+  fi
 fi
 
-# Step 4: Display profile details
-echo "Profile Details:"
-nstbrowser-ai-agent profile show "$PROFILE_ID" --json | head -20
+# Create profile
+info "Creating profile..."
+if eval "$CREATE_CMD"; then
+  success "Profile created successfully"
+else
+  error "Failed to create profile"
+fi
 
-echo ""
+# Get profile ID
+info "Retrieving profile ID..."
+PROFILE_ID=$(nstbrowser-ai-agent profile list --json | jq -r ".[] | select(.name == \"$PROFILE_NAME\") | .profileId")
 
-# Step 5: Test profile
-echo "Testing profile..."
-export NST_PROFILE_ID="$PROFILE_ID"
-nstbrowser-ai-agent open https://example.com
-sleep 2
-TITLE=$(nstbrowser-ai-agent get title)
-echo "✓ Profile test successful"
-echo "  Page title: $TITLE"
+if [ -z "$PROFILE_ID" ]; then
+  error "Failed to retrieve profile ID"
+fi
+success "Profile ID: $PROFILE_ID"
 
-# Step 6: Clean up
-nstbrowser-ai-agent close
+# Add tags if provided
+if [ -n "$TAGS" ]; then
+  info "Adding tags..."
+  IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+  for tag in "${TAG_ARRAY[@]}"; do
+    tag=$(echo "$tag" | xargs)  # Trim whitespace
+    if nstbrowser-ai-agent profile tags create "$PROFILE_ID" "$tag"; then
+      success "Added tag: $tag"
+    else
+      error "Failed to add tag: $tag"
+    fi
+  done
+fi
+
+# Verify profile creation
+info "Verifying profile..."
+if nstbrowser-ai-agent profile show "$PROFILE_NAME" &> /dev/null; then
+  success "Profile verification successful"
+else
+  error "Profile verification failed"
+fi
+
+# Display profile details
+info "Profile details:"
+nstbrowser-ai-agent profile show "$PROFILE_NAME"
+
+# Display proxy details if configured
+if [ -n "$PROXY_HOST" ] && [ -n "$PROXY_PORT" ]; then
+  info "Proxy configuration:"
+  nstbrowser-ai-agent profile proxy show "$PROFILE_NAME"
+fi
+
+success "Profile setup complete!"
 echo ""
-echo "=========================================="
-echo "Profile setup complete!"
-echo "=========================================="
-echo ""
-echo "To use this profile:"
-echo "  export NST_PROFILE=\"$PROFILE_NAME\""
-echo "  nstbrowser-ai-agent open https://example.com"
-echo ""
-echo "Or:"
-echo "  export NST_PROFILE_ID=\"$PROFILE_ID\""
-echo "  nstbrowser-ai-agent open https://example.com"
+echo "You can now use this profile with:"
+echo "  nstbrowser-ai-agent --profile \"$PROFILE_NAME\" browser start"
+echo "  nstbrowser-ai-agent --profile \"$PROFILE_NAME\" open https://example.com"

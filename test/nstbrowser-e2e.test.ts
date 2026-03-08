@@ -1,9 +1,9 @@
 /**
  * Nstbrowser End-to-End Tests
- *
+ * 
  * These tests verify complete workflows with real Nstbrowser client and browser automation.
  * Requires a running Nstbrowser client with valid API credentials.
- *
+ * 
  * Run with: NST_API_KEY=your-key pnpm test test/nstbrowser-e2e.test.ts
  */
 
@@ -281,12 +281,14 @@ describe.skipIf(SKIP_E2E_TESTS)('Nstbrowser End-to-End Tests', () => {
       const page = browser.getPage();
       // Navigate to a reliable page first
       await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
-
+      
       // Wait a bit for page to stabilize
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Try to click non-existent element with short timeout
-      await expect(page.click('#non-existent-element', { timeout: 2000 })).rejects.toThrow();
+      await expect(
+        page.click('#non-existent-element', { timeout: 2000 })
+      ).rejects.toThrow();
     }, 10000);
   });
 

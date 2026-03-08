@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Agent Browser - Skills 生成脚本
-# 用于从项目源码生成标准的 agent skills 目录
+# nstbrowser-ai-agent - Skills Generation Script
+# Used to generate standard agent skills directory from project source code
 
 set -e
 

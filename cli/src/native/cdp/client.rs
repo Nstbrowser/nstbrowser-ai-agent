@@ -59,11 +59,13 @@ impl CdpClient {
                 };
 
                 if let Some(id) = parsed.id {
+                    // Response to a command
                     let mut pending = pending_clone.lock().await;
                     if let Some(tx) = pending.remove(&id) {
                         let _ = tx.send(parsed);
                     }
                 } else if let Some(ref method) = parsed.method {
+                    // Event
                     let event = CdpEvent {
                         method: method.clone(),
                         params: parsed.params.clone().unwrap_or(Value::Null),

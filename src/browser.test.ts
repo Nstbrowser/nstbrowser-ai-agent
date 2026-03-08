@@ -60,19 +60,24 @@ describe('BrowserManager', () => {
       const testBrowser = new BrowserManager();
       await testBrowser.launch({ headless: true });
 
+      // Verify initial state
       expect(testBrowser.isLaunched()).toBe(true);
       expect(testBrowser.getPage()).toBeDefined();
 
+      // Close all pages externally (simulates stale daemon state)
       const pages = testBrowser.getPages();
       for (const page of [...pages]) {
         await page.close();
       }
 
+      // Wait for close events to propagate
       await new Promise((resolve) => setTimeout(resolve, 100));
 
+      // isLaunched() is true but pages array is empty -- this is the stale state
       expect(testBrowser.isLaunched()).toBe(true);
       expect(testBrowser.getPages().length).toBe(0);
 
+      // ensurePage() should recover by creating a new page
       await testBrowser.ensurePage();
       expect(testBrowser.getPages().length).toBe(1);
       expect(testBrowser.getPage()).toBeDefined();
@@ -88,6 +93,7 @@ describe('BrowserManager', () => {
       await testBrowser.ensurePage();
       const pageAfter = testBrowser.getPage();
 
+      // Should be the same page -- no-op
       expect(pageAfter).toBe(pageBefore);
       expect(testBrowser.getPages().length).toBe(1);
 
@@ -107,11 +113,14 @@ describe('BrowserManager', () => {
         </html>
       `);
 
+      // Get snapshot to populate refs
       const { refs } = await browser.getSnapshot({ interactive: true });
 
+      // Find the ref for our button
       const buttonRef = Object.keys(refs).find((k) => refs[k].name === 'Far Away Button');
       expect(buttonRef).toBeDefined();
 
+      // scrollintoview with a ref should work, not throw a CSS selector error
       const result = await executeCommand(
         { id: 'test-1', action: 'scrollintoview', selector: `@${buttonRef}` },
         browser
@@ -136,6 +145,7 @@ describe('BrowserManager', () => {
       const buttonRef = Object.keys(refs).find((k) => refs[k].name === 'Target Button');
       expect(buttonRef).toBeDefined();
 
+      // scroll with a ref selector should work
       const result = await executeCommand(
         { id: 'test-2', action: 'scroll', selector: `@${buttonRef}`, y: 100 },
         browser
@@ -147,6 +157,7 @@ describe('BrowserManager', () => {
   describe('unnamed-button ref uniqueness', () => {
     it('should click the correct unnamed button among named buttons', async () => {
       const page = browser.getPage();
+      // 1 unnamed button among 2 named buttons
       await page.setContent(`
         <html><body>
           <button>OK</button>
@@ -170,6 +181,9 @@ describe('BrowserManager', () => {
   describe('cursor-ref selector uniqueness', () => {
     it('should produce unique selectors for repeated DOM structures', async () => {
       const page = browser.getPage();
+      // Build deeply nested identical structures where the distinguishing
+      // ancestor (div.branch) is at level 4 from the target element --
+      // beyond the previous 3-level path cutoff.
       await page.setContent(`
         <html>
           <body>
@@ -195,9 +209,12 @@ describe('BrowserManager', () => {
 
       const { refs } = await browser.getSnapshot({ interactive: true, cursor: true });
 
+      // Find the cursor-interactive refs
       const cursorRefs = Object.entries(refs).filter(([, r]) => r.role === 'clickable');
       expect(cursorRefs.length).toBe(2);
 
+      // Each ref's selector must be unique -- clicking it should not
+      // trigger a strict mode violation.
       for (const [refKey] of cursorRefs) {
         const locator = browser.getLocator(`@${refKey}`);
         const count = await locator.count();
@@ -235,9 +252,11 @@ describe('BrowserManager', () => {
 
       const { refs } = await browser.getSnapshot({ interactive: true, cursor: true });
 
+      // Find the ref for "Item Beta"
       const betaRef = Object.keys(refs).find((k) => refs[k].name === 'Item Beta');
       expect(betaRef).toBeDefined();
 
+      // Click it -- should not throw strict mode violation
       const locator = browser.getLocator(`@${betaRef}`);
       await locator.click();
 
@@ -250,7 +269,7 @@ describe('BrowserManager', () => {
     it('should navigate to URL', async () => {
       const page = browser.getPage();
       await page.goto('https://example.com');
-      expect(page.url()).toBe('https://example.com');
+      expect(page.url()).toBe('https://example.com/');
     });
 
     it('should get page title', async () => {
@@ -443,6 +462,7 @@ describe('BrowserManager', () => {
     });
 
     it('should close tab', async () => {
+      // Switch to second tab and close it
       const page = browser.getPage();
       const tabs = await browser.listTabs();
       if (tabs.length > 1) {
@@ -452,17 +472,21 @@ describe('BrowserManager', () => {
     });
 
     it('should auto-switch to externally opened tab (window.open)', async () => {
+      // Ensure we start on tab 0
       const initialIndex = browser.getActiveIndex();
       expect(initialIndex).toBe(0);
 
       const page = browser.getPage();
 
+      // Use window.open to create a new tab externally (as a user/script would)
       await page.evaluate(() => {
         window.open('about:blank', '_blank');
       });
 
+      // Wait for the new page event to be processed
       await new Promise((resolve) => setTimeout(resolve, 500));
 
+      // Active tab should now be the newly opened tab
       const newIndex = browser.getActiveIndex();
       expect(newIndex).toBe(1);
 
@@ -470,6 +494,7 @@ describe('BrowserManager', () => {
       expect(tabs.length).toBe(2);
       expect(tabs[1].active).toBe(true);
 
+      // Clean up: close the new tab
       await browser.closeTab(1);
     });
   });
@@ -661,12 +686,14 @@ describe('BrowserManager', () => {
     it('should get interactive-only snapshot', async () => {
       const { tree: fullSnapshot } = await browser.getSnapshot();
       const { tree: interactiveSnapshot } = await browser.getSnapshot({ interactive: true });
+      // Interactive snapshot should be shorter (fewer elements)
       expect(interactiveSnapshot.length).toBeLessThanOrEqual(fullSnapshot.length);
     });
 
     it('should get snapshot with depth limit', async () => {
       const { tree: fullSnapshot } = await browser.getSnapshot();
       const { tree: limitedSnapshot } = await browser.getSnapshot({ maxDepth: 2 });
+      // Limited depth should have fewer nested elements
       const fullLines = fullSnapshot.split('\n').length;
       const limitedLines = limitedSnapshot.split('\n').length;
       expect(limitedLines).toBeLessThanOrEqual(fullLines);
@@ -675,6 +702,7 @@ describe('BrowserManager', () => {
     it('should get compact snapshot', async () => {
       const { tree: fullSnapshot } = await browser.getSnapshot();
       const { tree: compactSnapshot } = await browser.getSnapshot({ compact: true });
+      // Compact should be equal or shorter
       expect(compactSnapshot.length).toBeLessThanOrEqual(fullSnapshot.length);
     });
 
@@ -691,11 +719,14 @@ describe('BrowserManager', () => {
 
       const { tree, refs } = await browser.getSnapshot({ interactive: true });
 
+      // Standard button should be captured via ARIA
       expect(tree).toContain('button "Standard Button"');
 
+      // Cursor-interactive elements should NOT be captured without cursor flag
       expect(tree).not.toContain('Cursor-interactive elements');
       expect(tree).not.toContain('clickable "Clickable Div"');
 
+      // Should only have refs for ARIA interactive elements
       const refValues = Object.values(refs);
       expect(refValues.some((r) => r.role === 'button')).toBe(true);
       expect(refValues.some((r) => r.role === 'clickable')).toBe(false);
@@ -715,12 +746,15 @@ describe('BrowserManager', () => {
 
       const { tree, refs } = await browser.getSnapshot({ interactive: true, cursor: true });
 
+      // Standard button should be captured via ARIA
       expect(tree).toContain('button "Standard Button"');
 
+      // Cursor-interactive elements should be captured with cursor flag
       expect(tree).toContain('Cursor-interactive elements');
       expect(tree).toContain('clickable "Clickable Div"');
       expect(tree).toContain('clickable "Onclick Span"');
 
+      // Should have refs for all interactive elements
       const refValues = Object.values(refs);
       expect(refValues.some((r) => r.role === 'button')).toBe(true);
       expect(refValues.some((r) => r.role === 'clickable')).toBe(true);
@@ -739,12 +773,15 @@ describe('BrowserManager', () => {
 
       const { refs } = await browser.getSnapshot({ cursor: true });
 
+      // Find the ref for the clickable element
       const clickableRef = Object.keys(refs).find((k) => refs[k].name === 'Click Me');
       expect(clickableRef).toBeDefined();
 
+      // Click using the ref
       const locator = browser.getLocator(`@${clickableRef}`);
       await locator.click();
 
+      // Verify click worked
       const result = await page.locator('#result').textContent();
       expect(result).toBe('clicked');
     });
@@ -760,7 +797,9 @@ describe('BrowserManager', () => {
     });
 
     it('should resolve ref from snapshot', async () => {
-      await browser.getSnapshot();
+      await browser.getSnapshot(); // Populates refs
+      // After snapshot, refs like @e1 should be available
+      // This tests the ref resolution mechanism
       const page = browser.getPage();
       const h1 = await page.locator('h1').textContent();
       expect(h1).toBe('Example Domain');
@@ -769,14 +808,19 @@ describe('BrowserManager', () => {
 
   describe('scoped headers', () => {
     it('should register route for scoped headers', async () => {
+      // Test that setScopedHeaders doesn't throw and completes successfully
       await browser.clearScopedHeaders();
-      await expect(browser.setScopedHeaders('https://example.com', {})).resolves.not.toThrow();
+      await expect(
+        browser.setScopedHeaders('https://example.com', { 'X-Test': 'value' })
+      ).resolves.not.toThrow();
       await browser.clearScopedHeaders();
     });
 
     it('should handle full URL origin', async () => {
       await browser.clearScopedHeaders();
-      await expect(browser.setScopedHeaders('https://example.com', {})).resolves.not.toThrow();
+      await expect(
+        browser.setScopedHeaders('https://api.example.com/path', { Authorization: 'Bearer token' })
+      ).resolves.not.toThrow();
       await browser.clearScopedHeaders();
     });
 
@@ -790,26 +834,30 @@ describe('BrowserManager', () => {
 
     it('should clear scoped headers for specific origin', async () => {
       await browser.clearScopedHeaders();
-      await browser.setScopedHeaders('https://example.com', {});
-      await expect(browser.clearScopedHeaders('https://example.com')).rejects.toThrow();
+      await browser.setScopedHeaders('https://example.com', { 'X-Test': 'value' });
+      await expect(browser.clearScopedHeaders('https://example.com')).resolves.not.toThrow();
     });
 
     it('should clear all scoped headers', async () => {
-      await browser.setScopedHeaders('https://example.com', {});
-      await browser.setScopedHeaders('https://example.com', {});
+      await browser.setScopedHeaders('https://example.com', { 'X-Test-1': 'value1' });
+      await browser.setScopedHeaders('https://example.org', { 'X-Test-2': 'value2' });
       await expect(browser.clearScopedHeaders()).resolves.not.toThrow();
     });
 
     it('should replace headers when called twice for same origin', async () => {
       await browser.clearScopedHeaders();
-      await browser.setScopedHeaders('https://example.com', {});
-      await expect(browser.setScopedHeaders('https://example.com', {})).resolves.not.toThrow();
+      await browser.setScopedHeaders('https://example.com', { 'X-First': 'first' });
+      // Second call should replace, not add
+      await expect(
+        browser.setScopedHeaders('https://example.com', { 'X-Second': 'second' })
+      ).resolves.not.toThrow();
       await browser.clearScopedHeaders();
     });
 
     it('should handle clearing non-existent origin gracefully', async () => {
       await browser.clearScopedHeaders();
-      await expect(browser.clearScopedHeaders('https://example.com')).rejects.toThrow();
+      // Should not throw when clearing headers that were never set
+      await expect(browser.clearScopedHeaders('https://never-set.com')).resolves.not.toThrow();
     });
   });
 
@@ -831,8 +879,8 @@ describe('BrowserManager', () => {
           {
             pages: () => [
               { url: () => 'http://example.com', on: vi.fn() },
-              { url: () => '', on: vi.fn() },
-              { url: () => 'http://test.com', on: vi.fn() },
+              { url: () => '', on: vi.fn() }, // This page should be filtered out
+              { url: () => 'http://anothersite.com', on: vi.fn() },
             ],
             on: vi.fn(),
             setDefaultTimeout: vi.fn(),
@@ -845,8 +893,10 @@ describe('BrowserManager', () => {
       const cdpBrowser = new BrowserManager();
       await cdpBrowser.launch({ cdpPort: 9222 });
 
+      // Should have 2 pages, not 3
       expect(cdpBrowser.getPages().length).toBe(2);
 
+      // Verify that the empty URL page is not in the list
       const urls = cdpBrowser.getPages().map((p) => p.url());
       expect(urls).not.toContain('');
       expect(urls).toContain('http://example.com');
@@ -866,6 +916,7 @@ describe('BrowserManager', () => {
       });
       expect(browser.isScreencasting()).toBe(true);
 
+      // Wait a bit for at least one frame
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       await browser.stopScreencast();
@@ -889,6 +940,7 @@ describe('BrowserManager', () => {
       );
       expect(browser.isScreencasting()).toBe(true);
 
+      // Wait for a frame
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       await browser.stopScreencast();
@@ -902,50 +954,65 @@ describe('BrowserManager', () => {
     });
 
     it('should handle stop when not screencasting', async () => {
+      // Should not throw
       await expect(browser.stopScreencast()).resolves.not.toThrow();
     });
   });
 
   describe('tab switch invalidates CDP session', () => {
+    // Clean up any extra tabs before each test
     beforeEach(async () => {
+      // Close all tabs except the first one
       const tabs = await browser.listTabs();
       for (let i = tabs.length - 1; i > 0; i--) {
         await browser.closeTab(i);
       }
+      // Ensure we're on tab 0
       await browser.switchTo(0);
+      // Stop any active screencast
       if (browser.isScreencasting()) {
         await browser.stopScreencast();
       }
     });
 
     it('should not invalidate CDP when switching to same tab', async () => {
+      // Get CDP session for current tab
       const cdp1 = await browser.getCDPSession();
 
+      // Switch to same tab - should NOT invalidate
       await browser.switchTo(0);
 
+      // Should be the same session
       const cdp2 = await browser.getCDPSession();
       expect(cdp2).toBe(cdp1);
     });
 
     it('should invalidate CDP session on tab switch', async () => {
+      // Get CDP session for tab 0
       const cdp1 = await browser.getCDPSession();
       expect(cdp1).toBeDefined();
 
+      // Create new tab - this switches to the new tab automatically
       await browser.newTab();
 
+      // Get CDP session - should be different since we're on a new page
       const cdp2 = await browser.getCDPSession();
       expect(cdp2).toBeDefined();
 
+      // Sessions should be different objects (different pages have different CDP sessions)
       expect(cdp2).not.toBe(cdp1);
     });
 
     it('should stop screencast on tab switch', async () => {
+      // Start screencast on tab 0
       await browser.startScreencast(() => {});
       expect(browser.isScreencasting()).toBe(true);
 
+      // Create new tab and switch
       await browser.newTab();
       await browser.switchTo(1);
 
+      // Screencast should be stopped (it's page-specific)
       expect(browser.isScreencasting()).toBe(false);
     });
   });
@@ -956,10 +1023,12 @@ describe('BrowserManager', () => {
     const testOutputDir = '/tmp/nstbrowser-ai-agent-test';
 
     beforeAll(async () => {
+      // Ensure test output directory exists
       await fs.mkdir(testOutputDir, { recursive: true }).catch(() => {});
     });
 
     afterEach(async () => {
+      // Stop profiling if still active
       if (browser.isProfilingActive()) {
         const tempPath = path.join(testOutputDir, 'cleanup.json');
         await browser.stopProfiling(tempPath).catch(() => {});
@@ -990,17 +1059,20 @@ describe('BrowserManager', () => {
       expect(typeof result.eventCount).toBe('number');
       expect(browser.isProfilingActive()).toBe(false);
 
+      // Verify file was written
       const fileExists = await fs
         .access(outputPath)
         .then(() => true)
         .catch(() => false);
       expect(fileExists).toBe(true);
 
+      // Verify file content is valid JSON with traceEvents
       const content = await fs.readFile(outputPath, 'utf-8');
       const data = JSON.parse(content);
       expect(data).toHaveProperty('traceEvents');
       expect(Array.isArray(data.traceEvents)).toBe(true);
 
+      // Cleanup
       await fs.unlink(outputPath).catch(() => {});
     });
 
@@ -1015,6 +1087,7 @@ describe('BrowserManager', () => {
       await browser.startProfiling({ categories: ['devtools.timeline', 'v8.execute'] });
       expect(browser.isProfilingActive()).toBe(true);
 
+      // Stop and cleanup
       const outputPath = path.join(testOutputDir, 'custom-categories.json');
       await browser.stopProfiling(outputPath);
       await fs.unlink(outputPath).catch(() => {});
@@ -1084,6 +1157,7 @@ describe('BrowserManager', () => {
     });
 
     it('should inject char event', async () => {
+      // CDP char events only accept single characters
       await expect(
         browser.injectKeyboardEvent({
           type: 'char',
@@ -1098,7 +1172,7 @@ describe('BrowserManager', () => {
           type: 'keyDown',
           key: 'c',
           code: 'KeyC',
-          modifiers: 2,
+          modifiers: 2, // Ctrl
         })
       ).resolves.not.toThrow();
     });

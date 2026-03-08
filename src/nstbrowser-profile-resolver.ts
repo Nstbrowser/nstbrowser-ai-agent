@@ -21,6 +21,17 @@
 
 import type { NstbrowserClient } from './nstbrowser-client.js';
 
+/**
+ * Check if a string is a valid UUID (case-insensitive)
+ *
+ * @param input - String to check
+ * @returns true if input is a valid UUID, false otherwise
+ */
+export function isUuid(input: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(input);
+}
+
 export interface ProfileResolutionOptions {
   /** Explicit profile ID (highest priority) */
   profileId?: string;
@@ -59,9 +70,11 @@ export async function resolveProfile(
 ): Promise<ResolvedProfile> {
   const debug = process.env.NSTBROWSER_AI_AGENT_DEBUG === '1';
 
+  // Determine profile from options or environment
   let profileId = options.profileId;
   let profileName = options.profileName;
 
+  // Priority 3: Environment variables
   if (!profileId && !profileName) {
     profileId = process.env.NST_PROFILE_ID;
     if (profileId && debug) {
@@ -76,15 +89,18 @@ export async function resolveProfile(
     }
   }
 
+  // If we have a profile name, resolve it to profileId
   if (profileName && !profileId) {
     if (debug) {
       console.error(`[DEBUG] Resolving profile name: ${profileName}`);
     }
 
+    // Step 1: Check running browsers for matching name
     const browsers = await client.getBrowsers();
     const runningBrowsersWithName = browsers.filter((b) => b.name === profileName && b.running);
 
     if (runningBrowsersWithName.length > 0) {
+      // Use the earliest started browser (first in the list)
       profileId = runningBrowsersWithName[0].profileId;
       if (debug) {
         console.error(`[DEBUG] Found running browser with name "${profileName}": ${profileId}`);
@@ -98,6 +114,7 @@ export async function resolveProfile(
       };
     }
 
+    // Step 2: No running browser found, query profile API
     if (debug) {
       console.error(
         `[DEBUG] No running browser found, querying profile API for name: ${profileName}`
@@ -126,6 +143,7 @@ export async function resolveProfile(
     }
   }
 
+  // If we have a profileId, check if browser is running
   if (profileId) {
     if (debug) {
       console.error(`[DEBUG] Checking if browser is running for profileId: ${profileId}`);
@@ -142,6 +160,7 @@ export async function resolveProfile(
     };
   }
 
+  // No profile specified
   if (options.allowOnce === false) {
     throw new Error(
       'No profile specified. Use --profile <name> or --profile-id <id>, ' +
@@ -176,6 +195,7 @@ export async function ensureBrowserRunning(
   const debug = process.env.NSTBROWSER_AI_AGENT_DEBUG === '1';
 
   if (resolved.isOnce) {
+    // Once browser - build WebSocket URL with config
     const config = {
       platform: 'Windows',
       autoClose: true,
@@ -194,6 +214,7 @@ export async function ensureBrowserRunning(
     throw new Error('Profile ID is required for non-once browser');
   }
 
+  // Check if browser is already running
   if (resolved.isRunning) {
     if (debug) {
       console.error(
@@ -210,6 +231,7 @@ export async function ensureBrowserRunning(
     };
   }
 
+  // Start the browser
   if (debug) {
     console.error(`[DEBUG] Starting browser for profile ${resolved.profileId}...`);
   }
@@ -243,14 +265,15 @@ export async function ensureBrowserRunning(
 export async function getProfileId(client: NstbrowserClient, nameOrId: string): Promise<string> {
   const debug = process.env.NSTBROWSER_AI_AGENT_DEBUG === '1';
 
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (uuidRegex.test(nameOrId)) {
+  // Check if it looks like a profile ID (UUID format)
+  if (isUuid(nameOrId)) {
     if (debug) {
       console.error(`[DEBUG] Input looks like profile ID: ${nameOrId}`);
     }
     return nameOrId;
   }
 
+  // Treat as profile name, resolve to ID
   if (debug) {
     console.error(`[DEBUG] Resolving profile name to ID: ${nameOrId}`);
   }
@@ -259,7 +282,7 @@ export async function getProfileId(client: NstbrowserClient, nameOrId: string): 
 
   if (profiles.length === 0) {
     throw new Error(
-      `Profile "${nameOrId}" not found. ` +
+      `Profile with name "${nameOrId}" not found. ` +
         `Run 'nstbrowser-ai-agent profile list' to see available profiles.`
     );
   }

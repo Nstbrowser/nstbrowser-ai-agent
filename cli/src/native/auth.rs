@@ -19,6 +19,7 @@ pub struct AuthProfile {
     pub submit_selector: Option<String>,
 }
 
+// Keep legacy Credential alias for backward compatibility
 pub type Credential = AuthProfile;
 
 fn validate_profile_name(name: &str) -> Result<(), String> {
@@ -272,7 +273,7 @@ mod tests {
     fn test_auth_profile_serialization() {
         let profile = AuthProfile {
             name: "test".to_string(),
-            url: "https:
+            url: "https://example.com".to_string(),
             username: "user".to_string(),
             password: "pass".to_string(),
             username_selector: None,
@@ -293,7 +294,7 @@ mod tests {
     fn test_encrypt_decrypt_roundtrip() {
         let profile = AuthProfile {
             name: "roundtrip".to_string(),
-            url: "https:
+            url: "https://example.com".to_string(),
             username: "user".to_string(),
             password: "s3cret!".to_string(),
             username_selector: None,

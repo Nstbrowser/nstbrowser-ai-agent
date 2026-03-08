@@ -32,10 +32,10 @@ describe('domain-filter', () => {
     });
 
     it('should match against multiple patterns', () => {
-      const patterns = ['example.com', '*.github.com', 'example.org'];
+      const patterns = ['example.com', '*.github.com', 'nstbrowser.io'];
       expect(isDomainAllowed('example.com', patterns)).toBe(true);
       expect(isDomainAllowed('api.github.com', patterns)).toBe(true);
-      expect(isDomainAllowed('example.org', patterns)).toBe(true);
+      expect(isDomainAllowed('nstbrowser.io', patterns)).toBe(true);
       expect(isDomainAllowed('evil.com', patterns)).toBe(false);
     });
 

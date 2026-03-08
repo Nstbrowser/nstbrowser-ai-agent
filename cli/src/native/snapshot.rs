@@ -426,6 +426,7 @@ fn build_tree(nodes: &[AXNode]) -> (Vec<TreeNode>, Vec<usize>) {
         id_to_idx.insert(node.node_id.clone(), i);
     }
 
+    // Build parent-child relationships
     for (i, node) in nodes.iter().enumerate() {
         if let Some(ref child_ids) = node.child_ids {
             for cid in child_ids {
@@ -436,6 +437,7 @@ fn build_tree(nodes: &[AXNode]) -> (Vec<TreeNode>, Vec<usize>) {
         }
     }
 
+    // Set depths
     let mut root_indices = Vec::new();
     let children_exist: Vec<bool> = nodes.iter().map(|_| false).collect();
     let mut is_child = children_exist;
@@ -475,6 +477,7 @@ fn render_tree(
     let node = &nodes[idx];
 
     if node.role.is_empty() {
+        // Ignored node -- still render children
         for &child in &node.children {
             render_tree(nodes, child, indent, output, options);
         }
@@ -489,6 +492,7 @@ fn render_tree(
 
     let role = &node.role;
 
+    // Skip root WebArea wrapper
     if role == "RootWebArea" || role == "WebArea" {
         for &child in &node.children {
             render_tree(nodes, child, indent, output, options);
@@ -497,6 +501,7 @@ fn render_tree(
     }
 
     if options.interactive && !node.has_ref {
+        // In interactive mode, skip non-interactive but render children
         for &child in &node.children {
             render_tree(nodes, child, indent, output, options);
         }
@@ -510,6 +515,7 @@ fn render_tree(
         line.push_str(&format!(" \"{}\"", node.name));
     }
 
+    // Properties
     let mut attrs = Vec::new();
 
     if let Some(level) = node.level {
@@ -545,6 +551,7 @@ fn render_tree(
         line.push_str(&format!(" [{}]", attrs.join(", ")));
     }
 
+    // Value
     if let Some(ref val) = node.value_text {
         if !val.is_empty() && val != &node.name {
             line.push_str(&format!(": {}", val));
@@ -570,6 +577,7 @@ fn compact_tree(tree: &str, interactive: bool) -> String {
     for (i, line) in lines.iter().enumerate() {
         if line.contains("[ref=") || line.contains(": ") {
             keep[i] = true;
+            // Mark ancestors
             let my_indent = count_indent(line);
             for j in (0..i).rev() {
                 let ancestor_indent = count_indent(lines[j]);
@@ -626,12 +634,12 @@ fn extract_ax_string_opt(value: &Option<AXValue>) -> Option<String> {
 }
 
 type NodeProperties = (
-    Option<i64>,    
-    Option<String>, 
-    Option<bool>,   
-    Option<bool>,   
-    Option<bool>,   
-    Option<bool>,   
+    Option<i64>,    // level
+    Option<String>, // checked
+    Option<bool>,   // expanded
+    Option<bool>,   // selected
+    Option<bool>,   // disabled
+    Option<bool>,   // required
 );
 
 fn extract_properties(props: &Option<Vec<AXProperty>>) -> NodeProperties {

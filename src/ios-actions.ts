@@ -234,11 +234,13 @@ export async function executeIOSCommand(command: Command, manager: IOSManager): 
         return successResponse(id, { closed: true });
       }
 
+      // iOS-specific: device list
       case 'device_list': {
         const devices = await manager.listDevices();
         return successResponse(id, { devices });
       }
 
+      // Commands that don't apply to iOS Safari
       case 'tab_new':
       case 'tab_list':
       case 'tab_switch':

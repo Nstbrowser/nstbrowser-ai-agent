@@ -115,6 +115,7 @@ pub fn launch_chrome(options: &LaunchOptions) -> Result<ChromeProcess, String> {
         }
     }
 
+    // Check if user args set window size (skip viewport override)
     let has_window_size = options
         .args
         .iter()
@@ -297,7 +298,7 @@ pub fn find_chrome() -> Option<PathBuf> {
 }
 
 pub async fn discover_cdp_url(port: u16) -> Result<String, String> {
-    let url = format!("http:
+    let url = format!("http://127.0.0.1:{}/json/version", port);
 
     let body = tokio::time::timeout(Duration::from_secs(2), async {
         reqwest_get_string(&url).await
@@ -383,14 +384,17 @@ pub async fn auto_connect_cdp() -> Result<String, String> {
 
     for dir in &user_data_dirs {
         if let Some((port, ws_path)) = read_devtools_active_port(dir) {
+            // Try HTTP endpoint first (pre-M144)
             if let Ok(ws_url) = discover_cdp_url(port).await {
                 return Ok(ws_url);
             }
-            let ws_url = format!("ws:
+            // M144+: direct WebSocket
+            let ws_url = format!("ws://127.0.0.1:{}{}", port, ws_path);
             return Ok(ws_url);
         }
     }
 
+    // Fallback: probe common ports
     for port in [9222u16, 9229] {
         if let Ok(ws_url) = discover_cdp_url(port).await {
             return Ok(ws_url);
@@ -440,25 +444,31 @@ fn get_chrome_user_data_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Returns true if Chrome's sandbox should be disabled because the environment
+/// doesn't support it (containers, VMs, running as root).
 fn should_disable_sandbox(existing_args: &[String]) -> bool {
     if existing_args.iter().any(|a| a == "--no-sandbox") {
-        return false; 
+        return false; // already set by user
     }
 
     #[cfg(unix)]
     {
+        // Root user -- standard container default, Chrome sandbox requires non-root
         if unsafe { libc::geteuid() } == 0 {
             return true;
         }
 
+        // Docker container
         if Path::new("/.dockerenv").exists() {
             return true;
         }
 
+        // Podman container
         if Path::new("/run/.containerenv").exists() {
             return true;
         }
 
+        // Generic container detection: cgroup contains docker/kubepods/lxc
         if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup") {
             if cgroup.contains("docker") || cgroup.contains("kubepods") || cgroup.contains("lxc") {
                 return true;
@@ -469,6 +479,8 @@ fn should_disable_sandbox(existing_args: &[String]) -> bool {
     false
 }
 
+/// Search Playwright's browser cache for a Chromium binary.
+/// This is where `nstbrowser-ai-agent install` (via `npx playwright install chromium`) puts it.
 fn find_playwright_chromium() -> Option<PathBuf> {
     let mut search_dirs = Vec::new();
 
@@ -502,6 +514,7 @@ fn find_playwright_chromium() -> Option<PathBuf> {
                     }
                 })
                 .collect();
+            // Sort descending so the newest version wins
             matches.sort();
             matches.reverse();
             if let Some(p) = matches.into_iter().next() {
@@ -546,8 +559,10 @@ mod tests {
 
     #[test]
     fn test_find_chrome_returns_some_on_host() {
+        // This test only makes sense on systems with Chrome installed
         if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
             let result = find_chrome();
+            // Don't assert Some -- CI may not have Chrome
             if let Some(path) = result {
                 assert!(path.exists());
             }
@@ -605,6 +620,7 @@ mod tests {
 
     #[test]
     fn test_find_playwright_chromium_nonexistent() {
+        // With no Playwright cache, should return None
         std::env::set_var("PLAYWRIGHT_BROWSERS_PATH", "/nonexistent/path");
         let result = find_playwright_chromium();
         std::env::remove_var("PLAYWRIGHT_BROWSERS_PATH");

@@ -1,9 +1,15 @@
+//! Parity tests for the native daemon's command interface.
 //!
+//! These unit tests verify:
+//! - All documented actions are handled (not returning "Not yet implemented")
+//! - Response format consistency (success/error structure)
+//! - Credential and state actions work without a browser
 
 use serde_json::{json, Value};
 
 use super::actions::{execute_command, DaemonState};
 
+/// All documented action names that should be implemented.
 const DOCUMENTED_ACTIONS: &[&str] = &[
     "launch",
     "navigate",
@@ -161,7 +167,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
 
     match action {
         "navigate" | "diff_url" | "waitforurl" => {
-            obj.insert("url".to_string(), json!("https:
+            obj.insert("url".to_string(), json!("https://example.com"));
         }
         "evaluate" | "expose" => {
             obj.insert("script".to_string(), json!("1"));
@@ -186,7 +192,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
             obj.insert("value".to_string(), json!("val"));
         }
         "storage_get" | "storage_set" | "storage_clear" => {
-            obj.insert("origin".to_string(), json!("https:
+            obj.insert("origin".to_string(), json!("https://example.com"));
         }
         "state_save" | "state_load" | "state_show" | "state_clear" => {
             obj.insert("path".to_string(), json!("test-parity-state.json"));
@@ -205,7 +211,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
         }
         "auth_save" => {
             obj.insert("name".to_string(), json!("parity-test-cred"));
-            obj.insert("url".to_string(), json!("https:
+            obj.insert("url".to_string(), json!("https://example.com"));
             obj.insert("username".to_string(), json!("u"));
             obj.insert("password".to_string(), json!("p"));
         }
@@ -291,7 +297,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
             obj.insert("values".to_string(), json!([]));
         }
         "responsebody" => {
-            obj.insert("url".to_string(), json!("https:
+            obj.insert("url".to_string(), json!("https://example.com"));
         }
         "waitfordownload" => {
             obj.insert("path".to_string(), json!("/tmp/parity-download"));
@@ -332,6 +338,7 @@ fn minimal_command(action: &str, id: &str) -> Value {
 }
 
 // ---------------------------------------------------------------------------
+// 1. Action dispatch coverage
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -360,6 +367,7 @@ async fn test_all_documented_actions_are_handled() {
 }
 
 // ---------------------------------------------------------------------------
+// 2. Response format consistency
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -386,6 +394,7 @@ async fn test_error_response_format() {
 }
 
 // ---------------------------------------------------------------------------
+// 3. Credential/state actions work without a browser
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -409,6 +418,7 @@ async fn test_credentials_list_without_browser() {
 }
 
 // ---------------------------------------------------------------------------
+// 4. New feature parity tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -422,6 +432,7 @@ async fn test_auth_profile_name_validation() {
     assert!(invalid2.is_err());
     let invalid3 = auth::credentials_set("has space", "u", "p", None);
     assert!(invalid3.is_err());
+    // Cleanup
     let _ = auth::credentials_delete("valid-name_123");
 }
 
@@ -430,7 +441,7 @@ async fn test_auth_save_and_show() {
     use super::auth;
     let result = auth::auth_save(
         "parity-roundtrip",
-        "https:
+        "https://example.com",
         "user",
         "pass",
         Some("input#user"),
@@ -449,12 +460,16 @@ async fn test_auth_save_and_show() {
     assert!(full.is_ok());
     assert_eq!(full.unwrap().password, "pass");
 
+    // Cleanup
     let _ = auth::credentials_delete("parity-roundtrip");
 }
 
 #[tokio::test]
 async fn test_har_start_stop_without_browser() {
     let mut state = DaemonState::new();
+    // har_start requires a browser. Because execute_command auto-launches when
+    // no browser is present, the result depends on Chrome availability: success
+    // if Chrome is found (CI), failure if not. Both outcomes are valid.
     let cmd = json!({ "action": "har_start", "id": "har-1" });
     let result = execute_command(&cmd, &mut state).await;
     let success = result["success"].as_bool().unwrap_or(false);
@@ -490,14 +505,14 @@ async fn test_daemon_state_new_defaults() {
 async fn test_tracked_request_struct() {
     use super::actions::TrackedRequest;
     let tr = TrackedRequest {
-        url: "https:
+        url: "https://example.com/api".to_string(),
         method: "GET".to_string(),
         headers: json!({"Accept": "text/html"}),
         timestamp: 12345,
         resource_type: "Document".to_string(),
     };
     let serialized = serde_json::to_value(&tr).unwrap();
-    assert_eq!(serialized["url"], "https:
+    assert_eq!(serialized["url"], "https://example.com/api");
     assert_eq!(serialized["method"], "GET");
     assert_eq!(serialized["resourceType"], "Document");
     assert_eq!(serialized["timestamp"], 12345);
@@ -510,14 +525,14 @@ async fn test_request_tracking_state() {
     assert!(state.tracked_requests.is_empty());
 
     state.tracked_requests.push(super::actions::TrackedRequest {
-        url: "https:
+        url: "https://example.com".to_string(),
         method: "GET".to_string(),
         headers: json!({}),
         timestamp: 1,
         resource_type: "Document".to_string(),
     });
     state.tracked_requests.push(super::actions::TrackedRequest {
-        url: "https:
+        url: "https://other.com".to_string(),
         method: "POST".to_string(),
         headers: json!({}),
         timestamp: 2,
@@ -525,14 +540,16 @@ async fn test_request_tracking_state() {
     });
     assert_eq!(state.tracked_requests.len(), 2);
 
+    // Filter
     let filtered: Vec<_> = state
         .tracked_requests
         .iter()
         .filter(|r| r.url.contains("example"))
         .collect();
     assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].url, "https:
+    assert_eq!(filtered[0].url, "https://example.com");
 
+    // Clear
     state.tracked_requests.clear();
     assert!(state.tracked_requests.is_empty());
 }
@@ -541,6 +558,7 @@ async fn test_request_tracking_state() {
 async fn test_addscript_and_addinitscript_separate_dispatch() {
     let mut state = DaemonState::new();
 
+    // Both should be handled (not "Not yet implemented") even without a browser
     let cmd1 = json!({ "action": "addscript", "id": "as-1", "content": "console.log(1)" });
     let result1 = execute_command(&cmd1, &mut state).await;
     let err1 = result1["error"].as_str().unwrap_or("");
@@ -563,9 +581,11 @@ async fn test_frame_context_management() {
     let mut state = DaemonState::new();
     assert!(state.active_frame_id.is_none());
 
+    // Set a frame ID and verify it persists
     state.active_frame_id = Some("child-frame-123".to_string());
     assert_eq!(state.active_frame_id.as_deref(), Some("child-frame-123"));
 
+    // Clearing the frame ID (what mainframe does)
     state.active_frame_id = None;
     assert!(state.active_frame_id.is_none());
 }
@@ -574,13 +594,14 @@ async fn test_frame_context_management() {
 async fn test_addstyle_supports_content_and_url() {
     let mut state = DaemonState::new();
 
+    // Both content-based and url-based addstyle should be recognized
     let cmd1 = json!({ "action": "addstyle", "id": "style-1", "content": "body { color: red }" });
     let result1 = execute_command(&cmd1, &mut state).await;
     let err1 = result1["error"].as_str().unwrap_or("");
     assert!(!err1.contains("Not yet implemented"));
 
     let cmd2 =
-        json!({ "action": "addstyle", "id": "style-2", "url": "https:
+        json!({ "action": "addstyle", "id": "style-2", "url": "https://example.com/style.css" });
     let result2 = execute_command(&cmd2, &mut state).await;
     let err2 = result2["error"].as_str().unwrap_or("");
     assert!(!err2.contains("Not yet implemented"));
@@ -592,8 +613,8 @@ async fn test_domain_filter_sanitize() {
     let filter = DomainFilter::new("example.com");
     assert!(filter.is_allowed("example.com"));
     assert!(!filter.is_allowed("evil.com"));
-    filter.check_url("https:
-    assert!(filter.check_url("https:
+    filter.check_url("https://example.com/path").unwrap();
+    assert!(filter.check_url("https://evil.com").is_err());
 }
 
 #[tokio::test]

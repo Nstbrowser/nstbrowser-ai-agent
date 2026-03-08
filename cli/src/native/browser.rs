@@ -10,8 +10,11 @@ use super::cdp::client::CdpClient;
 use super::cdp::types::*;
 
 // ---------------------------------------------------------------------------
+// Launch validation
 // ---------------------------------------------------------------------------
 
+/// Validates launch/connect options for incompatible combinations.
+/// Returns `Ok(())` if valid, or `Err(msg)` with a user-friendly error.
 pub fn validate_launch_options(
     extensions: Option<&[String]>,
     has_cdp: bool,
@@ -52,6 +55,7 @@ pub fn validate_launch_options(
     Ok(())
 }
 
+/// Converts common error messages into AI-friendly, actionable descriptions.
 pub fn to_ai_friendly_error(error: &str) -> String {
     let lower = error.to_lowercase();
     if lower.contains("strict mode violation") {
@@ -229,6 +233,7 @@ impl BrowserManager {
             .collect();
 
         if page_targets.is_empty() {
+            // Create a new tab
             let result: CreateTargetResult = self
                 .client
                 .send_command_typed(
@@ -417,6 +422,7 @@ impl BrowserManager {
                     Ok(Ok(_)) => {}
                     Ok(Err(_)) => break,
                     Err(_) => {
+                        // Timeout on recv -- check if idle long enough
                         let p = pending.lock().await;
                         if p.is_empty() {
                             return Ok(());
@@ -495,11 +501,13 @@ impl BrowserManager {
     }
 
     pub async fn close(&mut self) -> Result<(), String> {
+        // Close the browser via CDP if possible
         let _ = self
             .client
             .send_command_no_params("Browser.close", None)
             .await;
 
+        // Kill Chrome process if we own it
         if let Some(ref mut chrome) = self.chrome_process {
             chrome.kill();
         }
@@ -511,6 +519,8 @@ impl BrowserManager {
         !self.pages.is_empty()
     }
 
+    /// Checks if the CDP connection is alive by sending a simple command.
+    /// Returns false if the command times out or fails.
     pub async fn is_connection_alive(&self) -> bool {
         let timeout = tokio::time::Duration::from_secs(3);
         let result = tokio::time::timeout(
@@ -526,10 +536,13 @@ impl BrowserManager {
         }
     }
 
+    /// Returns true if this manager was connected via CDP (as opposed to local launch).
     pub fn is_cdp_connection(&self) -> bool {
         self.chrome_process.is_none()
     }
 
+    /// Ensures the browser has at least one page. If `pages` is empty, creates a new
+    /// about:blank page and attaches to it.
     pub async fn ensure_page(&mut self) -> Result<(), String> {
         if !self.pages.is_empty() {
             return Ok(());
@@ -571,8 +584,11 @@ impl BrowserManager {
     }
 
     // -----------------------------------------------------------------------
+    // Tab management
     // -----------------------------------------------------------------------
 
+    /// Checks if `active_page_index` is still valid and adjusts it if not
+    /// (e.g., after a tab was closed).
     pub fn update_active_page_if_needed(&mut self) {
         if self.pages.is_empty() {
             self.active_page_index = 0;
@@ -651,6 +667,7 @@ impl BrowserManager {
         let session_id = self.pages[index].session_id.clone();
         self.enable_domains(&session_id).await?;
 
+        // Bring tab to front
         let _ = self
             .client
             .send_command("Page.bringToFront", None, Some(&session_id))
@@ -701,6 +718,7 @@ impl BrowserManager {
     }
 
     // -----------------------------------------------------------------------
+    // Emulation
     // -----------------------------------------------------------------------
 
     pub async fn set_viewport(
@@ -860,6 +878,7 @@ impl BrowserManager {
             )
             .await;
 
+        // Alternative: resolve via JS
         let result: EvaluateResult = self
             .client
             .send_command_typed(
@@ -881,6 +900,7 @@ impl BrowserManager {
             .object_id
             .ok_or("File input element not found")?;
 
+        // Get the DOM node from the remote object
         let describe: Value = self
             .client
             .send_command(
@@ -896,6 +916,7 @@ impl BrowserManager {
             .and_then(|v| v.as_i64())
             .ok_or("Could not get backendNodeId for file input")?;
 
+        // Suppress unused variable warning
         let _ = node_result;
 
         self.client
@@ -972,22 +993,24 @@ impl BrowserManager {
 }
 
 async fn resolve_cdp_url(input: &str) -> Result<String, String> {
-    if input.starts_with("ws:
+    if input.starts_with("ws://") || input.starts_with("wss://") {
         return Ok(input.to_string());
     }
 
-    if input.starts_with("http:
+    if input.starts_with("http://") || input.starts_with("https://") {
+        // Parse out the port and discover
         let parsed = url::Url::parse(input).map_err(|e| format!("Invalid CDP URL: {}", e))?;
         let port = parsed.port().unwrap_or(9222);
         return discover_cdp_url(port).await;
     }
 
+    // Try as numeric port
     if let Ok(port) = input.parse::<u16>() {
         return discover_cdp_url(port).await;
     }
 
     Err(format!(
-        "Invalid CDP target: {}. Use ws:
+        "Invalid CDP target: {}. Use ws://, http://, or a port number.",
         input
     ))
 }

@@ -1,9 +1,9 @@
 /**
  * Nstbrowser Integration Tests
- *
+ * 
  * These tests require a running Nstbrowser client with valid API credentials.
  * Set NST_API_KEY, NST_HOST, and NST_PORT environment variables before running.
- *
+ * 
  * Run with: NST_API_KEY=your-key pnpm test test/nstbrowser-integration.test.ts
  */
 
@@ -80,7 +80,7 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
         if (runningBrowser) break;
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-
+      
       // If browser is in list, verify it's running
       if (runningBrowser) {
         expect(runningBrowser.running).toBe(true);
@@ -131,7 +131,7 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
 
       // Verify profile is deleted by checking it's not in the list
       const profilesAfterDelete = await client.getProfiles();
-      const deletedProfile = profilesAfterDelete.find((p) => p.profileId === profile.profileId);
+      const deletedProfile = profilesAfterDelete.find(p => p.profileId === profile.profileId);
       expect(deletedProfile).toBeUndefined();
     }, 15000);
   });
@@ -311,11 +311,147 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
           host: '',
           port: -1,
         };
-        await expect(
-          client.updateProfileProxy(profiles[0].profileId, invalidProxy)
-        ).rejects.toThrow();
+        await expect(client.updateProfileProxy(profiles[0].profileId, invalidProxy)).rejects.toThrow();
       }
     });
+  });
+
+  describe('New Commands - Batch Operations', () => {
+    it('should start multiple browsers in batch', async () => {
+      // Get or create test profiles
+      const profiles = await client.getProfiles();
+      let profileIds: string[] = [];
+
+      if (profiles.length >= 2) {
+        profileIds = profiles.slice(0, 2).map(p => p.profileId);
+      } else {
+        // Create test profiles
+        const profile1 = await client.createProfile({
+          name: `test-batch-1-${Date.now()}`,
+          platform: 'Windows',
+        });
+        const profile2 = await client.createProfile({
+          name: `test-batch-2-${Date.now()}`,
+          platform: 'Windows',
+        });
+        profileIds = [profile1.profileId, profile2.profileId];
+        testProfileId = profile1.profileId; // Store for cleanup
+      }
+
+      // Start browsers in batch
+      const results = await client.startBrowsersBatch(profileIds, {
+        headless: true,
+        autoClose: true,
+      });
+
+      expect(Array.isArray(results)).toBe(true);
+      expect(results.length).toBe(profileIds.length);
+      
+      for (const result of results) {
+        expect(result.profileId).toBeDefined();
+        expect(result.webSocketDebuggerUrl).toContain('ws://');
+      }
+
+      // Wait for browsers to start
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      // Stop all browsers
+      for (const profileId of profileIds) {
+        await client.stopBrowser(profileId);
+      }
+    }, 30000);
+
+    it('should start and connect to once browser', async () => {
+      const config = {
+        platform: 'Windows' as const,
+        headless: true,
+        autoClose: true,
+      };
+
+      const result = await client.startOnceBrowser(config);
+      
+      expect(result.profileId).toBeDefined();
+      expect(result.webSocketDebuggerUrl).toContain('ws://');
+      expect(result.remoteDebuggingPort).toBeGreaterThan(0);
+
+      // Wait for browser to start
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Stop browser
+      await client.stopBrowser(result.profileId);
+    }, 20000);
+  });
+
+  describe('New Commands - Cursor Pagination', () => {
+    it('should list profiles with cursor pagination', async () => {
+      const result = await client.getProfilesByCursor(undefined, 10, 'next');
+      
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.list)).toBe(true);
+      
+      // If there are more profiles, cursor should be present
+      if (result.list.length === 10) {
+        expect(result.cursor).toBeDefined();
+      }
+    });
+
+    it('should navigate through pages with cursor', async () => {
+      // Get first page
+      const firstPage = await client.getProfilesByCursor(undefined, 5, 'next');
+      expect(Array.isArray(firstPage.list)).toBe(true);
+
+      // If there's a cursor, get next page
+      if (firstPage.cursor) {
+        const secondPage = await client.getProfilesByCursor(firstPage.cursor, 5, 'next');
+        expect(Array.isArray(secondPage.list)).toBe(true);
+        
+        // Profiles should be different
+        if (firstPage.list.length > 0 && secondPage.list.length > 0) {
+          expect(firstPage.list[0].profileId).not.toBe(secondPage.list[0].profileId);
+        }
+      }
+    }, 15000);
+  });
+
+  describe('New Commands - CDP URL Endpoints', () => {
+    it('should get CDP URL for profile', async () => {
+      // Get or create a test profile
+      const profiles = await client.getProfiles();
+      let profileId: string;
+
+      if (profiles.length === 0) {
+        const profile = await client.createProfile({
+          name: `test-cdp-${Date.now()}`,
+          platform: 'Windows',
+        });
+        profileId = profile.profileId;
+        testProfileId = profileId;
+      } else {
+        profileId = profiles[0].profileId;
+      }
+
+      // Get CDP URL (this will start the browser if not running)
+      const result = await client.getCdpUrl(profileId);
+      
+      expect(result.webSocketDebuggerUrl).toBeDefined();
+      expect(result.webSocketDebuggerUrl).toContain('ws://');
+
+      // Wait a bit then stop browser
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await client.stopBrowser(profileId);
+    }, 20000);
+
+    it('should get CDP URL for once browser', async () => {
+      const result = await client.getCdpUrlOnce();
+      
+      expect(result.webSocketDebuggerUrl).toBeDefined();
+      expect(result.webSocketDebuggerUrl).toContain('ws://');
+
+      // Extract profile ID from response if available
+      // Note: The API might not return profileId for once browsers
+      // We'll try to stop it if we can identify it
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }, 20000);
   });
 });
 

@@ -1,5 +1,11 @@
+//! End-to-end tests for the native daemon.
 //!
+//! These tests launch a real Chrome instance and exercise the full command
+//! pipeline. They require Chrome to be installed and are marked `#[ignore]`
+//! so they don't run during normal `cargo test`.
 //!
+//! Run serially to avoid Chrome instance contention:
+//!   cargo test e2e -- --ignored --test-threads=1
 
 use serde_json::{json, Value};
 
@@ -19,6 +25,7 @@ fn get_data(resp: &Value) -> &Value {
 }
 
 // ---------------------------------------------------------------------------
+// Core: launch, navigate, evaluate, url, title, close
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -26,6 +33,7 @@ fn get_data(resp: &Value) -> &Value {
 async fn e2e_launch_navigate_evaluate_close() {
     let mut state = DaemonState::new();
 
+    // Launch headless Chrome
     let resp = execute_command(
         &json!({ "id": "1", "action": "launch", "headless": true }),
         &mut state,
@@ -34,23 +42,27 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["launched"], true);
 
+    // Navigate to example.com
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
-    assert_eq!(get_data(&resp)["url"], "https:
+    assert_eq!(get_data(&resp)["url"], "https://example.com/");
     assert_eq!(get_data(&resp)["title"], "Example Domain");
 
+    // Get URL
     let resp = execute_command(&json!({ "id": "3", "action": "url" }), &mut state).await;
     assert_success(&resp);
-    assert_eq!(get_data(&resp)["url"], "https:
+    assert_eq!(get_data(&resp)["url"], "https://example.com/");
 
+    // Get title
     let resp = execute_command(&json!({ "id": "4", "action": "title" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["title"], "Example Domain");
 
+    // Evaluate JS
     let resp = execute_command(
         &json!({ "id": "5", "action": "evaluate", "script": "1 + 2" }),
         &mut state,
@@ -59,6 +71,7 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], 3);
 
+    // Evaluate document.title
     let resp = execute_command(
         &json!({ "id": "6", "action": "evaluate", "script": "document.title" }),
         &mut state,
@@ -67,12 +80,14 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Example Domain");
 
+    // Close
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["closed"], true);
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot with refs and ref-based click
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -88,12 +103,13 @@ async fn e2e_snapshot_and_click_ref() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Take snapshot
     let resp = execute_command(&json!({ "id": "3", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
@@ -108,6 +124,7 @@ async fn e2e_snapshot_and_click_ref() {
         "Snapshot should have a link element"
     );
 
+    // Click the link by ref (e2 is the "More information..." link)
     let resp = execute_command(
         &json!({ "id": "4", "action": "click", "selector": "e2" }),
         &mut state,
@@ -115,8 +132,10 @@ async fn e2e_snapshot_and_click_ref() {
     .await;
     assert_success(&resp);
 
+    // Wait for navigation
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
+    // Verify URL changed
     let resp = execute_command(&json!({ "id": "5", "action": "url" }), &mut state).await;
     assert_success(&resp);
     let url = get_data(&resp)["url"].as_str().unwrap();
@@ -131,6 +150,7 @@ async fn e2e_snapshot_and_click_ref() {
 }
 
 // ---------------------------------------------------------------------------
+// Screenshot
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -146,12 +166,13 @@ async fn e2e_screenshot() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Default screenshot
     let resp = execute_command(&json!({ "id": "3", "action": "screenshot" }), &mut state).await;
     assert_success(&resp);
     let path = get_data(&resp)["path"].as_str().unwrap();
@@ -162,6 +183,7 @@ async fn e2e_screenshot() {
         "Screenshot should be non-trivial size"
     );
 
+    // Named screenshot
     let tmp_path = std::env::temp_dir()
         .join("nstbrowser-ai-agent-e2e-test-screenshot.png")
         .to_string_lossy()
@@ -180,6 +202,7 @@ async fn e2e_screenshot() {
 }
 
 // ---------------------------------------------------------------------------
+// Form interaction: fill, type, select, check
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -212,6 +235,7 @@ async fn e2e_form_interaction() {
     .await;
     assert_success(&resp);
 
+    // Fill name
     let resp = execute_command(
         &json!({ "id": "10", "action": "fill", "selector": "#name", "value": "John Doe" }),
         &mut state,
@@ -219,6 +243,7 @@ async fn e2e_form_interaction() {
     .await;
     assert_success(&resp);
 
+    // Verify fill
     let resp = execute_command(
         &json!({ "id": "11", "action": "evaluate", "script": "document.getElementById('name').value" }),
         &mut state,
@@ -227,6 +252,7 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "John Doe");
 
+    // Fill email (use fill instead of type to avoid key dispatch issues with '.')
     let resp = execute_command(
         &json!({ "id": "12", "action": "fill", "selector": "#email", "value": "john@example.com" }),
         &mut state,
@@ -242,6 +268,7 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "john@example.com");
 
+    // Select option
     let resp = execute_command(
         &json!({ "id": "14", "action": "select", "selector": "#color", "values": ["blue"] }),
         &mut state,
@@ -257,6 +284,7 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "blue");
 
+    // Check checkbox
     let resp = execute_command(
         &json!({ "id": "16", "action": "check", "selector": "#agree" }),
         &mut state,
@@ -272,6 +300,7 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["checked"], true);
 
+    // Uncheck
     let resp = execute_command(
         &json!({ "id": "18", "action": "uncheck", "selector": "#agree" }),
         &mut state,
@@ -287,6 +316,7 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["checked"], false);
 
+    // Snapshot should show form state
     let resp = execute_command(&json!({ "id": "20", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let snap = get_data(&resp)["snapshot"].as_str().unwrap();
@@ -302,6 +332,7 @@ async fn e2e_form_interaction() {
 }
 
 // ---------------------------------------------------------------------------
+// Navigation: back, forward, reload
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -316,6 +347,7 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
+    // Navigate to page 1
     let resp = execute_command(
         &json!({ "id": "2", "action": "navigate", "url": "data:text/html,<h1>Page 1</h1>" }),
         &mut state,
@@ -323,6 +355,7 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
+    // Navigate to page 2
     let resp = execute_command(
         &json!({ "id": "3", "action": "navigate", "url": "data:text/html,<h1>Page 2</h1>" }),
         &mut state,
@@ -330,6 +363,7 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
+    // Back
     let resp = execute_command(&json!({ "id": "4", "action": "back" }), &mut state).await;
     assert_success(&resp);
 
@@ -341,6 +375,7 @@ async fn e2e_navigation_history() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Page 1");
 
+    // Forward
     let resp = execute_command(&json!({ "id": "6", "action": "forward" }), &mut state).await;
     assert_success(&resp);
 
@@ -352,6 +387,7 @@ async fn e2e_navigation_history() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Page 2");
 
+    // Reload
     let resp = execute_command(&json!({ "id": "8", "action": "reload" }), &mut state).await;
     assert_success(&resp);
 
@@ -368,6 +404,7 @@ async fn e2e_navigation_history() {
 }
 
 // ---------------------------------------------------------------------------
+// Cookies
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -383,12 +420,13 @@ async fn e2e_cookies() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Set cookie
     let resp = execute_command(
         &json!({
             "id": "3",
@@ -401,6 +439,7 @@ async fn e2e_cookies() {
     .await;
     assert_success(&resp);
 
+    // Get cookies
     let resp = execute_command(&json!({ "id": "4", "action": "cookies_get" }), &mut state).await;
     assert_success(&resp);
     let cookies = get_data(&resp)["cookies"].as_array().unwrap();
@@ -409,9 +448,11 @@ async fn e2e_cookies() {
         .any(|c| c["name"] == "test_cookie" && c["value"] == "hello123");
     assert!(found, "Should find the set cookie");
 
+    // Clear cookies
     let resp = execute_command(&json!({ "id": "5", "action": "cookies_clear" }), &mut state).await;
     assert_success(&resp);
 
+    // Verify cleared
     let resp = execute_command(&json!({ "id": "6", "action": "cookies_get" }), &mut state).await;
     assert_success(&resp);
     let cookies = get_data(&resp)["cookies"].as_array().unwrap();
@@ -423,6 +464,7 @@ async fn e2e_cookies() {
 }
 
 // ---------------------------------------------------------------------------
+// localStorage / sessionStorage
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -438,12 +480,13 @@ async fn e2e_storage() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Set local storage
     let resp = execute_command(
         &json!({ "id": "3", "action": "storage_set", "type": "local", "key": "mykey", "value": "myvalue" }),
         &mut state,
@@ -451,6 +494,7 @@ async fn e2e_storage() {
     .await;
     assert_success(&resp);
 
+    // Get local storage key
     let resp = execute_command(
         &json!({ "id": "4", "action": "storage_get", "type": "local", "key": "mykey" }),
         &mut state,
@@ -459,6 +503,7 @@ async fn e2e_storage() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["value"], "myvalue");
 
+    // Get all local storage
     let resp = execute_command(
         &json!({ "id": "5", "action": "storage_get", "type": "local" }),
         &mut state,
@@ -467,6 +512,7 @@ async fn e2e_storage() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["data"]["mykey"], "myvalue");
 
+    // Clear
     let resp = execute_command(
         &json!({ "id": "6", "action": "storage_clear", "type": "local" }),
         &mut state,
@@ -474,6 +520,7 @@ async fn e2e_storage() {
     .await;
     assert_success(&resp);
 
+    // Verify cleared
     let resp = execute_command(
         &json!({ "id": "7", "action": "storage_get", "type": "local" }),
         &mut state,
@@ -491,6 +538,7 @@ async fn e2e_storage() {
 }
 
 // ---------------------------------------------------------------------------
+// Tab management
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -512,12 +560,14 @@ async fn e2e_tabs() {
     .await;
     assert_success(&resp);
 
+    // Tab list should show 1 tab
     let resp = execute_command(&json!({ "id": "3", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
     assert_eq!(tabs.len(), 1);
     assert_eq!(tabs[0]["active"], true);
 
+    // Open new tab
     let resp = execute_command(
         &json!({ "id": "4", "action": "tab_new", "url": "data:text/html,<h1>Tab 2</h1>" }),
         &mut state,
@@ -526,12 +576,14 @@ async fn e2e_tabs() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["index"], 1);
 
+    // Tab list should show 2 tabs
     let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
     assert_eq!(tabs.len(), 2);
     assert_eq!(tabs[1]["active"], true);
 
+    // Switch to first tab
     let resp = execute_command(
         &json!({ "id": "6", "action": "tab_switch", "index": 0 }),
         &mut state,
@@ -547,6 +599,7 @@ async fn e2e_tabs() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Tab 1");
 
+    // Close second tab
     let resp = execute_command(
         &json!({ "id": "8", "action": "tab_close", "index": 1 }),
         &mut state,
@@ -554,6 +607,7 @@ async fn e2e_tabs() {
     .await;
     assert_success(&resp);
 
+    // Should have 1 tab left
     let resp = execute_command(&json!({ "id": "9", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
@@ -564,6 +618,7 @@ async fn e2e_tabs() {
 }
 
 // ---------------------------------------------------------------------------
+// Element queries: isvisible, isenabled, gettext, getattribute
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -584,7 +639,7 @@ async fn e2e_element_queries() {
         "<p id='hidden' style='display:none'>Hidden</p>",
         "<input id='enabled' value='test'>",
         "<input id='disabled' disabled value='nope'>",
-        "<a id='link' href='https:
+        "<a id='link' href='https://example.com' data-testid='my-link'>Click me</a>",
         "</body></html>"
     );
 
@@ -595,6 +650,7 @@ async fn e2e_element_queries() {
     .await;
     assert_success(&resp);
 
+    // isvisible
     let resp = execute_command(
         &json!({ "id": "3", "action": "isvisible", "selector": "#visible" }),
         &mut state,
@@ -611,6 +667,7 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["visible"], false);
 
+    // isenabled
     let resp = execute_command(
         &json!({ "id": "5", "action": "isenabled", "selector": "#enabled" }),
         &mut state,
@@ -627,6 +684,7 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["enabled"], false);
 
+    // gettext
     let resp = execute_command(
         &json!({ "id": "7", "action": "gettext", "selector": "#visible" }),
         &mut state,
@@ -635,13 +693,14 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["text"], "Hello World");
 
+    // getattribute
     let resp = execute_command(
         &json!({ "id": "8", "action": "getattribute", "selector": "#link", "attribute": "href" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
-    assert_eq!(get_data(&resp)["value"], "https:
+    assert_eq!(get_data(&resp)["value"], "https://example.com");
 
     let resp = execute_command(
         &json!({ "id": "9", "action": "getattribute", "selector": "#link", "attribute": "data-testid" }),
@@ -656,6 +715,7 @@ async fn e2e_element_queries() {
 }
 
 // ---------------------------------------------------------------------------
+// Wait command
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -684,6 +744,7 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
+    // Wait for selector to become visible
     let resp = execute_command(
         &json!({ "id": "3", "action": "wait", "selector": "#target", "state": "visible", "timeout": 5000 }),
         &mut state,
@@ -691,6 +752,7 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
+    // Wait for text
     let resp = execute_command(
         &json!({ "id": "4", "action": "wait", "text": "Appeared!", "timeout": 5000 }),
         &mut state,
@@ -698,6 +760,7 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
+    // Timeout wait
     let start = std::time::Instant::now();
     let resp = execute_command(
         &json!({ "id": "5", "action": "wait", "timeout": 200 }),
@@ -715,6 +778,7 @@ async fn e2e_wait() {
 }
 
 // ---------------------------------------------------------------------------
+// Viewport and emulation
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -736,6 +800,7 @@ async fn e2e_viewport_emulation() {
     .await;
     assert_success(&resp);
 
+    // Get initial width
     let resp = execute_command(
         &json!({ "id": "3", "action": "evaluate", "script": "window.innerWidth" }),
         &mut state,
@@ -744,6 +809,7 @@ async fn e2e_viewport_emulation() {
     assert_success(&resp);
     let initial_width = get_data(&resp)["result"].as_i64().unwrap();
 
+    // Set viewport to a different size
     let resp = execute_command(
         &json!({ "id": "4", "action": "viewport", "width": 375, "height": 812, "deviceScaleFactor": 3.0, "mobile": true }),
         &mut state,
@@ -754,9 +820,11 @@ async fn e2e_viewport_emulation() {
     assert_eq!(get_data(&resp)["height"], 812);
     assert_eq!(get_data(&resp)["mobile"], true);
 
+    // Reload to apply viewport change
     let resp = execute_command(&json!({ "id": "5", "action": "reload" }), &mut state).await;
     assert_success(&resp);
 
+    // Width should differ from default (setDeviceMetricsOverride applied)
     let resp = execute_command(
         &json!({ "id": "6", "action": "evaluate", "script": "window.innerWidth" }),
         &mut state,
@@ -771,6 +839,7 @@ async fn e2e_viewport_emulation() {
         new_width
     );
 
+    // Set user agent
     let resp = execute_command(
         &json!({ "id": "5", "action": "user_agent", "userAgent": "TestBot/1.0" }),
         &mut state,
@@ -791,6 +860,7 @@ async fn e2e_viewport_emulation() {
 }
 
 // ---------------------------------------------------------------------------
+// Hover, scroll, press
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -819,6 +889,7 @@ async fn e2e_hover_scroll_press() {
     .await;
     assert_success(&resp);
 
+    // Hover
     let resp = execute_command(
         &json!({ "id": "3", "action": "hover", "selector": "#btn" }),
         &mut state,
@@ -826,6 +897,7 @@ async fn e2e_hover_scroll_press() {
     .await;
     assert_success(&resp);
 
+    // Scroll
     let resp = execute_command(
         &json!({ "id": "4", "action": "scroll", "y": 500 }),
         &mut state,
@@ -842,6 +914,7 @@ async fn e2e_hover_scroll_press() {
     let scroll_y = get_data(&resp)["result"].as_f64().unwrap();
     assert!(scroll_y > 0.0, "Should have scrolled down");
 
+    // Press key
     let resp = execute_command(
         &json!({ "id": "6", "action": "press", "key": "Enter" }),
         &mut state,
@@ -855,6 +928,7 @@ async fn e2e_hover_scroll_press() {
 }
 
 // ---------------------------------------------------------------------------
+// State save/load, state management
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -870,12 +944,13 @@ async fn e2e_state_management() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Set some storage
     let resp = execute_command(
         &json!({ "id": "3", "action": "storage_set", "type": "local", "key": "persist_key", "value": "persist_val" }),
         &mut state,
@@ -883,6 +958,7 @@ async fn e2e_state_management() {
     .await;
     assert_success(&resp);
 
+    // Save state
     let tmp_state = std::env::temp_dir()
         .join("nstbrowser-ai-agent-e2e-state.json")
         .to_string_lossy()
@@ -895,6 +971,7 @@ async fn e2e_state_management() {
     assert_success(&resp);
     assert!(std::path::Path::new(&tmp_state).exists());
 
+    // State show
     let resp = execute_command(
         &json!({ "id": "5", "action": "state_show", "path": &tmp_state }),
         &mut state,
@@ -904,10 +981,12 @@ async fn e2e_state_management() {
     let state_data = get_data(&resp);
     assert!(state_data.get("state").is_some());
 
+    // State list
     let resp = execute_command(&json!({ "id": "6", "action": "state_list" }), &mut state).await;
     assert_success(&resp);
     assert!(get_data(&resp)["files"].is_array());
 
+    // Clean up
     let _ = std::fs::remove_file(&tmp_state);
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
@@ -915,6 +994,7 @@ async fn e2e_state_management() {
 }
 
 // ---------------------------------------------------------------------------
+// Domain filter
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -930,15 +1010,17 @@ async fn e2e_domain_filter() {
     .await;
     assert_success(&resp);
 
+    // Allowed domain
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https:
+        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
     )
     .await;
     assert_success(&resp);
 
+    // Blocked domain
     let resp = execute_command(
-        &json!({ "id": "3", "action": "navigate", "url": "https:
+        &json!({ "id": "3", "action": "navigate", "url": "https://blocked.com" }),
         &mut state,
     )
     .await;
@@ -955,6 +1037,7 @@ async fn e2e_domain_filter() {
 }
 
 // ---------------------------------------------------------------------------
+// Diff engine
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -976,10 +1059,12 @@ async fn e2e_diff_snapshot() {
     .await;
     assert_success(&resp);
 
+    // Take a snapshot and use it as baseline for diff
     let resp = execute_command(&json!({ "id": "3", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let baseline = get_data(&resp)["snapshot"].as_str().unwrap().to_string();
 
+    // Modify the page
     let resp = execute_command(
         &json!({ "id": "4", "action": "evaluate", "script": "document.querySelector('h1').textContent = 'Changed'" }),
         &mut state,
@@ -987,6 +1072,7 @@ async fn e2e_diff_snapshot() {
     .await;
     assert_success(&resp);
 
+    // Diff against baseline
     let resp = execute_command(
         &json!({ "id": "5", "action": "diff_snapshot", "baseline": baseline }),
         &mut state,
@@ -1005,6 +1091,7 @@ async fn e2e_diff_snapshot() {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 8 commands: focus, clear, count, boundingbox, innertext, setvalue
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1037,6 +1124,7 @@ async fn e2e_phase8_commands() {
     .await;
     assert_success(&resp);
 
+    // Focus
     let resp = execute_command(
         &json!({ "id": "10", "action": "focus", "selector": "#a" }),
         &mut state,
@@ -1044,6 +1132,7 @@ async fn e2e_phase8_commands() {
     .await;
     assert_success(&resp);
 
+    // Clear
     let resp = execute_command(
         &json!({ "id": "11", "action": "clear", "selector": "#a" }),
         &mut state,
@@ -1059,6 +1148,7 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "");
 
+    // Set value
     let resp = execute_command(
         &json!({ "id": "13", "action": "setvalue", "selector": "#b", "value": "new-value" }),
         &mut state,
@@ -1074,6 +1164,7 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["value"], "new-value");
 
+    // Count
     let resp = execute_command(
         &json!({ "id": "15", "action": "count", "selector": ".item" }),
         &mut state,
@@ -1082,6 +1173,7 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["count"], 3);
 
+    // Bounding box
     let resp = execute_command(
         &json!({ "id": "16", "action": "boundingbox", "selector": "#box" }),
         &mut state,
@@ -1094,6 +1186,7 @@ async fn e2e_phase8_commands() {
     assert!(bbox["x"].as_f64().is_some());
     assert!(bbox["y"].as_f64().is_some());
 
+    // Inner text
     let resp = execute_command(
         &json!({ "id": "17", "action": "innertext", "selector": "#box" }),
         &mut state,
@@ -1107,6 +1200,7 @@ async fn e2e_phase8_commands() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-launch (tests that commands auto-launch when no browser exists)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1114,6 +1208,7 @@ async fn e2e_phase8_commands() {
 async fn e2e_auto_launch() {
     let mut state = DaemonState::new();
 
+    // Navigate without explicit launch -- should auto-launch
     let resp = execute_command(
         &json!({ "id": "1", "action": "navigate", "url": "data:text/html,<h1>Auto</h1>" }),
         &mut state,
@@ -1135,6 +1230,7 @@ async fn e2e_auto_launch() {
 }
 
 // ---------------------------------------------------------------------------
+// Error handling
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1156,6 +1252,7 @@ async fn e2e_error_handling() {
     .await;
     assert_success(&resp);
 
+    // Unknown action
     let resp = execute_command(
         &json!({ "id": "10", "action": "nonexistent_action" }),
         &mut state,
@@ -1167,6 +1264,7 @@ async fn e2e_error_handling() {
         .unwrap()
         .contains("Not yet implemented"));
 
+    // Missing required parameter
     let resp = execute_command(
         &json!({ "id": "11", "action": "fill", "selector": "#x" }),
         &mut state,
@@ -1175,6 +1273,7 @@ async fn e2e_error_handling() {
     assert_eq!(resp["success"], false);
     assert!(resp["error"].as_str().unwrap().contains("value"));
 
+    // Click on non-existent element
     let resp = execute_command(
         &json!({ "id": "12", "action": "click", "selector": "#does-not-exist" }),
         &mut state,
@@ -1182,6 +1281,7 @@ async fn e2e_error_handling() {
     .await;
     assert_eq!(resp["success"], false);
 
+    // Evaluate syntax error
     let resp = execute_command(
         &json!({ "id": "13", "action": "evaluate", "script": "}{invalid" }),
         &mut state,

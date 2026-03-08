@@ -2,7 +2,7 @@
  * Nstbrowser integration type definitions
  */
 
-// Browser instance related types
+// Browser instance related
 export interface BrowserInstance {
   profileId: string;
   name: string;
@@ -31,7 +31,7 @@ export interface StartBrowserResponse {
   remoteDebuggingPort: number;
 }
 
-// Profile related types
+// Profile related
 export interface Profile {
   profileId: string;
   name: string;
@@ -119,7 +119,7 @@ export interface ProxyConfig {
   password?: string;
 }
 
-// Tag related types
+// Tag related
 export interface Tag {
   name: string;
   color?: string;
@@ -130,7 +130,7 @@ export interface TagConfig {
   color?: string;
 }
 
-// Profile group related types
+// Group related
 export interface ProfileGroup {
   groupId: string;
   name: string;
@@ -139,7 +139,7 @@ export interface ProfileGroup {
   settings?: Record<string, unknown>;
 }
 
-// CDP connection related types
+// CDP connection related
 export interface ConnectResponse {
   profileId: string;
   webSocketDebuggerUrl: string;
@@ -157,7 +157,7 @@ export interface OnceBrowserConfig {
   clearCacheOnClose?: boolean;
 }
 
-// API response types
+// API response
 export interface NstApiResponse<T = unknown> {
   err: boolean; // false means success
   msg: string;
@@ -165,7 +165,7 @@ export interface NstApiResponse<T = unknown> {
   code?: number;
 }
 
-// Batch operation types
+// Batch operation
 export interface BatchOperationResult<T = unknown> {
   success: boolean;
   results: T[];

@@ -3,10 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { BrowserManager } from './browser.js';
-import { IOSManager } from './ios-manager.js';
 import { parseCommand, serializeResponse, errorResponse } from './protocol.js';
 import { executeCommand, initActionPolicy } from './actions.js';
-import { executeIOSCommand } from './ios-actions.js';
 import { executeNstbrowserCommand } from './nstbrowser-actions.js';
 import { StreamServer } from './stream-server.js';
 import type { Command } from './types.js';
@@ -19,8 +17,6 @@ import {
   cleanupExpiredStates,
   getAutoStateFilePath,
 } from './state-utils.js';
-
-type Manager = BrowserManager | IOSManager;
 
 /**
  * Backpressure-aware socket write.
@@ -63,12 +59,16 @@ export function safeWrite(socket: net.Socket, payload: string): Promise<void> {
   });
 }
 
+// Platform detection
 const isWindows = process.platform === 'win32';
 
+// Session support - each session gets its own socket/pid
 let currentSession = process.env.NSTBROWSER_AI_AGENT_SESSION || 'default';
 
+// Stream server for browser preview
 let streamServer: StreamServer | null = null;
 
+// Default stream port (can be overridden with NSTBROWSER_AI_AGENT_STREAM_PORT)
 const DEFAULT_STREAM_PORT = 9223;
 
 /**
@@ -188,6 +188,7 @@ function getPortForSession(session: string): number {
     hash = (hash << 5) - hash + session.charCodeAt(i);
     hash |= 0;
   }
+  // Port range 49152-65535 (dynamic/private ports)
   return 49152 + (Math.abs(hash) % 16383);
 }
 
@@ -196,19 +197,23 @@ function getPortForSession(session: string): number {
  * Priority: NSTBROWSER_AI_AGENT_SOCKET_DIR > XDG_RUNTIME_DIR > ~/.nstbrowser-ai-agent > tmpdir
  */
 export function getAppDir(): string {
+  // 1. XDG_RUNTIME_DIR (Linux standard)
   if (process.env.XDG_RUNTIME_DIR) {
     return path.join(process.env.XDG_RUNTIME_DIR, 'nstbrowser-ai-agent');
   }
 
+  // 2. Home directory fallback (like Docker Desktop's ~/.docker/run/)
   const homeDir = os.homedir();
   if (homeDir) {
     return path.join(homeDir, '.nstbrowser-ai-agent');
   }
 
+  // 3. Last resort: temp dir
   return path.join(os.tmpdir(), 'nstbrowser-ai-agent');
 }
 
 export function getSocketDir(): string {
+  // Allow explicit override for socket directory
   if (process.env.NSTBROWSER_AI_AGENT_SOCKET_DIR) {
     return process.env.NSTBROWSER_AI_AGENT_SOCKET_DIR;
   }
@@ -251,12 +256,16 @@ export function isDaemonRunning(session?: string): boolean {
 
   try {
     const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+    // Check if process exists (works on both Unix and Windows)
     process.kill(pid, 0);
     return true;
   } catch (err: unknown) {
+    // EPERM means the process exists but we lack permission to signal it
+    // (e.g. caller is inside a macOS sandbox). Only ESRCH means it's gone.
     if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'EPERM') {
       return true;
     }
+    // Process doesn't exist, clean up stale files
     cleanupSocket(session);
     return false;
   }
@@ -292,7 +301,9 @@ export function cleanupSocket(session?: string): void {
       const socketPath = getSocketPath(session);
       if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
     }
-  } catch {}
+  } catch {
+    // Ignore cleanup errors
+  }
 }
 
 /**
@@ -306,39 +317,42 @@ export function getStreamPortFile(session?: string): string {
 /**
  * Start the daemon server
  * @param options.streamPort Port for WebSocket stream server (0 to disable)
- * @param options.provider Provider type ('ios' for iOS Simulator, undefined for desktop)
  */
 export async function startDaemon(options?: {
   streamPort?: number;
   provider?: string;
 }): Promise<void> {
+  // Ensure socket directory exists with restricted permissions (owner-only access)
   const socketDir = getSocketDir();
   if (!fs.existsSync(socketDir)) {
     fs.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
   }
 
+  // Clean up any stale socket
   cleanupSocket();
 
+  // Clean up expired state files on startup
   runCleanupExpiredStates();
 
+  // Initialize action policy enforcement
   initActionPolicy();
 
-  const provider = options?.provider ?? process.env.NSTBROWSER_AI_AGENT_PROVIDER;
-  const isIOS = provider === 'ios';
-
-  const manager: Manager = isIOS ? new IOSManager() : new BrowserManager();
+  // Create browser manager
+  const manager = new BrowserManager();
   let shuttingDown = false;
 
+  // Start stream server if port is specified (or use default if env var is set)
   const streamPort =
     options?.streamPort ??
     (process.env.NSTBROWSER_AI_AGENT_STREAM_PORT
       ? parseInt(process.env.NSTBROWSER_AI_AGENT_STREAM_PORT, 10)
       : 0);
 
-  if (streamPort > 0 && !isIOS && manager instanceof BrowserManager) {
+  if (streamPort > 0) {
     streamServer = new StreamServer(manager, streamPort);
     await streamServer.start();
 
+    // Write stream port to file for clients to discover
     const streamPortFile = getStreamPortFile();
     fs.writeFileSync(streamPortFile, streamPort.toString());
   }
@@ -347,6 +361,9 @@ export async function startDaemon(options?: {
     let buffer = '';
     let httpChecked = false;
 
+    // Command serialization: queue incoming lines and process them one at a time.
+    // This prevents concurrent command execution which can cause socket.write
+    // buffer contention and EAGAIN errors on the Rust CLI side.
     const commandQueue: string[] = [];
     let processing = false;
 
@@ -366,6 +383,7 @@ export async function startDaemon(options?: {
             continue;
           }
 
+          // Debug: log received commands
           if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
             console.error(
               '[DAEMON] Received command:',
@@ -373,26 +391,7 @@ export async function startDaemon(options?: {
             );
           }
 
-          if (parseResult.command.action === 'device_list') {
-            const iosManager = new IOSManager();
-            try {
-              const devices = await iosManager.listAllDevices();
-              const response = {
-                id: parseResult.command.id,
-                success: true as const,
-                data: { devices },
-              };
-              await safeWrite(socket, serializeResponse(response) + '\n');
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await safeWrite(
-                socket,
-                serializeResponse(errorResponse(parseResult.command.id, message)) + '\n'
-              );
-            }
-            continue;
-          }
-
+          // Handle Nstbrowser commands - they don't require a browser session
           if (parseResult.command.action.startsWith('nst_')) {
             try {
               const response = await executeNstbrowserCommand(parseResult.command);
@@ -407,81 +406,78 @@ export async function startDaemon(options?: {
             continue;
           }
 
+          // Auto-launch if not already launched and this isn't a launch/close/state_load command
           if (
             !manager.isLaunched() &&
             parseResult.command.action !== 'launch' &&
             parseResult.command.action !== 'close' &&
             parseResult.command.action !== 'state_load'
           ) {
-            if (isIOS && manager instanceof IOSManager) {
-              const cmd = parseResult.command as { iosDevice?: string };
-              const iosDevice = cmd.iosDevice || process.env.NSTBROWSER_AI_AGENT_IOS_DEVICE;
-              await manager.launch({
-                device: iosDevice,
-                udid: process.env.NSTBROWSER_AI_AGENT_IOS_UDID,
-              });
-            } else if (manager instanceof BrowserManager) {
-              const extensions = process.env.NSTBROWSER_AI_AGENT_EXTENSIONS
-                ? process.env.NSTBROWSER_AI_AGENT_EXTENSIONS.split(',')
-                    .map((p) => p.trim())
-                    .filter(Boolean)
+            // Auto-launch desktop browser
+            const extensions = process.env.NSTBROWSER_AI_AGENT_EXTENSIONS
+              ? process.env.NSTBROWSER_AI_AGENT_EXTENSIONS.split(',')
+                  .map((p) => p.trim())
+                  .filter(Boolean)
+              : undefined;
+
+            // Parse args from env (comma or newline separated)
+            const argsEnv = process.env.NSTBROWSER_AI_AGENT_ARGS;
+            const args = argsEnv
+              ? argsEnv
+                  .split(/[,\n]/)
+                  .map((a) => a.trim())
+                  .filter((a) => a.length > 0)
+              : undefined;
+
+            // Parse proxy from env
+            const proxyServer = process.env.NSTBROWSER_AI_AGENT_PROXY;
+            const proxyBypass = process.env.NSTBROWSER_AI_AGENT_PROXY_BYPASS;
+            const proxy = proxyServer
+              ? {
+                  server: proxyServer,
+                  ...(proxyBypass && { bypass: proxyBypass }),
+                }
+              : undefined;
+
+            const ignoreHTTPSErrors = process.env.NSTBROWSER_AI_AGENT_IGNORE_HTTPS_ERRORS === '1';
+            const allowFileAccess = process.env.NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS === '1';
+            const colorSchemeEnv = process.env.NSTBROWSER_AI_AGENT_COLOR_SCHEME;
+            const colorScheme =
+              colorSchemeEnv === 'dark' ||
+              colorSchemeEnv === 'light' ||
+              colorSchemeEnv === 'no-preference'
+                ? colorSchemeEnv
                 : undefined;
 
-              const argsEnv = process.env.NSTBROWSER_AI_AGENT_ARGS;
-              const args = argsEnv
-                ? argsEnv
-                    .split(/[,\n]/)
-                    .map((a) => a.trim())
-                    .filter((a) => a.length > 0)
-                : undefined;
+            // Extract NST profile fields from command if present
+            const cmd = parseResult.command as Command & {
+              nstProfileName?: string;
+              nstProfileId?: string;
+            };
+            const nstProfileName = cmd.nstProfileName;
+            const nstProfileId = cmd.nstProfileId;
 
-              const proxyServer = process.env.NSTBROWSER_AI_AGENT_PROXY;
-              const proxyBypass = process.env.NSTBROWSER_AI_AGENT_PROXY_BYPASS;
-              const proxy = proxyServer
-                ? {
-                    server: proxyServer,
-                    ...(proxyBypass && { bypass: proxyBypass }),
-                  }
-                : undefined;
-
-              const ignoreHTTPSErrors = process.env.NSTBROWSER_AI_AGENT_IGNORE_HTTPS_ERRORS === '1';
-              const allowFileAccess = process.env.NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS === '1';
-              const colorSchemeEnv = process.env.NSTBROWSER_AI_AGENT_COLOR_SCHEME;
-              const colorScheme =
-                colorSchemeEnv === 'dark' ||
-                colorSchemeEnv === 'light' ||
-                colorSchemeEnv === 'no-preference'
-                  ? colorSchemeEnv
-                  : undefined;
-
-              const cmd = parseResult.command as Command & {
-                nstProfileName?: string;
-                nstProfileId?: string;
-              };
-              const nstProfileName = cmd.nstProfileName;
-              const nstProfileId = cmd.nstProfileId;
-
-              await manager.launch({
-                id: 'auto',
-                action: 'launch' as const,
-                headless: process.env.NSTBROWSER_AI_AGENT_HEADED !== '1',
-                executablePath: process.env.NSTBROWSER_AI_AGENT_EXECUTABLE_PATH,
-                extensions: extensions,
-                profile: process.env.NSTBROWSER_AI_AGENT_PROFILE,
-                storageState: process.env.NSTBROWSER_AI_AGENT_STATE,
-                args,
-                userAgent: process.env.NSTBROWSER_AI_AGENT_USER_AGENT,
-                proxy,
-                ignoreHTTPSErrors: ignoreHTTPSErrors,
-                allowFileAccess: allowFileAccess,
-                colorScheme,
-                autoStateFilePath: getSessionAutoStatePath(),
-                nstProfileName,
-                nstProfileId,
-              });
-            }
+            await manager.launch({
+              id: 'auto',
+              action: 'launch' as const,
+              headless: process.env.NSTBROWSER_AI_AGENT_HEADED !== '1',
+              executablePath: process.env.NSTBROWSER_AI_AGENT_EXECUTABLE_PATH,
+              extensions: extensions,
+              profile: process.env.NSTBROWSER_AI_AGENT_PROFILE,
+              storageState: process.env.NSTBROWSER_AI_AGENT_STATE,
+              args,
+              userAgent: process.env.NSTBROWSER_AI_AGENT_USER_AGENT,
+              proxy,
+              ignoreHTTPSErrors: ignoreHTTPSErrors,
+              allowFileAccess: allowFileAccess,
+              colorScheme,
+              autoStateFilePath: getSessionAutoStatePath(),
+              nstProfileName,
+              nstProfileId,
+            });
           }
 
+          // Recover from stale state: browser is launched but all pages were closed
           if (
             manager instanceof BrowserManager &&
             manager.isLaunched() &&
@@ -492,6 +488,7 @@ export async function startDaemon(options?: {
             await manager.ensurePage();
           }
 
+          // Handle explicit launch with auto-load state
           if (
             parseResult.command.action === 'launch' &&
             manager instanceof BrowserManager &&
@@ -503,7 +500,9 @@ export async function startDaemon(options?: {
             }
           }
 
+          // Handle close command specially - shuts down daemon
           if (parseResult.command.action === 'close') {
+            // Auto-save state before closing
             if (manager instanceof BrowserManager && manager.isLaunched()) {
               const savePath = getSessionSaveStatePath();
               if (savePath) {
@@ -523,10 +522,7 @@ export async function startDaemon(options?: {
               }
             }
 
-            const response =
-              isIOS && manager instanceof IOSManager
-                ? await executeIOSCommand(parseResult.command, manager)
-                : await executeCommand(parseResult.command, manager as BrowserManager);
+            const response = await executeCommand(parseResult.command, manager);
             await safeWrite(socket, serializeResponse(response) + '\n');
 
             if (!shuttingDown) {
@@ -543,16 +539,13 @@ export async function startDaemon(options?: {
             return;
           }
 
-          const response =
-            isIOS && manager instanceof IOSManager
-              ? await executeIOSCommand(parseResult.command, manager)
-              : await executeCommand(parseResult.command, manager as BrowserManager);
+          // Execute command
+          const response = await executeCommand(parseResult.command, manager);
 
-          if (manager instanceof BrowserManager) {
-            const warnings = manager.getAndClearWarnings();
-            if (warnings.length > 0 && response.success && response.data) {
-              (response.data as Record<string, unknown>).warnings = warnings;
-            }
+          // Add any launch warnings to the response
+          const warnings = manager.getAndClearWarnings();
+          if (warnings.length > 0 && response.success && response.data) {
+            (response.data as Record<string, unknown>).warnings = warnings;
           }
 
           await safeWrite(socket, serializeResponse(response) + '\n');
@@ -560,7 +553,7 @@ export async function startDaemon(options?: {
           const message = err instanceof Error ? err.message : String(err);
           await safeWrite(socket, serializeResponse(errorResponse('error', message)) + '\n').catch(
             () => {}
-          );
+          ); // Socket may already be destroyed
         }
       }
 
@@ -570,6 +563,9 @@ export async function startDaemon(options?: {
     socket.on('data', (data) => {
       buffer += data.toString();
 
+      // Security: Detect and reject HTTP requests to prevent cross-origin attacks.
+      // Browsers using fetch() must send HTTP headers (e.g., "POST / HTTP/1.1"),
+      // while legitimate clients send raw JSON starting with "{".
       if (!httpChecked) {
         httpChecked = true;
         const trimmed = buffer.trimStart();
@@ -579,6 +575,7 @@ export async function startDaemon(options?: {
         }
       }
 
+      // Extract complete lines and enqueue them for serial processing
       while (buffer.includes('\n')) {
         const newlineIdx = buffer.indexOf('\n');
         const line = buffer.substring(0, newlineIdx);
@@ -589,6 +586,9 @@ export async function startDaemon(options?: {
       }
 
       processQueue().catch((err) => {
+        // Socket write failures during queue processing are non-fatal;
+        // the client has likely disconnected.
+        // Only log err.message to avoid leaking sensitive fields (e.g. passwords) from command objects.
         console.warn('[warn] processQueue error:', err?.message ?? String(err));
         if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
           console.error(
@@ -599,21 +599,30 @@ export async function startDaemon(options?: {
       });
     });
 
-    socket.on('error', () => {});
+    socket.on('error', () => {
+      // Client disconnected, ignore
+    });
   });
 
   const pidFile = getPidFile();
 
+  // Write PID file before listening
   fs.writeFileSync(pidFile, process.pid.toString());
 
   if (isWindows) {
+    // Windows: use TCP socket on localhost
     const port = getPortForSession(currentSession);
     const portFile = getPortFile();
     fs.writeFileSync(portFile, port.toString());
-    server.listen(port, '127.0.0.1', () => {});
+    server.listen(port, '127.0.0.1', () => {
+      // Daemon is ready on TCP port
+    });
   } else {
+    // Unix: use Unix domain socket
     const socketPath = getSocketPath();
-    server.listen(socketPath, () => {});
+    server.listen(socketPath, () => {
+      // Daemon is ready
+    });
   }
 
   server.on('error', (err) => {
@@ -622,17 +631,22 @@ export async function startDaemon(options?: {
     process.exit(1);
   });
 
+  // Handle shutdown signals
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
 
+    // Stop stream server if running
     if (streamServer) {
       await streamServer.stop();
       streamServer = null;
+      // Clean up stream port file
       const streamPortFile = getStreamPortFile();
       try {
         if (fs.existsSync(streamPortFile)) fs.unlinkSync(streamPortFile);
-      } catch {}
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
     await manager.close();
@@ -645,6 +659,7 @@ export async function startDaemon(options?: {
   process.on('SIGTERM', shutdown);
   process.on('SIGHUP', shutdown);
 
+  // Handle unexpected errors - always cleanup
   process.on('uncaughtException', (err) => {
     console.error('Uncaught exception:', err);
     cleanupSocket();
@@ -657,13 +672,16 @@ export async function startDaemon(options?: {
     process.exit(1);
   });
 
+  // Cleanup on normal exit
   process.on('exit', () => {
     cleanupSocket();
   });
 
+  // Keep process alive
   process.stdin.resume();
 }
 
+// Run daemon if this is the entry point
 if (process.argv[1]?.endsWith('daemon.js') || process.env.NSTBROWSER_AI_AGENT_DAEMON === '1') {
   startDaemon().catch((err) => {
     console.error('Daemon error:', err);

@@ -3,6 +3,8 @@ import type { DiffSnapshotData, DiffScreenshotData } from './types.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
+// --- Text diffing (Myers algorithm, line-level) ---
+
 interface DiffEdit {
   type: 'equal' | 'insert' | 'delete';
   line: string;
@@ -19,6 +21,7 @@ function myersDiff(a: string[], b: string[]): DiffEdit[] {
 
   if (max === 0) return [];
 
+  // Optimize: if both are identical, skip diff
   if (n === m) {
     let identical = true;
     for (let i = 0; i < n; i++) {
@@ -87,6 +90,7 @@ function buildEditScript(trace: Int32Array[], a: string[], b: string[], max: num
     let prevX = v[prevIdx];
     let prevY = prevX - prevK;
 
+    // Diagonal (equal lines)
     while (x > prevX && y > prevY) {
       x--;
       y--;
@@ -102,6 +106,7 @@ function buildEditScript(trace: Int32Array[], a: string[], b: string[], max: num
     }
   }
 
+  // Remaining diagonal at d=0
   while (x > 0 && y > 0) {
     x--;
     y--;
@@ -152,6 +157,8 @@ export function diffSnapshots(before: string, after: string): DiffSnapshotData {
   };
 }
 
+// --- Image diffing (via browser Canvas API) ---
+
 interface PixelDiffResult {
   totalPixels: number;
   differentPixels: number;
@@ -160,7 +167,7 @@ interface PixelDiffResult {
   dimensionMismatch: boolean;
 }
 
-const DIFF_ROUTE_PREFIX = 'https://diff-internal/';
+const DIFF_ROUTE_PREFIX = 'https://nstbrowser-ai-agent-diff.localhost';
 
 /**
  * Compare two image buffers using the browser's Canvas API for pixel comparison.

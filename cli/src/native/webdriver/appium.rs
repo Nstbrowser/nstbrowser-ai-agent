@@ -18,6 +18,7 @@ impl AppiumManager {
         let port = APPIUM_DEFAULT_PORT;
         let client = WebDriverClient::new(port);
 
+        // Check if Appium is already running
         if is_appium_running(port).await {
             return Ok(Self {
                 client,
@@ -26,8 +27,10 @@ impl AppiumManager {
             });
         }
 
+        // Try to launch Appium
         let appium_process = launch_appium(port)?;
 
+        // Wait for Appium to be ready
         wait_for_appium(port, APPIUM_STARTUP_TIMEOUT_SECS).await?;
 
         Ok(Self {
@@ -148,6 +151,7 @@ async fn is_appium_running(port: u16) -> bool {
 }
 
 fn launch_appium(port: u16) -> Result<Child, String> {
+    // Try npx appium first, then direct appium
     let result = Command::new("npx")
         .args(["appium", "--relaxed-security", "--port", &port.to_string()])
         .stdin(Stdio::null())

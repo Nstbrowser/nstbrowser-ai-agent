@@ -1,9 +1,9 @@
 /**
  * Nstbrowser CLI Integration Tests
- *
+ * 
  * Tests the Nstbrowser daemon integration without requiring Rust CLI compilation.
  * Requires a running Nstbrowser client with valid API credentials.
- *
+ * 
  * Run with: NST_API_KEY=your-key pnpm test test/nstbrowser-cli.test.ts
  */
 
@@ -45,7 +45,7 @@ describe.skipIf(SKIP_CLI_TESTS)('Nstbrowser CLI Integration Tests', () => {
 
       await client.deleteProfiles([profile.profileId]);
       const profiles = await client.listProfiles();
-      expect(profiles.find((p) => p.profileId === profile.profileId)).toBeUndefined();
+      expect(profiles.find(p => p.profileId === profile.profileId)).toBeUndefined();
     });
   });
 

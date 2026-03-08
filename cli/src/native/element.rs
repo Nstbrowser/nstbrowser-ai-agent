@@ -117,9 +117,11 @@ pub async fn resolve_element_center(
             return Ok(box_model_center(&result.model));
         }
 
+        // Fallback: use role/name to find via JS
         return resolve_by_role_name(client, session_id, &entry.role, &entry.name, entry.nth).await;
     }
 
+    // CSS selector
     resolve_by_selector(client, session_id, selector_or_ref).await
 }
 
@@ -154,6 +156,7 @@ pub async fn resolve_element_object_id(
         }
     }
 
+    // CSS selector fallback
     let js = format!(
         "document.querySelector({})",
         serde_json::to_string(selector_or_ref).unwrap_or_default()
@@ -267,6 +270,7 @@ async fn resolve_by_selector(
 }
 
 fn box_model_center(model: &BoxModel) -> (f64, f64) {
+    // content quad: [x1,y1, x2,y2, x3,y3, x4,y4]
     if model.content.len() >= 8 {
         let x = (model.content[0] + model.content[2] + model.content[4] + model.content[6]) / 4.0;
         let y = (model.content[1] + model.content[3] + model.content[5] + model.content[7]) / 4.0;

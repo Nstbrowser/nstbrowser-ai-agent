@@ -4,13 +4,18 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+/// Result of a policy check for an action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PolicyResult {
+    /// Action is allowed.
     Allow,
+    /// Action is blocked with the given reason.
     Deny(String),
+    /// Action requires confirmation before proceeding.
     RequiresConfirmation,
 }
 
+/// Policy configuration loaded from a JSON file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionPolicy {
     #[serde(skip)]
@@ -25,6 +30,7 @@ pub struct ActionPolicy {
     confirm: Option<Vec<String>>,
 }
 
+/// Confirmation categories parsed from NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS.
 #[derive(Debug, Clone)]
 pub struct ConfirmActions {
     pub categories: HashSet<String>,
@@ -54,6 +60,7 @@ impl ConfirmActions {
 }
 
 impl ActionPolicy {
+    /// Load policy from a JSON file at the given path.
     pub fn load(path: &str) -> Result<Self, String> {
         let path_buf = PathBuf::from(path);
         let contents = fs::read_to_string(&path_buf)
@@ -64,6 +71,8 @@ impl ActionPolicy {
         Ok(policy)
     }
 
+    /// Load policy if NSTBROWSER_AI_AGENT_ACTION_POLICY env var is set.
+    /// Falls back to NSTBROWSER_AI_AGENT_POLICY for backwards compatibility.
     pub fn load_if_exists() -> Option<Self> {
         let path = env::var("NSTBROWSER_AI_AGENT_ACTION_POLICY")
             .or_else(|_| env::var("NSTBROWSER_AI_AGENT_POLICY"))
@@ -71,6 +80,7 @@ impl ActionPolicy {
         Self::load(&path).ok()
     }
 
+    /// Check whether an action is allowed, denied, or requires confirmation.
     pub fn check(&self, action: &str) -> PolicyResult {
         if let Some(deny) = &self.deny {
             if deny.iter().any(|a| a == action) {
@@ -110,6 +120,7 @@ impl ActionPolicy {
         PolicyResult::Allow
     }
 
+    /// Reload policy from the file. Re-reads the JSON and updates the policy.
     pub fn reload(&mut self) -> Result<(), String> {
         let contents = fs::read_to_string(&self.path)
             .map_err(|e| format!("Failed to read policy file: {}", e))?;

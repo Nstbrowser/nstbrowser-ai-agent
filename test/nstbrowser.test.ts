@@ -402,4 +402,218 @@ describe('Nstbrowser command validation', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  // New commands - Batch operations and CDP endpoints
+  describe('nst_browser_start_batch', () => {
+    it('accepts nst_browser_start_batch with profileIds array', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_start_batch',
+          profileIds: ['profile-1', 'profile-2', 'profile-3']
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_browser_start_batch with config options', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_start_batch',
+          profileIds: ['profile-1', 'profile-2'],
+          config: {
+            headless: true,
+            autoClose: false,
+            proxyEnabled: true
+          }
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects nst_browser_start_batch without profileIds', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_start_batch' })
+      );
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects nst_browser_start_batch with empty profileIds array', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_start_batch', profileIds: [] })
+      );
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('nst_browser_start_once', () => {
+    it('accepts nst_browser_start_once without config', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_start_once' })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_browser_start_once with config', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_start_once',
+          config: {
+            platform: 'Windows',
+            headless: true,
+            autoClose: true
+          }
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_browser_start_once with fingerprint config', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_start_once',
+          config: {
+            platform: 'macOS',
+            kernel: 'chrome',
+            fingerprint: {
+              userAgent: 'custom-ua',
+              language: 'en-US'
+            }
+          }
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('nst_profile_list_cursor', () => {
+    it('accepts nst_profile_list_cursor without parameters', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_profile_list_cursor' })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_profile_list_cursor with cursor', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_profile_list_cursor',
+          cursor: 'cursor-token-123'
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_profile_list_cursor with pageSize', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_profile_list_cursor',
+          pageSize: 50
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_profile_list_cursor with direction', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_profile_list_cursor',
+          cursor: 'cursor-123',
+          direction: 'next'
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_profile_list_cursor with all parameters', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_profile_list_cursor',
+          cursor: 'cursor-123',
+          pageSize: 25,
+          direction: 'prev'
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('nst_browser_connect', () => {
+    it('accepts nst_browser_connect with profileId', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_connect',
+          profileId: 'profile-123'
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects nst_browser_connect without profileId', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_connect' })
+      );
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('nst_browser_connect_once', () => {
+    it('accepts nst_browser_connect_once without config', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_connect_once' })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts nst_browser_connect_once with config', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_connect_once',
+          config: {
+            platform: 'Linux',
+            kernel: 'firefox'
+          }
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('nst_browser_cdp_url', () => {
+    it('accepts nst_browser_cdp_url with profileId', () => {
+      const result = parseCommand(
+        JSON.stringify({
+          id: '1',
+          action: 'nst_browser_cdp_url',
+          profileId: 'profile-123'
+        })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects nst_browser_cdp_url without profileId', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_cdp_url' })
+      );
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('nst_browser_cdp_url_once', () => {
+    it('accepts nst_browser_cdp_url_once command', () => {
+      const result = parseCommand(
+        JSON.stringify({ id: '1', action: 'nst_browser_cdp_url_once' })
+      );
+      expect(result.success).toBe(true);
+    });
+  });
 });

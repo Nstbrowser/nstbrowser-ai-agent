@@ -1,10 +1,12 @@
 import type { Page, Browser, BrowserContext } from 'playwright-core';
 
+// Base command structure
 export interface BaseCommand {
   id: string;
   action: string;
 }
 
+// Action-specific command types
 export interface LaunchCommand extends BaseCommand {
   action: 'launch';
   headless?: boolean;
@@ -14,10 +16,10 @@ export interface LaunchCommand extends BaseCommand {
   executablePath?: string;
   cdpPort?: number;
   cdpUrl?: string;
-  autoConnect?: boolean;
+  autoConnect?: boolean; // Auto-discover and connect to running Chrome via DevToolsActivePort
   extensions?: string[];
-  profile?: string;
-  storageState?: string;
+  profile?: string; // Path to persistent browser profile directory
+  storageState?: string; // Path to storage state JSON file
   proxy?: {
     server: string;
     bypass?: string;
@@ -28,15 +30,17 @@ export interface LaunchCommand extends BaseCommand {
   userAgent?: string;
   provider?: string;
   ignoreHTTPSErrors?: boolean;
-  allowFileAccess?: boolean;
-  colorScheme?: 'light' | 'dark' | 'no-preference';
-  downloadPath?: string;
+  allowFileAccess?: boolean; // Enable file:// URL access and cross-origin file requests
+  colorScheme?: 'light' | 'dark' | 'no-preference'; // Persistent color scheme override
+  downloadPath?: string; // Directory for browser downloads (Playwright's downloadsPath)
   allowedDomains?: string[];
   actionPolicy?: string;
   confirmActions?: string[];
+  // Auto-load state file for session persistence
   autoStateFilePath?: string;
-  nstProfileName?: string;
-  nstProfileId?: string;
+  // Nstbrowser profile connection options
+  nstProfileName?: string; // Connect to Nstbrowser profile by name (uses first if multiple matches)
+  nstProfileId?: string; // Connect to Nstbrowser profile by ID
 }
 
 export interface NavigateCommand extends BaseCommand {
@@ -209,6 +213,7 @@ export interface PdfCommand extends BaseCommand {
     | 'A6';
 }
 
+// Network interception
 export interface RouteCommand extends BaseCommand {
   action: 'route';
   url: string;
@@ -223,21 +228,24 @@ export interface RouteCommand extends BaseCommand {
 
 export interface UnrouteCommand extends BaseCommand {
   action: 'unroute';
-  url?: string;
+  url?: string; // If not provided, remove all routes
 }
 
+// Request inspection
 export interface RequestsCommand extends BaseCommand {
   action: 'requests';
-  filter?: string;
+  filter?: string; // URL pattern to filter
   clear?: boolean;
 }
 
+// Download handling
 export interface DownloadCommand extends BaseCommand {
   action: 'download';
   selector: string;
   path: string;
 }
 
+// Geolocation
 export interface GeolocationCommand extends BaseCommand {
   action: 'geolocation';
   latitude: number;
@@ -245,28 +253,33 @@ export interface GeolocationCommand extends BaseCommand {
   accuracy?: number;
 }
 
+// Permissions
 export interface PermissionsCommand extends BaseCommand {
   action: 'permissions';
   permissions: string[];
   grant: boolean;
 }
 
+// Viewport
 export interface ViewportCommand extends BaseCommand {
   action: 'viewport';
   width: number;
   height: number;
 }
 
+// User agent
 export interface UserAgentCommand extends BaseCommand {
   action: 'useragent';
   userAgent: string;
 }
 
+// Emulate device
 export interface DeviceCommand extends BaseCommand {
   action: 'device';
   device: string;
 }
 
+// Go back/forward
 export interface BackCommand extends BaseCommand {
   action: 'back';
 }
@@ -279,6 +292,7 @@ export interface ReloadCommand extends BaseCommand {
   action: 'reload';
 }
 
+// Get URL/Title
 export interface UrlCommand extends BaseCommand {
   action: 'url';
 }
@@ -287,6 +301,7 @@ export interface TitleCommand extends BaseCommand {
   action: 'title';
 }
 
+// Attribute/Property/Text
 export interface GetAttributeCommand extends BaseCommand {
   action: 'getattribute';
   selector: string;
@@ -318,16 +333,19 @@ export interface CountCommand extends BaseCommand {
   selector: string;
 }
 
+// Bounding box
 export interface BoundingBoxCommand extends BaseCommand {
   action: 'boundingbox';
   selector: string;
 }
 
+// Computed styles
 export interface StylesCommand extends BaseCommand {
   action: 'styles';
   selector: string;
 }
 
+// More semantic locators
 export interface GetByAltTextCommand extends BaseCommand {
   action: 'getbyalttext';
   text: string;
@@ -349,47 +367,55 @@ export interface GetByTestIdCommand extends BaseCommand {
   value?: string;
 }
 
+// Nth element selection
 export interface NthCommand extends BaseCommand {
   action: 'nth';
   selector: string;
-  index: number;
+  index: number; // 0-based, or -1 for last
   subaction: 'click' | 'fill' | 'check' | 'hover' | 'text';
   value?: string;
 }
 
+// Wait for URL
 export interface WaitForUrlCommand extends BaseCommand {
   action: 'waitforurl';
   url: string;
   timeout?: number;
 }
 
+// Wait for load state
 export interface WaitForLoadStateCommand extends BaseCommand {
   action: 'waitforloadstate';
   state: 'load' | 'domcontentloaded' | 'networkidle';
   timeout?: number;
 }
 
+// Set HTML content
 export interface SetContentCommand extends BaseCommand {
   action: 'setcontent';
   html: string;
 }
 
+// Timezone emulation
 export interface TimezoneCommand extends BaseCommand {
   action: 'timezone';
   timezone: string;
 }
 
+// Locale emulation
 export interface LocaleCommand extends BaseCommand {
   action: 'locale';
   locale: string;
 }
 
+// HTTP basic auth
 export interface HttpCredentialsCommand extends BaseCommand {
   action: 'credentials';
   username: string;
   password: string;
 }
 
+// Fine-grained mouse control
 export interface MouseMoveCommand extends BaseCommand {
   action: 'mousemove';
   x: number;
@@ -406,26 +432,31 @@ export interface MouseUpCommand extends BaseCommand {
   button?: 'left' | 'right' | 'middle';
 }
 
+// Bring to front
 export interface BringToFrontCommand extends BaseCommand {
   action: 'bringtofront';
 }
 
+// Wait for JS function to return truthy
 export interface WaitForFunctionCommand extends BaseCommand {
   action: 'waitforfunction';
   expression: string;
   timeout?: number;
 }
 
+// Scroll element into view
 export interface ScrollIntoViewCommand extends BaseCommand {
   action: 'scrollintoview';
   selector: string;
 }
 
+// Add init script (runs on every navigation)
 export interface AddInitScriptCommand extends BaseCommand {
   action: 'addinitscript';
   script: string;
 }
 
+// Keyboard down/up (hold keys)
 export interface KeyDownCommand extends BaseCommand {
   action: 'keydown';
   key: string;
@@ -436,33 +467,38 @@ export interface KeyUpCommand extends BaseCommand {
   key: string;
 }
 
+// Insert text (without key events)
 export interface InsertTextCommand extends BaseCommand {
   action: 'inserttext';
   text: string;
 }
 
+// Multi-select dropdown
 export interface MultiSelectCommand extends BaseCommand {
   action: 'multiselect';
   selector: string;
   values: string[];
 }
 
+// Wait for download
 export interface WaitForDownloadCommand extends BaseCommand {
   action: 'waitfordownload';
   path?: string;
   timeout?: number;
 }
 
+// Get response body from intercepted request
 export interface ResponseBodyCommand extends BaseCommand {
   action: 'responsebody';
   url: string;
   timeout?: number;
 }
 
+// Screencast commands for streaming browser viewport
 export interface ScreencastStartCommand extends BaseCommand {
   action: 'screencast_start';
   format?: 'jpeg' | 'png';
-  quality?: number;
+  quality?: number; // 0-100, jpeg only
   maxWidth?: number;
   maxHeight?: number;
   everyNthFrame?: number;
@@ -472,6 +508,7 @@ export interface ScreencastStopCommand extends BaseCommand {
   action: 'screencast_stop';
 }
 
+// Input injection commands for pair browsing
 export interface InputMouseCommand extends BaseCommand {
   action: 'input_mouse';
   type: 'mousePressed' | 'mouseReleased' | 'mouseMoved' | 'mouseWheel';
@@ -500,6 +537,7 @@ export interface InputTouchCommand extends BaseCommand {
   modifiers?: number;
 }
 
+// iOS-specific commands
 export interface SwipeCommand extends BaseCommand {
   action: 'swipe';
   direction: 'up' | 'down' | 'left' | 'right';
@@ -510,6 +548,7 @@ export interface DeviceListCommand extends BaseCommand {
   action: 'device_list';
 }
 
+// Video recording (Playwright native - requires launch-time setup)
 export interface VideoStartCommand extends BaseCommand {
   action: 'video_start';
   path: string;
@@ -519,6 +558,7 @@ export interface VideoStopCommand extends BaseCommand {
   action: 'video_stop';
 }
 
+// Screen recording (Playwright native - creates fresh recording context)
 export interface RecordingStartCommand extends BaseCommand {
   action: 'recording_start';
   path: string;
@@ -535,6 +575,7 @@ export interface RecordingRestartCommand extends BaseCommand {
   url?: string;
 }
 
+// Tracing
 export interface TraceStartCommand extends BaseCommand {
   action: 'trace_start';
   screenshots?: boolean;
@@ -565,7 +606,7 @@ export interface TraceEvent {
 
 export interface ProfilerStartCommand extends BaseCommand {
   action: 'profiler_start';
-  categories?: string[];
+  categories?: string[]; // Optional trace categories (e.g., "devtools.timeline")
 }
 
 export interface ProfilerStopCommand extends BaseCommand {
@@ -573,6 +614,7 @@ export interface ProfilerStopCommand extends BaseCommand {
   path?: string;
 }
 
+// HAR recording
 export interface HarStartCommand extends BaseCommand {
   action: 'har_start';
 }
@@ -582,6 +624,7 @@ export interface HarStopCommand extends BaseCommand {
   path: string;
 }
 
+// Storage state (auth persistence)
 export interface StorageStateSaveCommand extends BaseCommand {
   action: 'state_save';
   path: string;
@@ -592,6 +635,7 @@ export interface StorageStateLoadCommand extends BaseCommand {
   path: string;
 }
 
+// State management commands (v2)
 export interface StateListCommand extends BaseCommand {
   action: 'state_list';
 }
@@ -618,24 +662,28 @@ export interface StateRenameCommand extends BaseCommand {
   newName: string;
 }
 
+// Console logs
 export interface ConsoleCommand extends BaseCommand {
   action: 'console';
   clear?: boolean;
 }
 
+// Page errors
 export interface ErrorsCommand extends BaseCommand {
   action: 'errors';
   clear?: boolean;
 }
 
+// Raw keyboard input (no selector needed)
 export interface KeyboardCommand extends BaseCommand {
   action: 'keyboard';
-  subaction?: 'type' | 'press' | 'insertText';
-  keys?: string;
-  text?: string;
-  delay?: number;
+  subaction?: 'type' | 'press' | 'insertText'; // press kept for backward compat
+  keys?: string; // for legacy press path
+  text?: string; // for type/insertText
+  delay?: number; // for type (ms between keystrokes)
 }
 
+// Mouse wheel
 export interface WheelCommand extends BaseCommand {
   action: 'wheel';
   deltaX?: number;
@@ -643,32 +691,38 @@ export interface WheelCommand extends BaseCommand {
   selector?: string;
 }
 
+// Touch events
 export interface TapCommand extends BaseCommand {
   action: 'tap';
   selector: string;
 }
 
+// Clipboard
 export interface ClipboardCommand extends BaseCommand {
   action: 'clipboard';
   operation: 'copy' | 'paste' | 'read';
   text?: string;
 }
 
+// Highlight element (for debugging)
 export interface HighlightCommand extends BaseCommand {
   action: 'highlight';
   selector: string;
 }
 
+// Clear input
 export interface ClearCommand extends BaseCommand {
   action: 'clear';
   selector: string;
 }
 
+// Select all text
 export interface SelectAllCommand extends BaseCommand {
   action: 'selectall';
   selector: string;
 }
 
+// Inner text vs text content
 export interface InnerTextCommand extends BaseCommand {
   action: 'innertext';
   selector: string;
@@ -679,17 +733,20 @@ export interface InnerHtmlCommand extends BaseCommand {
   selector: string;
 }
 
+// Input value
 export interface InputValueCommand extends BaseCommand {
   action: 'inputvalue';
   selector: string;
 }
 
+// Set input value directly (without events)
 export interface SetValueCommand extends BaseCommand {
   action: 'setvalue';
   selector: string;
   value: string;
 }
 
+// Dispatch event
 export interface DispatchEventCommand extends BaseCommand {
   action: 'dispatch';
   selector: string;
@@ -697,16 +754,19 @@ export interface DispatchEventCommand extends BaseCommand {
   eventInit?: Record<string, unknown>;
 }
 
+// Evaluate handle (for complex JS)
 export interface EvaluateHandleCommand extends BaseCommand {
   action: 'evalhandle';
   script: string;
 }
 
+// Expose function
 export interface ExposeFunctionCommand extends BaseCommand {
   action: 'expose';
   name: string;
 }
 
+// Add script/style tag
 export interface AddScriptCommand extends BaseCommand {
   action: 'addscript';
   content?: string;
@@ -719,6 +779,7 @@ export interface AddStyleCommand extends BaseCommand {
   url?: string;
 }
 
+// Emulate media
 export interface EmulateMediaCommand extends BaseCommand {
   action: 'emulatemedia';
   media?: 'screen' | 'print' | null;
@@ -727,16 +788,19 @@ export interface EmulateMediaCommand extends BaseCommand {
   forcedColors?: 'active' | 'none' | null;
 }
 
+// Set offline mode
 export interface OfflineCommand extends BaseCommand {
   action: 'offline';
   offline: boolean;
 }
 
+// Set extra HTTP headers
 export interface HeadersCommand extends BaseCommand {
   action: 'headers';
   headers: Record<string, string>;
 }
 
+// Pause execution (for debugging)
 export interface PauseCommand extends BaseCommand {
   action: 'pause';
 }
@@ -803,6 +867,7 @@ export interface CloseCommand extends BaseCommand {
   action: 'close';
 }
 
+// Tab/Window commands
 export interface TabNewCommand extends BaseCommand {
   action: 'tab_new';
   url?: string;
@@ -827,6 +892,7 @@ export interface WindowNewCommand extends BaseCommand {
   viewport?: { width: number; height: number } | null;
 }
 
+// Union of all command types
 export type Command =
   | LaunchCommand
   | NavigateCommand
@@ -1000,7 +1066,14 @@ export type Command =
   | NstProfileGroupsListCommand
   | NstProfileGroupChangeCommand
   | NstProfileCacheClearCommand
-  | NstProfileCookiesClearCommand;
+  | NstProfileCookiesClearCommand
+  | NstBrowserStartBatchCommand
+  | NstBrowserStartOnceCommand
+  | NstProfileListCursorCommand
+  | NstBrowserConnectCommand
+  | NstBrowserConnectOnceCommand
+  | NstBrowserCdpUrlCommand
+  | NstBrowserCdpUrlOnceCommand;
 
 export interface AuthSaveCommand extends BaseCommand {
   action: 'auth_save';
@@ -1042,6 +1115,7 @@ export interface DenyCommand extends BaseCommand {
   confirmationId: string;
 }
 
+// Diff commands
 export interface DiffSnapshotCommand extends BaseCommand {
   action: 'diff_snapshot';
   baseline?: string;
@@ -1071,6 +1145,7 @@ export interface DiffUrlCommand extends BaseCommand {
   maxDepth?: number;
 }
 
+// Nstbrowser commands
 export interface NstBrowserListCommand extends BaseCommand {
   action: 'nst_browser_list';
 }
@@ -1176,6 +1251,7 @@ export interface NstProfileCookiesClearCommand extends BaseCommand {
   profileIds: string[];
 }
 
+// New Nstbrowser commands
 export interface NstProfileShowCommand extends BaseCommand {
   action: 'nst_profile_show';
   profileId: string;
@@ -1200,6 +1276,65 @@ export interface NstProfileTagsUpdateCommand extends BaseCommand {
   action: 'nst_profile_tags_update';
   profileId: string;
   tags: Array<{ name: string; color?: string }>;
+}
+
+// Missing commands - Browser Management
+export interface NstBrowserStartBatchCommand extends BaseCommand {
+  action: 'nst_browser_start_batch';
+  profileIds: string[];
+  config?: {
+    remoteDebuggingPort?: number;
+    headless?: boolean;
+    disableGpu?: boolean;
+    proxyEnabled?: boolean;
+    autoClose?: boolean;
+  };
+}
+
+export interface NstBrowserStartOnceCommand extends BaseCommand {
+  action: 'nst_browser_start_once';
+  config?: {
+    platform?: 'Windows' | 'macOS' | 'Linux';
+    kernel?: string;
+    fingerprint?: Record<string, unknown>;
+    remoteDebuggingPort?: number;
+    headless?: boolean;
+    disableGpu?: boolean;
+    proxyEnabled?: boolean;
+    autoClose?: boolean;
+  };
+}
+
+// Missing commands - Profile Management
+export interface NstProfileListCursorCommand extends BaseCommand {
+  action: 'nst_profile_list_cursor';
+  cursor?: string;
+  pageSize?: number;
+  direction?: 'next' | 'prev';
+}
+
+// Missing commands - CDP Endpoints
+export interface NstBrowserConnectCommand extends BaseCommand {
+  action: 'nst_browser_connect';
+  profileId: string;
+}
+
+export interface NstBrowserConnectOnceCommand extends BaseCommand {
+  action: 'nst_browser_connect_once';
+  config?: {
+    platform?: 'Windows' | 'macOS' | 'Linux';
+    kernel?: string;
+    fingerprint?: Record<string, unknown>;
+  };
+}
+
+export interface NstBrowserCdpUrlCommand extends BaseCommand {
+  action: 'nst_browser_cdp_url';
+  profileId: string;
+}
+
+export interface NstBrowserCdpUrlOnceCommand extends BaseCommand {
+  action: 'nst_browser_cdp_url_once';
 }
 
 export interface NstProfileProxyBatchUpdateCommand extends BaseCommand {
@@ -1242,6 +1377,7 @@ export interface NstProfileGroupBatchChangeCommand extends BaseCommand {
   groupId: string;
 }
 
+// Response types
 export interface SuccessResponse<T = unknown> {
   id: string;
   success: true;
@@ -1256,6 +1392,7 @@ export interface ErrorResponse {
 
 export type Response<T = unknown> = SuccessResponse<T> | ErrorResponse;
 
+// Data types for specific responses
 export interface NavigateData {
   url: string;
   title: string;
@@ -1372,6 +1509,7 @@ export interface InputEventData {
   injected: boolean;
 }
 
+// Element styles data
 export interface ElementStyleInfo {
   tag: string;
   text: string | null;
@@ -1393,6 +1531,7 @@ export interface StylesData {
   elements: ElementStyleInfo[];
 }
 
+// Diff response data
 export interface DiffSnapshotData {
   diff: string;
   additions: number;
@@ -1415,6 +1554,7 @@ export interface DiffUrlData {
   screenshot?: DiffScreenshotData;
 }
 
+// Browser state
 export interface BrowserState {
   browser: Browser | null;
   context: BrowserContext | null;

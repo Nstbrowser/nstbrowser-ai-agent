@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
+// CDP message envelope
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -40,6 +41,7 @@ impl std::fmt::Display for CdpError {
 }
 
 // ---------------------------------------------------------------------------
+// CDP events (broadcast to subscribers)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ pub struct CdpEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Target domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -107,6 +110,7 @@ pub struct CloseTargetParams {
     pub target_id: String,
 }
 
+// Target events
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetCreatedEvent {
@@ -126,6 +130,7 @@ pub struct TargetInfoChangedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Page domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -159,6 +164,7 @@ pub struct FrameInfo {
     pub name: Option<String>,
 }
 
+// Page.javascriptDialogOpening
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JavascriptDialogOpeningEvent {
@@ -178,6 +184,7 @@ pub struct HandleJavaScriptDialogParams {
 }
 
 // ---------------------------------------------------------------------------
+// Runtime domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -219,6 +226,7 @@ pub struct ExceptionDetails {
     pub column_number: Option<i64>,
 }
 
+// Runtime.consoleAPICalled
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConsoleApiCalledEvent {
@@ -228,6 +236,7 @@ pub struct ConsoleApiCalledEvent {
     pub timestamp: Option<f64>,
 }
 
+// Runtime.exceptionThrown
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExceptionThrownEvent {
@@ -236,6 +245,7 @@ pub struct ExceptionThrownEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Accessibility domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +284,7 @@ pub struct AXProperty {
 }
 
 // ---------------------------------------------------------------------------
+// Network domain (minimal for Phase 1)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -303,6 +314,7 @@ pub struct LoadingFailedEvent {
 }
 
 // ---------------------------------------------------------------------------
+// DOM domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -387,6 +399,7 @@ pub struct DomNode {
 }
 
 // ---------------------------------------------------------------------------
+// Input domain
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -438,6 +451,7 @@ pub struct InsertTextParams {
 }
 
 // ---------------------------------------------------------------------------
+// Page.captureScreenshot
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -472,6 +486,7 @@ pub struct CaptureScreenshotResult {
 }
 
 // ---------------------------------------------------------------------------
+// Runtime.callFunctionOn
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
@@ -498,6 +513,7 @@ pub struct CallArgument {
 }
 
 // ---------------------------------------------------------------------------
+// Version info (from /json/version)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -509,8 +525,13 @@ pub struct BrowserVersionInfo {
     pub browser: Option<String>,
 }
 
+/// Auto-generated CDP types from protocol JSON files in `cdp-protocol/`.
 ///
+/// To populate: download `browser_protocol.json` and `js_protocol.json` from
+/// <https://github.com/nicolo-ribaudo/nicolo-ribaudo.github.io/> (or any
+/// Chromium source) into `cli/cdp-protocol/` and rebuild.
 ///
+/// Usage: `use super::cdp::types::generated::cdp_page::*;`
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/cdp_generated.rs"));
 }

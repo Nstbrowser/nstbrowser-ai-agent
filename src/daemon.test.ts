@@ -45,11 +45,13 @@ describe('getSocketDir', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    // Clear relevant env vars before each test
     delete process.env.NSTBROWSER_AI_AGENT_SOCKET_DIR;
     delete process.env.XDG_RUNTIME_DIR;
   });
 
   afterEach(() => {
+    // Restore original env
     process.env = { ...originalEnv };
   });
 
@@ -122,6 +124,7 @@ describe('safeWrite', () => {
     const socket = createMockSocket({ writeReturns: false });
     const promise = safeWrite(socket, 'big payload');
 
+    // Simulate drain after a tick
     setTimeout(() => socket.emit('drain'), 0);
     await promise;
 

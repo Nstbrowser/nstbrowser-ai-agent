@@ -164,6 +164,7 @@ import { successResponse, errorResponse, parseCommand } from './protocol.js';
 import { diffSnapshots, diffScreenshots } from './diff.js';
 import { getEnhancedSnapshot } from './snapshot.js';
 
+// Callback for screencast frames - will be set by the daemon when streaming is active
 let screencastFrameCallback: ((frame: ScreencastFrame) => void) | null = null;
 
 /**
@@ -176,6 +177,7 @@ export function setScreencastFrameCallback(
   screencastFrameCallback = callback;
 }
 
+// Snapshot response type
 interface SnapshotData {
   snapshot: string;
   refs?: Record<string, { role: string; name?: string }>;
@@ -188,7 +190,9 @@ interface SnapshotData {
 export function toAIFriendlyError(error: unknown, selector: string): Error {
   const message = error instanceof Error ? error.message : String(error);
 
+  // Handle strict mode violation (multiple elements match)
   if (message.includes('strict mode violation')) {
+    // Extract count if available
     const countMatch = message.match(/resolved to (\d+) elements/);
     const count = countMatch ? countMatch[1] : 'multiple';
 
@@ -198,6 +202,8 @@ export function toAIFriendlyError(error: unknown, selector: string): Error {
     );
   }
 
+  // Handle element not interactable (must be checked BEFORE timeout case)
+  // This includes cases where an overlay/modal blocks the element
   if (message.includes('intercepts pointer events')) {
     return new Error(
       `Element "${selector}" is blocked by another element (likely a modal or overlay). ` +
@@ -205,6 +211,7 @@ export function toAIFriendlyError(error: unknown, selector: string): Error {
     );
   }
 
+  // Handle element not visible
   if (message.includes('not visible') && !message.includes('Timeout')) {
     return new Error(
       `Element "${selector}" is not visible. ` +
@@ -212,6 +219,7 @@ export function toAIFriendlyError(error: unknown, selector: string): Error {
     );
   }
 
+  // Handle general timeout (element exists but action couldn't complete)
   if (message.includes('Timeout') && message.includes('exceeded')) {
     return new Error(
       `Action on "${selector}" timed out. The element may be blocked, still loading, or not interactable. ` +
@@ -219,6 +227,7 @@ export function toAIFriendlyError(error: unknown, selector: string): Error {
     );
   }
 
+  // Handle element not found (timeout waiting for element)
   if (
     message.includes('waiting for') &&
     (message.includes('to be visible') || message.includes('Timeout'))
@@ -229,6 +238,7 @@ export function toAIFriendlyError(error: unknown, selector: string): Error {
     );
   }
 
+  // Return original error for unknown cases
   return error instanceof Error ? error : new Error(message);
 }
 
@@ -265,6 +275,7 @@ export function initActionPolicy(): void {
  */
 export async function executeCommand(command: Command, browser: BrowserManager): Promise<Response> {
   try {
+    // Handle confirm/deny actions (bypass policy check)
     if (command.action === 'confirm') {
       return await handleConfirm(command, browser);
     }
@@ -272,8 +283,10 @@ export async function executeCommand(command: Command, browser: BrowserManager):
       return handleDeny(command);
     }
 
+    // Hot-reload policy file if it changed on disk
     actionPolicy = reloadPolicyIfChanged();
 
+    // Policy enforcement
     const decision = checkPolicy(command.action, actionPolicy, confirmCategories);
     if (decision === 'deny') {
       const category = getActionCategory(command.action);
@@ -581,6 +594,7 @@ async function dispatchAction(command: Command, browser: BrowserManager): Promis
     case 'auth_login':
       return await handleAuthLogin(command, browser);
     default: {
+      // TypeScript narrows to never here, but we handle it for safety
       const unknownCommand = command as { id: string; action: string };
       return errorResponse(unknownCommand.id, `Unknown action: ${unknownCommand.action}`);
     }
@@ -603,6 +617,7 @@ async function handleNavigate(
 
   const page = browser.getPage();
 
+  // If headers are provided, set up scoped headers for this origin
   if (command.headers && Object.keys(command.headers).length > 0) {
     await browser.setScopedHeaders(command.url, command.headers);
   }
@@ -618,12 +633,15 @@ async function handleNavigate(
 }
 
 async function handleClick(command: ClickCommand, browser: BrowserManager): Promise<Response> {
+  // Support both refs (@e1) and regular selectors
   const locator = browser.getLocator(command.selector);
 
   try {
+    // If --new-tab flag is set, get the href and open in a new tab
     if (command.newTab) {
       const fullUrl = await locator.evaluate((el) => {
         const href = el.getAttribute('href');
+        // URL and document.baseURI are available in the browser context
         return href
           ? new (globalThis as any).URL(href, (globalThis as any).document.baseURI).toString()
           : '';
@@ -763,6 +781,8 @@ async function handleScreenshot(
         })
       );
 
+      // When a selector is provided the screenshot is cropped to that element,
+      // so filter to annotations that overlap the target and shift coordinates.
       let targetBox: { x: number; y: number; width: number; height: number } | null = null;
       if (command.selector) {
         const raw = await browser.getLocator(command.selector).boundingBox();
@@ -778,6 +798,8 @@ async function handleScreenshot(
 
       const filtered = results.filter((a): a is Annotation => a !== null);
 
+      // Filter by selector overlap if needed, but keep viewport-relative coords
+      // for overlay positioning. Coordinate shifting happens later for metadata only.
       let overlayItems: Annotation[];
       if (targetBox) {
         const tb = targetBox;
@@ -803,6 +825,9 @@ async function handleScreenshot(
           height: a.box.height,
         }));
 
+        // Uses position:absolute with document-relative coords so labels render
+        // correctly for both viewport and fullPage screenshots, and when the
+        // screenshot is scoped to a selector element.
         await page.evaluate(`(() => {
           var items = ${JSON.stringify(overlayData)};
           var id = ${JSON.stringify(ANNOTATION_OVERLAY_ID)};
@@ -829,6 +854,10 @@ async function handleScreenshot(
         overlayInjected = true;
       }
 
+      // Build returned annotation metadata with image-relative coordinates.
+      // Selector: shift to target-element-relative.
+      // fullPage: convert to document-relative (matching fullPage image origin).
+      // Default: viewport-relative (unchanged).
       if (targetBox) {
         const tb = targetBox;
         annotations = overlayItems.map((a) => ({
@@ -890,6 +919,7 @@ async function handleSnapshot(
   },
   browser: BrowserManager
 ): Promise<Response<SnapshotData>> {
+  // Use enhanced snapshot with refs and optional filtering
   const { tree, refs } = await browser.getSnapshot({
     interactive: command.interactive,
     cursor: command.cursor,
@@ -898,6 +928,7 @@ async function handleSnapshot(
     selector: command.selector,
   });
 
+  // Simplify refs for output (just role and name)
   const simpleRefs: Record<string, { role: string; name: string }> = {};
   for (const [ref, data] of Object.entries(refs)) {
     simpleRefs[ref] = { role: data.role, name: data.name };
@@ -917,6 +948,7 @@ async function handleEvaluate(
 ): Promise<Response<EvaluateData>> {
   const page = browser.getPage();
 
+  // Evaluate the script directly as a string expression
   const result = await page.evaluate(command.script);
 
   return successResponse(command.id, { result, origin: page.url() });
@@ -933,6 +965,7 @@ async function handleWait(command: WaitCommand, browser: BrowserManager): Promis
   } else if (command.timeout) {
     await page.waitForTimeout(command.timeout);
   } else {
+    // Default: wait for load state
     await page.waitForLoadState('load');
   }
 
@@ -1037,6 +1070,7 @@ async function handleTabNew(
 ): Promise<Response<TabNewData>> {
   const result = await browser.newTab();
 
+  // Navigate to URL if provided (same pattern as handleNavigate)
   if (command.url) {
     const page = browser.getPage();
     await page.goto(command.url, { waitUntil: 'domcontentloaded' });
@@ -1083,6 +1117,8 @@ async function handleWindowNew(
   const result = await browser.newWindow(command.viewport);
   return successResponse(command.id, result);
 }
+
+// New handlers for enhanced Playwright parity
 
 async function handleFill(command: FillCommand, browser: BrowserManager): Promise<Response> {
   const locator = browser.getLocator(command.selector);
@@ -1264,6 +1300,7 @@ async function handleCookiesSet(
 ): Promise<Response> {
   const page = browser.getPage();
   const context = page.context();
+  // Auto-fill URL for cookies that don't have domain/path/url set
   const pageUrl = page.url();
   const cookies = command.cookies.map((cookie) => {
     if (!cookie.url && !cookie.domain && !cookie.path) {
@@ -1349,6 +1386,8 @@ async function handlePdf(command: PdfCommand, browser: BrowserManager): Promise<
   return successResponse(command.id, { path: command.path });
 }
 
+// Network & Request handlers
+
 async function handleRoute(command: RouteCommand, browser: BrowserManager): Promise<Response> {
   await browser.addRoute(command.url, {
     response: command.response,
@@ -1374,6 +1413,7 @@ async function handleRequests(
     return successResponse(command.id, { cleared: true });
   }
 
+  // Start tracking if not already
   browser.startRequestTracking();
 
   const requests = browser.getRequests(command.filter);
@@ -1435,6 +1475,7 @@ async function handleUserAgent(
 ): Promise<Response> {
   const page = browser.getPage();
   const context = page.context();
+  // Note: Can't change user agent after context is created, but we can for new pages
   return successResponse(command.id, {
     note: 'User agent can only be set at launch time. Use device command instead.',
   });
@@ -1447,9 +1488,12 @@ async function handleDevice(command: DeviceCommand, browser: BrowserManager): Pr
     throw new Error(`Unknown device: ${command.device}. Available: ${available}...`);
   }
 
+  // Apply device viewport
   await browser.setViewport(device.viewport.width, device.viewport.height);
 
+  // Apply or clear device scale factor
   if (device.deviceScaleFactor && device.deviceScaleFactor !== 1) {
+    // Apply device scale factor for HiDPI/retina displays
     await browser.setDeviceScaleFactor(
       device.deviceScaleFactor,
       device.viewport.width,
@@ -1457,9 +1501,12 @@ async function handleDevice(command: DeviceCommand, browser: BrowserManager): Pr
       device.isMobile ?? false
     );
   } else {
+    // Clear device scale factor override to restore default (1x)
     try {
       await browser.clearDeviceMetricsOverride();
-    } catch {}
+    } catch {
+      // Ignore error if override was never set
+    }
   }
 
   return successResponse(command.id, {
@@ -1579,6 +1626,7 @@ async function handleStyles(
 ): Promise<Response<StylesData>> {
   const page = browser.getPage();
 
+  // Shared extraction logic as a string to be eval'd in browser context
   const extractStylesScript = `(function(el) {
     const s = getComputedStyle(el);
     const r = el.getBoundingClientRect();
@@ -1605,6 +1653,7 @@ async function handleStyles(
     };
   })`;
 
+  // Check if it's a ref - single element
   if (browser.isRef(command.selector)) {
     const locator = browser.getLocator(command.selector);
     const element = (await locator.evaluate((el, script) => {
@@ -1614,6 +1663,7 @@ async function handleStyles(
     return successResponse(command.id, { elements: [element] });
   }
 
+  // CSS selector - can match multiple elements
   const elements = (await page.$$eval(
     command.selector,
     (els, script) => {
@@ -1626,10 +1676,14 @@ async function handleStyles(
   return successResponse(command.id, { elements });
 }
 
+// Advanced handlers
+
 async function handleVideoStart(
   command: Command & { action: 'video_start'; path: string },
   browser: BrowserManager
 ): Promise<Response> {
+  // Video recording requires context-level setup at launch
+  // For now, return a note about this limitation
   return successResponse(command.id, {
     note: 'Video recording must be enabled at browser launch. Use --video flag when starting.',
     path: command.path,
@@ -1706,6 +1760,8 @@ async function handleHarStart(
 }
 
 async function handleHarStop(command: HarStopCommand, browser: BrowserManager): Promise<Response> {
+  // HAR recording is handled at context level
+  // For now, we save tracked requests as a simplified HAR-like format
   const requests = browser.getRequests();
   return successResponse(command.id, {
     path: command.path,
@@ -1767,7 +1823,9 @@ async function handleStateList(command: StateListCommand): Promise<Response> {
         const content = fs.readFileSync(filepath, 'utf-8');
         const parsed = JSON.parse(content);
         encrypted = isEncryptedPayload(parsed);
-      } catch {}
+      } catch {
+        // Ignore parse errors
+      }
 
       return {
         filename,
@@ -2074,6 +2132,7 @@ async function handleExpose(
 ): Promise<Response> {
   const page = browser.getPage();
   await page.exposeFunction(command.name, () => {
+    // Exposed function - can be extended
     return `Function ${command.name} called`;
   });
   return successResponse(command.id, { exposed: command.name });
@@ -2257,8 +2316,10 @@ async function handleTimezone(
   command: TimezoneCommand,
   browser: BrowserManager
 ): Promise<Response> {
+  // Timezone must be set at context level before navigation
+  // This is a limitation - it sets for the current context
   const page = browser.getPage();
-  await page.context().setGeolocation({ latitude: 0, longitude: 0 });
+  await page.context().setGeolocation({ latitude: 0, longitude: 0 }); // Trigger context awareness
   return successResponse(command.id, {
     note: 'Timezone must be set at browser launch. Use --timezone flag.',
     timezone: command.timezone,
@@ -2266,6 +2327,7 @@ async function handleTimezone(
 }
 
 async function handleLocale(command: LocaleCommand, browser: BrowserManager): Promise<Response> {
+  // Locale must be set at context creation
   return successResponse(command.id, {
     note: 'Locale must be set at browser launch. Use --locale flag.',
     locale: command.locale,
@@ -2409,7 +2471,9 @@ async function handleResponseBody(
 
   try {
     parsed = JSON.parse(body);
-  } catch {}
+  } catch {
+    // Keep as string if not JSON
+  }
 
   return successResponse(command.id, {
     url: response.url(),
@@ -2417,6 +2481,8 @@ async function handleResponseBody(
     body: parsed,
   });
 }
+
+// Screencast and input injection handlers
 
 async function handleScreencastStart(
   command: ScreencastStartCommand,
@@ -2492,6 +2558,8 @@ async function handleInputTouch(
   return successResponse(command.id, { injected: true });
 }
 
+// Recording handlers (Playwright native video recording)
+
 async function handleRecordingStart(
   command: RecordingStartCommand,
   browser: BrowserManager
@@ -2523,6 +2591,8 @@ async function handleRecordingRestart(
     stopped: result.stopped,
   });
 }
+
+// Diff handlers
 
 async function handleDiffSnapshot(
   command: DiffSnapshotCommand,
@@ -2599,6 +2669,7 @@ async function handleDiffUrl(command: DiffUrlCommand, browser: BrowserManager): 
     maxDepth: command.maxDepth,
   };
 
+  // Capture state of url1
   await page.goto(command.url1, { waitUntil });
   const { tree: tree1 } = await getEnhancedSnapshot(page, snapshotOpts);
   const snapshot1 = tree1 || 'Empty page';
@@ -2607,6 +2678,7 @@ async function handleDiffUrl(command: DiffUrlCommand, browser: BrowserManager): 
     screenshot1 = await page.screenshot({ fullPage: command.fullPage, type: 'png' });
   }
 
+  // Capture state of url2
   await page.goto(command.url2, { waitUntil });
   const { tree: tree2 } = await getEnhancedSnapshot(page, snapshotOpts);
   const snapshot2 = tree2 || 'Empty page';
@@ -2648,6 +2720,9 @@ async function handleAuthLogin(
 
   const passSel = profile.passwordSelector || 'input[type="password"]:visible';
 
+  // Auto-detect selectors ordered from most specific to broadest.
+  // Locale-dependent text matchers (e.g. "Sign in") are intentionally
+  // excluded -- they break on non-English pages.
   const AUTO_USER_SELECTORS = [
     'input[autocomplete="username"]:visible',
     'input[type="email"]:visible',
@@ -2657,6 +2732,7 @@ async function handleAuthLogin(
   const AUTO_SUBMIT_SELECTORS = ['button[type="submit"]:visible', 'input[type="submit"]:visible'];
 
   try {
+    // Resolve username field: custom selector or sequential auto-detect
     let userLocator;
     if (profile.usernameSelector) {
       userLocator = page.locator(profile.usernameSelector).first();
@@ -2678,6 +2754,7 @@ async function handleAuthLogin(
       }
     }
 
+    // Resolve submit button: custom selector or sequential auto-detect
     let submitLocator;
     if (profile.submitSelector) {
       submitLocator = page.locator(profile.submitSelector).first();
@@ -2727,12 +2804,15 @@ async function handleConfirm(command: ConfirmCommand, browser: BrowserManager): 
     return errorResponse(command.id, `No pending confirmation with id '${command.confirmationId}'`);
   }
 
+  // Re-validate the stored command through the schema to guard against
+  // shape drift between when the confirmation was issued and now.
   const parseResult = parseCommand(JSON.stringify(entry.command));
   if (!parseResult.success) {
     return errorResponse(command.id, `Stored command is no longer valid: ${parseResult.error}`);
   }
   const originalCommand = parseResult.command;
 
+  // Re-check deny list in case policy was updated since the confirmation was issued
   actionPolicy = reloadPolicyIfChanged();
   const decision = checkPolicy(originalCommand.action, actionPolicy, new Set());
   if (decision === 'deny') {

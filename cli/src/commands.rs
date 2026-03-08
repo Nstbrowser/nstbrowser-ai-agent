@@ -6,50 +6,65 @@ use crate::color;
 use crate::flags::Flags;
 use crate::validation::{is_valid_session_name, session_name_error};
 
+/// Check if NST provider should be used based on flags and environment
 fn should_use_nst_provider(flags: &Flags) -> bool {
-    
+    // Use the same logic as determine_provider in flags.rs
+
+    // Priority 1: Explicit --provider flag
     if let Some(ref provider) = flags.provider {
         return provider == "nst";
     }
-    
+
+    // Priority 2: --local flag overrides default
     if flags.local {
         return false;
     }
-    
+
+    // Priority 3: --headed implies local
     if flags.headed {
         return false;
     }
-    
+
+    // Priority 4: --cdp implies local
     if flags.cdp.is_some() {
         return false;
     }
-    
+
+    // Priority 5: --auto-connect implies local
     if flags.auto_connect {
         return false;
     }
-    
+
+    // Priority 6: NST_API_KEY environment variable present (default to nst)
     if std::env::var("NST_API_KEY").is_ok() {
         return true;
     }
-    
+
+    // Priority 7: Default to nst
     true
 }
 
+/// Error type for command parsing with contextual information
 #[derive(Debug)]
 pub enum ParseError {
+    /// Command does not exist
     UnknownCommand { command: String },
+    /// Command exists but subcommand is invalid
     UnknownSubcommand {
         subcommand: String,
         valid_options: &'static [&'static str],
     },
+    /// Command/subcommand exists but required arguments are missing
     MissingArguments {
         context: String,
         usage: &'static str,
     },
+    /// Argument exists but has an invalid value
     InvalidValue {
         message: String,
         usage: &'static str,
     },
+    /// Invalid session name (path traversal or invalid characters)
     InvalidSessionName { name: String },
 }
 
@@ -114,6 +129,8 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
     }
 
     match cmd {
+        // === Navigation ===
+        // Maps to "navigate" action in protocol; reflected in ACTION_CATEGORIES in action-policy.ts
         "open" | "goto" | "navigate" => {
             let url = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: cmd.to_string(),
@@ -130,9 +147,10 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             {
                 url.to_string()
             } else {
-                format!("https:
+                format!("https://{}", url)
             };
             let mut nav_cmd = json!({ "id": id, "action": "navigate", "url": url });
+            // If --headers flag is set, include headers (scoped to this origin)
             if let Some(ref headers_json) = flags.headers {
                 let headers =
                     serde_json::from_str::<serde_json::Value>(headers_json).map_err(|_| {
@@ -143,17 +161,13 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                     })?;
                 nav_cmd["headers"] = headers;
             }
-            if flags.provider.as_deref() == Some("ios") {
-                if let Some(ref device) = flags.device {
-                    nav_cmd["iosDevice"] = json!(device);
-                }
-            }
             Ok(nav_cmd)
         }
         "back" => Ok(json!({ "id": id, "action": "back" })),
         "forward" => Ok(json!({ "id": id, "action": "forward" })),
         "reload" => Ok(json!({ "id": id, "action": "reload" })),
 
+        // === Core Actions ===
         "click" => {
             let new_tab = rest.iter().any(|arg| *arg == "--new-tab");
             let sel = rest
@@ -264,6 +278,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "download", "selector": sel, "path": path }))
         }
 
+        // === Keyboard ===
         "press" | "key" => {
             let key = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "press".to_string(),
@@ -320,6 +335,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Scroll ===
         "scroll" => {
             let mut cmd = json!({ "id": id, "action": "scroll" });
             let obj = cmd.as_object_mut().unwrap();
@@ -372,7 +388,9 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "scrollintoview", "selector": sel }))
         }
 
+        // === Wait ===
         "wait" => {
+            // Check for --url flag: wait --url "**/dashboard"
             if let Some(idx) = rest.iter().position(|&s| s == "--url" || s == "-u") {
                 let url = rest
                     .get(idx + 1)
@@ -383,6 +401,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 return Ok(json!({ "id": id, "action": "waitforurl", "url": url }));
             }
 
+            // Check for --load flag: wait --load networkidle
             if let Some(idx) = rest.iter().position(|&s| s == "--load" || s == "-l") {
                 let state = rest
                     .get(idx + 1)
@@ -393,6 +412,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 return Ok(json!({ "id": id, "action": "waitforloadstate", "state": state }));
             }
 
+            // Check for --fn flag: wait --fn "window.ready === true"
             if let Some(idx) = rest.iter().position(|&s| s == "--fn" || s == "-f") {
                 let expr = rest
                     .get(idx + 1)
@@ -403,6 +423,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 return Ok(json!({ "id": id, "action": "waitforfunction", "expression": expr }));
             }
 
+            // Check for --text flag: wait --text "Welcome"
             if let Some(idx) = rest.iter().position(|&s| s == "--text" || s == "-t") {
                 let text = rest
                     .get(idx + 1)
@@ -410,13 +431,16 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         context: "wait --text".to_string(),
                         usage: "wait --text <text>",
                     })?;
+                // Use getByText locator to wait for text to appear
                 return Ok(
                     json!({ "id": id, "action": "wait", "selector": format!("text={}", text) }),
                 );
             }
 
+            // Check for --download flag: wait --download [path] [--timeout ms]
             if rest.iter().any(|&s| s == "--download" || s == "-d") {
                 let mut cmd = json!({ "id": id, "action": "waitfordownload" });
+                // Check for optional path (first non-flag argument after --download)
                 let download_idx = rest
                     .iter()
                     .position(|&s| s == "--download" || s == "-d")
@@ -426,6 +450,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         cmd["path"] = json!(path);
                     }
                 }
+                // Check for optional timeout
                 if let Some(idx) = rest.iter().position(|&s| s == "--timeout") {
                     if let Some(timeout_str) = rest.get(idx + 1) {
                         if let Ok(timeout) = timeout_str.parse::<u64>() {
@@ -436,6 +461,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 return Ok(cmd);
             }
 
+            // Default: selector or timeout
             if let Some(arg) = rest.first() {
                 if let Ok(timeout) = arg.parse::<u64>() {
                     Ok(json!({ "id": id, "action": "wait", "timeout": timeout }))
@@ -450,12 +476,18 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Screenshot/PDF ===
         "screenshot" => {
+            // screenshot [selector] [path]
+            // selector: @ref or CSS selector
+            // path: file path (contains / or . or ends with known extension)
             let (selector, path) = match (rest.first(), rest.get(1)) {
                 (Some(first), Some(second)) => {
+                    // Two args: first is selector, second is path
                     (Some(*first), Some(*second))
                 }
                 (Some(first), None) => {
+                    // One arg: determine if it's a selector or a path
                     let is_relative_path = first.starts_with("./") || first.starts_with("../");
                     let is_selector = !is_relative_path
                         && (first.starts_with('.')
@@ -486,6 +518,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "pdf", "path": path }))
         }
 
+        // === Snapshot ===
         "snapshot" => {
             let mut cmd = json!({ "id": id, "action": "snapshot" });
             let obj = cmd.as_object_mut().unwrap();
@@ -522,7 +555,9 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(cmd)
         }
 
+        // === Eval ===
         "eval" => {
+            // Check for flags: -b/--base64 or --stdin
             let (is_base64, is_stdin, script_parts): (bool, bool, &[&str]) =
                 if rest.first() == Some(&"-b") || rest.first() == Some(&"--base64") {
                     (true, false, &rest[1..])
@@ -533,6 +568,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 };
 
             let script = if is_stdin {
+                // Read script from stdin
                 let stdin = io::stdin();
                 let lines: Vec<String> = stdin
                     .lock()
@@ -561,8 +597,10 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "evaluate", "script": script }))
         }
 
+        // === Close ===
         "close" | "quit" | "exit" => Ok(json!({ "id": id, "action": "close" })),
 
+        // === Authentication Vault ===
         "auth" => {
             let sub = rest.first().map(|s| s.as_ref());
             match sub {
@@ -691,6 +729,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Action Confirmation ===
         "confirm" => {
             let cid = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "confirm".to_string(),
@@ -706,11 +745,13 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "deny", "confirmationId": cid }))
         }
 
+        // === Connect (CDP) ===
         "connect" => {
             let endpoint = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "connect".to_string(),
                 usage: "connect <port|url>",
             })?;
+            // Check if it's a URL (ws://, wss://, http://, https://)
             if endpoint.starts_with("ws://")
                 || endpoint.starts_with("wss://")
                 || endpoint.starts_with("http://")
@@ -718,6 +759,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             {
                 Ok(json!({ "id": id, "action": "launch", "cdpUrl": endpoint }))
             } else {
+                // It's a port number - validate and use cdpPort field
                 let port: u16 = match endpoint.parse::<u32>() {
                     Ok(0) => {
                         return Err(ParseError::InvalidValue {
@@ -749,20 +791,28 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Get ===
         "get" => parse_get(&rest, &id),
 
+        // === Is (state checks) ===
         "is" => parse_is(&rest, &id),
 
+        // === Find (locators) ===
         "find" => parse_find(&rest, &id),
 
+        // === Mouse ===
         "mouse" => parse_mouse(&rest, &id),
 
+        // === Set (browser settings) ===
         "set" => parse_set(&rest, &id),
 
+        // === Network ===
         "network" => parse_network(&rest, &id),
 
+        // === Storage ===
         "storage" => parse_storage(&rest, &id),
 
+        // === Cookies ===
         "cookies" => {
             let op = rest.first().unwrap_or(&"get");
             match *op {
@@ -778,6 +828,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
 
                     let mut cookie = json!({ "name": name, "value": value });
 
+                    // Parse optional flags
                     let mut i = 3;
                     while i < rest.len() {
                         match rest[i] {
@@ -824,6 +875,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                             }
                             "--sameSite" => {
                                 if let Some(same_site) = rest.get(i + 1) {
+                                    // Validate sameSite value
                                     if *same_site == "Strict"
                                         || *same_site == "Lax"
                                         || *same_site == "None"
@@ -862,6 +914,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                                 }
                             }
                             _ => {
+                                // Unknown flag, skip it (or could error)
                                 i += 1;
                             }
                         }
@@ -874,6 +927,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Tabs ===
         "tab" => match rest.first().copied() {
             Some("new") => {
                 let mut cmd = json!({ "id": id, "action": "tab_new" });
@@ -897,6 +951,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             _ => Ok(json!({ "id": id, "action": "tab_list" })),
         },
 
+        // === Window ===
         "window" => {
             const VALID: &[&str] = &["new"];
             match rest.first().copied() {
@@ -912,6 +967,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Frame ===
         "frame" => {
             if rest.first().copied() == Some("main") {
                 Ok(json!({ "id": id, "action": "mainframe" }))
@@ -924,6 +980,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Dialog ===
         "dialog" => {
             const VALID: &[&str] = &["accept", "dismiss"];
             match rest.first().copied() {
@@ -945,6 +1002,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Debug ===
         "trace" => {
             const VALID: &[&str] = &["start", "stop"];
             match rest.first().copied() {
@@ -967,6 +1025,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Profiler (CDP Tracing / Chromium profiling) ===
         "profiler" => {
             const VALID: &[&str] = &["start", "stop"];
             match rest.first().copied() {
@@ -1003,6 +1062,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Recording (Playwright native video recording) ===
         "record" => {
             const VALID: &[&str] = &["start", "stop", "restart"];
             match rest.first().copied() {
@@ -1011,13 +1071,15 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         context: "record start".to_string(),
                         usage: "record start <output.webm> [url]",
                     })?;
+                    // Optional URL parameter
                     let url = rest.get(2);
                     let mut cmd = json!({ "id": id, "action": "recording_start", "path": path });
                     if let Some(u) = url {
+                        // Add https:// prefix if needed (preserve special schemes)
                         let url_str = if u.starts_with("http") || u.contains("://") {
                             u.to_string()
                         } else {
-                            format!("https:
+                            format!("https://{}", u)
                         };
                         cmd["url"] = json!(url_str);
                     }
@@ -1029,13 +1091,15 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                         context: "record restart".to_string(),
                         usage: "record restart <output.webm> [url]",
                     })?;
+                    // Optional URL parameter
                     let url = rest.get(2);
                     let mut cmd = json!({ "id": id, "action": "recording_restart", "path": path });
                     if let Some(u) = url {
+                        // Add https:// prefix if needed (preserve special schemes)
                         let url_str = if u.starts_with("http") || u.contains("://") {
                             u.to_string()
                         } else {
-                            format!("https:
+                            format!("https://{}", u)
                         };
                         cmd["url"] = json!(url_str);
                     }
@@ -1067,6 +1131,7 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             Ok(json!({ "id": id, "action": "highlight", "selector": sel }))
         }
 
+        // === State ===
         "state" => {
             const VALID: &[&str] = &["save", "load", "list", "clear", "show", "clean", "rename"];
             match rest.first().copied() {
@@ -1186,51 +1251,16 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
-        "tap" => {
-            let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
-                context: "tap".to_string(),
-                usage: "tap <selector>",
-            })?;
-            Ok(json!({ "id": id, "action": "tap", "selector": sel }))
-        }
-        "swipe" => {
-            let direction = rest.first().ok_or_else(|| ParseError::MissingArguments {
-                context: "swipe".to_string(),
-                usage: "swipe <up|down|left|right> [distance]",
-            })?;
-            let valid_directions = ["up", "down", "left", "right"];
-            if !valid_directions.contains(direction) {
-                return Err(ParseError::InvalidValue {
-                    message: format!("Invalid swipe direction: {}", direction),
-                    usage: "swipe <up|down|left|right> [distance]",
-                });
-            }
-            let mut cmd = json!({ "id": id, "action": "swipe", "direction": direction });
-            if let Some(distance) = rest.get(1) {
-                if let Ok(d) = distance.parse::<u32>() {
-                    cmd.as_object_mut()
-                        .unwrap()
-                        .insert("distance".to_string(), json!(d));
-                }
-            }
-            Ok(cmd)
-        }
-        "device" => {
-            match rest.first().copied() {
-                Some("list") | None => {
-                    Ok(json!({ "id": id, "action": "device_list" }))
-                }
-                Some(sub) => Err(ParseError::UnknownSubcommand {
-                    subcommand: sub.to_string(),
-                    valid_options: &["list"],
-                }),
-            }
-        }
-
+        // === iOS-specific commands ===
+        // === Nstbrowser Integration ===
         "nst" => parse_nst(&rest, &id),
 
+        // === Default NST Provider Aliases ===
+        // When using NST as default provider, allow direct access to NST commands
         "profile" | "browser" => {
+            // Check if we should use NST provider by default
             if should_use_nst_provider(flags) {
+                // Route to NST command parser with the command as first argument
                 let mut nst_args = vec![cmd];
                 nst_args.extend_from_slice(&rest);
                 parse_nst(&nst_args, &id)
@@ -1242,6 +1272,63 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         }
 
         "diff" => parse_diff(&rest, &id, flags),
+
+        // === Configuration ===
+        "config" => {
+            let subcmd = rest.first().ok_or_else(|| ParseError::MissingArguments {
+                context: "config".to_string(),
+                usage: "config <set|get|show|unset> [args...]",
+            })?;
+
+            match *subcmd {
+                "set" => {
+                    let key = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "config set".to_string(),
+                        usage: "config set <key|host|port> <value>",
+                    })?;
+                    let value = rest.get(2).ok_or_else(|| ParseError::MissingArguments {
+                        context: "config set".to_string(),
+                        usage: "config set <key|host|port> <value>",
+                    })?;
+                    Ok(json!({
+                        "id": id,
+                        "action": "config_set",
+                        "key": key,
+                        "value": value
+                    }))
+                }
+                "get" => {
+                    let key = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "config get".to_string(),
+                        usage: "config get <key|host|port>",
+                    })?;
+                    Ok(json!({
+                        "id": id,
+                        "action": "config_get",
+                        "key": key
+                    }))
+                }
+                "show" => Ok(json!({
+                    "id": id,
+                    "action": "config_show"
+                })),
+                "unset" => {
+                    let key = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                        context: "config unset".to_string(),
+                        usage: "config unset <key|host|port>",
+                    })?;
+                    Ok(json!({
+                        "id": id,
+                        "action": "config_unset",
+                        "key": key
+                    }))
+                }
+                _ => Err(ParseError::UnknownSubcommand {
+                    subcommand: subcmd.to_string(),
+                    valid_options: &["set", "get", "show", "unset"],
+                }),
+            }
+        }
 
         _ => Err(ParseError::UnknownCommand {
             command: cmd.to_string(),
@@ -1904,6 +1991,7 @@ fn parse_set(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 context: "set headers".to_string(),
                 usage: "set headers <json>",
             })?;
+            // Parse the JSON string into an object
             let headers: serde_json::Value =
                 serde_json::from_str(headers_json).map_err(|_| ParseError::MissingArguments {
                     context: "set headers".to_string(),
@@ -2095,6 +2183,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 "profileId": profile_id
             });
 
+            // Parse optional flags - use "options" to match TypeScript interface
             let mut options = json!({});
             let mut i = 2;
             while i < rest.len() {
@@ -2178,6 +2267,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 "name": name
             });
 
+            // Parse optional proxy configuration - use "proxyConfig" to match TypeScript interface
             let mut proxy_config = json!({});
             let mut i = 2;
             while i < rest.len() {
@@ -2347,11 +2437,12 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
             }))
         }
         Some("batch-update") => {
-            let profile_ids: Vec<&str> = rest[1..].iter()
+            let profile_ids: Vec<&str> = rest[1..]
+                .iter()
                 .take_while(|s| !s.starts_with("--"))
                 .map(|s| s.as_ref())
                 .collect();
-            
+
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile proxy batch-update".to_string(),
@@ -2515,7 +2606,15 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
 }
 
 fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> {
-    const VALID: &[&str] = &["list", "create", "update", "clear", "batch-create", "batch-update", "batch-clear"];
+    const VALID: &[&str] = &[
+        "list",
+        "create",
+        "update",
+        "clear",
+        "batch-create",
+        "batch-update",
+        "batch-clear",
+    ];
 
     match rest.first().copied() {
         Some("list") | None => Ok(json!({ "id": id, "action": "nst_profile_tags_list" })),
@@ -2533,16 +2632,19 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 });
             }
 
-            let tags: Vec<Value> = tag_specs.iter().map(|spec| {
-                if let Some(colon_pos) = spec.find(':') {
-                    json!({
-                        "name": &spec[..colon_pos],
-                        "color": &spec[colon_pos + 1..]
-                    })
-                } else {
-                    json!({ "name": spec })
-                }
-            }).collect();
+            let tags: Vec<Value> = tag_specs
+                .iter()
+                .map(|spec| {
+                    if let Some(colon_pos) = spec.find(':') {
+                        json!({
+                            "name": &spec[..colon_pos],
+                            "color": &spec[colon_pos + 1..]
+                        })
+                    } else {
+                        json!({ "name": spec })
+                    }
+                })
+                .collect();
 
             Ok(json!({
                 "id": id,
@@ -2552,11 +2654,12 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             }))
         }
         Some("batch-create") => {
-            let profile_ids: Vec<&str> = rest[1..].iter()
+            let profile_ids: Vec<&str> = rest[1..]
+                .iter()
                 .take_while(|s| !s.contains(':') && !s.starts_with("--"))
                 .map(|s| s.as_ref())
                 .collect();
-            
+
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-create".to_string(),
@@ -2564,7 +2667,10 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 });
             }
 
-            let tag_specs: Vec<&str> = rest[1 + profile_ids.len()..].iter().map(|s| s.as_ref()).collect();
+            let tag_specs: Vec<&str> = rest[1 + profile_ids.len()..]
+                .iter()
+                .map(|s| s.as_ref())
+                .collect();
             if tag_specs.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-create".to_string(),
@@ -2572,16 +2678,19 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 });
             }
 
-            let tags: Vec<Value> = tag_specs.iter().map(|spec| {
-                if let Some(colon_pos) = spec.find(':') {
-                    json!({
-                        "name": &spec[..colon_pos],
-                        "color": &spec[colon_pos + 1..]
-                    })
-                } else {
-                    json!({ "name": spec })
-                }
-            }).collect();
+            let tags: Vec<Value> = tag_specs
+                .iter()
+                .map(|spec| {
+                    if let Some(colon_pos) = spec.find(':') {
+                        json!({
+                            "name": &spec[..colon_pos],
+                            "color": &spec[colon_pos + 1..]
+                        })
+                    } else {
+                        json!({ "name": spec })
+                    }
+                })
+                .collect();
 
             Ok(json!({
                 "id": id,
@@ -2591,11 +2700,12 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             }))
         }
         Some("batch-update") => {
-            let profile_ids: Vec<&str> = rest[1..].iter()
+            let profile_ids: Vec<&str> = rest[1..]
+                .iter()
                 .take_while(|s| !s.contains(':') && !s.starts_with("--"))
                 .map(|s| s.as_ref())
                 .collect();
-            
+
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-update".to_string(),
@@ -2603,7 +2713,10 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 });
             }
 
-            let tag_specs: Vec<&str> = rest[1 + profile_ids.len()..].iter().map(|s| s.as_ref()).collect();
+            let tag_specs: Vec<&str> = rest[1 + profile_ids.len()..]
+                .iter()
+                .map(|s| s.as_ref())
+                .collect();
             if tag_specs.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-update".to_string(),
@@ -2611,16 +2724,19 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 });
             }
 
-            let tags: Vec<Value> = tag_specs.iter().map(|spec| {
-                if let Some(colon_pos) = spec.find(':') {
-                    json!({
-                        "name": &spec[..colon_pos],
-                        "color": &spec[colon_pos + 1..]
-                    })
-                } else {
-                    json!({ "name": spec })
-                }
-            }).collect();
+            let tags: Vec<Value> = tag_specs
+                .iter()
+                .map(|spec| {
+                    if let Some(colon_pos) = spec.find(':') {
+                        json!({
+                            "name": &spec[..colon_pos],
+                            "color": &spec[colon_pos + 1..]
+                        })
+                    } else {
+                        json!({ "name": spec })
+                    }
+                })
+                .collect();
 
             Ok(json!({
                 "id": id,
@@ -2654,6 +2770,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
                 usage: "nst profile tags create <profile-id> <tag-name>",
             })?;
 
+            // TypeScript expects a single tag string, not an array
             Ok(json!({
                 "id": id,
                 "action": "nst_profile_tags_create",
@@ -2697,7 +2814,8 @@ fn parse_nst_profile_groups(rest: &[&str], id: &str) -> Result<Value, ParseError
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile groups batch-change".to_string(),
-                    usage: "nst profile groups batch-change <group-id> <profile-id> [profile-id...]",
+                    usage:
+                        "nst profile groups batch-change <group-id> <profile-id> [profile-id...]",
                 });
             }
 
@@ -2760,7 +2878,6 @@ mod tests {
             provider: None,
             ignore_https_errors: false,
             allow_file_access: false,
-            device: None,
             auto_connect: false,
             session_name: None,
             cli_executable_path: false,
@@ -2795,6 +2912,7 @@ mod tests {
         s.split_whitespace().map(String::from).collect()
     }
 
+    // === Cookies Tests ===
 
     #[test]
     fn test_cookies_get() {
@@ -2810,7 +2928,8 @@ mod tests {
 
     #[test]
     fn test_cookies_set() {
-        let cmd = parse_command(&test_args("cookies set mycookie myvalue"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("cookies set mycookie myvalue"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "cookies_set");
         assert_eq!(cmd["cookies"][0]["name"], "mycookie");
         assert_eq!(cmd["cookies"][0]["value"], "myvalue");
@@ -2831,14 +2950,14 @@ mod tests {
     #[test]
     fn test_cookies_set_with_url() {
         let cmd = parse_command(
-            &test_args("cookies set mycookie myvalue --url https:
+            &test_args("cookies set mycookie myvalue --url https://example.com"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "cookies_set");
         assert_eq!(cmd["cookies"][0]["name"], "mycookie");
         assert_eq!(cmd["cookies"][0]["value"], "myvalue");
-        assert_eq!(cmd["cookies"][0]["url"], "https:
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
     }
 
     #[test]
@@ -2921,11 +3040,11 @@ mod tests {
 
     #[test]
     fn test_cookies_set_with_multiple_flags() {
-        let cmd = parse_command(&test_args("cookies set mycookie myvalue --url https:
+        let cmd = parse_command(&test_args("cookies set mycookie myvalue --url https://example.com --httpOnly --secure --sameSite Lax"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "cookies_set");
         assert_eq!(cmd["cookies"][0]["name"], "mycookie");
         assert_eq!(cmd["cookies"][0]["value"], "myvalue");
-        assert_eq!(cmd["cookies"][0]["url"], "https:
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
         assert_eq!(cmd["cookies"][0]["httpOnly"], true);
         assert_eq!(cmd["cookies"][0]["secure"], true);
         assert_eq!(cmd["cookies"][0]["sameSite"], "Lax");
@@ -2933,11 +3052,11 @@ mod tests {
 
     #[test]
     fn test_cookies_set_with_all_flags() {
-        let cmd = parse_command(&test_args("cookies set mycookie myvalue --url https:
+        let cmd = parse_command(&test_args("cookies set mycookie myvalue --url https://example.com --domain example.com --path /api --httpOnly --secure --sameSite None --expires 9999999999"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "cookies_set");
         assert_eq!(cmd["cookies"][0]["name"], "mycookie");
         assert_eq!(cmd["cookies"][0]["value"], "myvalue");
-        assert_eq!(cmd["cookies"][0]["url"], "https:
+        assert_eq!(cmd["cookies"][0]["url"], "https://example.com");
         assert_eq!(cmd["cookies"][0]["domain"], "example.com");
         assert_eq!(cmd["cookies"][0]["path"], "/api");
         assert_eq!(cmd["cookies"][0]["httpOnly"], true);
@@ -2955,6 +3074,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // === Storage Tests ===
 
     #[test]
     fn test_storage_local_get() {
@@ -2981,8 +3101,11 @@ mod tests {
 
     #[test]
     fn test_storage_local_set() {
-        let cmd =
-            parse_command(&test_args("storage local set mykey myvalue"), &default_flags()).unwrap();
+        let cmd = parse_command(
+            &test_args("storage local set mykey myvalue"),
+            &default_flags(),
+        )
+        .unwrap();
         assert_eq!(cmd["action"], "storage_set");
         assert_eq!(cmd["type"], "local");
         assert_eq!(cmd["key"], "mykey");
@@ -2991,8 +3114,11 @@ mod tests {
 
     #[test]
     fn test_storage_session_set() {
-        let cmd =
-            parse_command(&test_args("storage session set skey svalue"), &default_flags()).unwrap();
+        let cmd = parse_command(
+            &test_args("storage session set skey svalue"),
+            &default_flags(),
+        )
+        .unwrap();
         assert_eq!(cmd["action"], "storage_set");
         assert_eq!(cmd["type"], "session");
         assert_eq!(cmd["key"], "skey");
@@ -3025,19 +3151,20 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // === Navigation Tests ===
 
     #[test]
     fn test_navigate_with_https() {
-        let cmd = parse_command(&test_args("open https:
+        let cmd = parse_command(&test_args("open https://example.com"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "navigate");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
     fn test_navigate_without_protocol() {
         let cmd = parse_command(&test_args("open example.com"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "navigate");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
@@ -3046,7 +3173,7 @@ mod tests {
         flags.headers = Some(r#"{"Authorization": "Bearer token"}"#.to_string());
         let cmd = parse_command(&test_args("open api.example.com"), &flags).unwrap();
         assert_eq!(cmd["action"], "navigate");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://api.example.com");
         assert_eq!(cmd["headers"]["Authorization"], "Bearer token");
     }
 
@@ -3064,6 +3191,7 @@ mod tests {
     fn test_navigate_without_headers_flag() {
         let cmd = parse_command(&test_args("open example.com"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "navigate");
+        // headers should not be present when flag is not set
         assert!(cmd.get("headers").is_none());
     }
 
@@ -3072,6 +3200,7 @@ mod tests {
         let mut flags = default_flags();
         flags.headers = Some("not valid json".to_string());
         let result = parse_command(&test_args("open api.example.com"), &flags);
+        // Invalid JSON should return a ParseError, not silently drop headers
         assert!(result.is_err());
         let err = result.unwrap_err();
         let msg = err.format();
@@ -3081,21 +3210,22 @@ mod tests {
     #[test]
     fn test_navigate_chrome_extension_url() {
         let cmd = parse_command(
-            &test_args("open chrome-extension:
+            &test_args("open chrome-extension://abcdefghijklmnop/popup.html"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "navigate");
-        assert_eq!(cmd["url"], "chrome-extension:
+        assert_eq!(cmd["url"], "chrome-extension://abcdefghijklmnop/popup.html");
     }
 
     #[test]
     fn test_navigate_chrome_url() {
-        let cmd = parse_command(&test_args("open chrome:
+        let cmd = parse_command(&test_args("open chrome://extensions"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "navigate");
-        assert_eq!(cmd["url"], "chrome:
+        assert_eq!(cmd["url"], "chrome://extensions");
     }
 
+    // === Set Headers Tests ===
 
     #[test]
     fn test_set_headers_parses_json() {
@@ -3106,6 +3236,7 @@ mod tests {
         ];
         let cmd = parse_command(&input, &default_flags()).unwrap();
         assert_eq!(cmd["action"], "headers");
+        // Headers should be an object, not a string
         assert!(cmd["headers"].is_object());
         assert_eq!(cmd["headers"]["Authorization"], "Bearer token");
     }
@@ -3151,6 +3282,7 @@ mod tests {
         assert_eq!(cmd["action"], "reload");
     }
 
+    // === Core Actions ===
 
     #[test]
     fn test_click() {
@@ -3185,7 +3317,8 @@ mod tests {
 
     #[test]
     fn test_select_multiple_values() {
-        let cmd = parse_command(&test_args("select #menu opt1 opt2 opt3"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("select #menu opt1 opt2 opt3"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "select");
         assert_eq!(cmd["selector"], "#menu");
         assert_eq!(cmd["values"], json!(["opt1", "opt2", "opt3"]));
@@ -3197,6 +3330,7 @@ mod tests {
         assert_eq!(cmd["action"], "mainframe");
     }
 
+    // === Tabs ===
 
     #[test]
     fn test_tab_new() {
@@ -3210,9 +3344,10 @@ mod tests {
 
     #[test]
     fn test_tab_new_with_url() {
-        let cmd = parse_command(&test_args("tab new https:
+        let cmd =
+            parse_command(&test_args("tab new https://example.com"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "tab_new");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
@@ -3234,6 +3369,7 @@ mod tests {
         assert_eq!(cmd["action"], "tab_close");
     }
 
+    // === Screenshot ===
 
     #[test]
     fn test_screenshot() {
@@ -3293,12 +3429,14 @@ mod tests {
 
     #[test]
     fn test_screenshot_with_selector_and_path() {
-        let cmd = parse_command(&test_args("screenshot .btn ./button.png"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("screenshot .btn ./button.png"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "screenshot");
         assert_eq!(cmd["selector"], ".btn");
         assert_eq!(cmd["path"], "./button.png");
     }
 
+    // === Snapshot ===
 
     #[test]
     fn test_snapshot() {
@@ -3342,6 +3480,7 @@ mod tests {
         assert_eq!(cmd["maxDepth"], 3);
     }
 
+    // === Wait ===
 
     #[test]
     fn test_wait_selector() {
@@ -3395,7 +3534,9 @@ mod tests {
         assert_eq!(cmd["selector"], "text=Welcome");
     }
 
+    // === Unknown command ===
 
+    // === Record Tests ===
 
     #[test]
     fn test_record_start() {
@@ -3408,13 +3549,13 @@ mod tests {
     #[test]
     fn test_record_start_with_url() {
         let cmd = parse_command(
-            &test_args("record start demo.webm https:
+            &test_args("record start demo.webm https://example.com"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "recording_start");
         assert_eq!(cmd["path"], "demo.webm");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
@@ -3426,19 +3567,19 @@ mod tests {
         .unwrap();
         assert_eq!(cmd["action"], "recording_start");
         assert_eq!(cmd["path"], "demo.webm");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
     fn test_record_start_with_chrome_extension_url() {
         let cmd = parse_command(
-            &test_args("record start demo.webm chrome-extension:
+            &test_args("record start demo.webm chrome-extension://abcdef/popup.html"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "recording_start");
         assert_eq!(cmd["path"], "demo.webm");
-        assert_eq!(cmd["url"], "chrome-extension:
+        assert_eq!(cmd["url"], "chrome-extension://abcdef/popup.html");
     }
 
     #[test]
@@ -3459,7 +3600,8 @@ mod tests {
 
     #[test]
     fn test_record_restart() {
-        let cmd = parse_command(&test_args("record restart output.webm"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("record restart output.webm"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "recording_restart");
         assert_eq!(cmd["path"], "output.webm");
         assert!(cmd.get("url").is_none());
@@ -3468,13 +3610,13 @@ mod tests {
     #[test]
     fn test_record_restart_with_url() {
         let cmd = parse_command(
-            &test_args("record restart demo.webm https:
+            &test_args("record restart demo.webm https://example.com"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "recording_restart");
         assert_eq!(cmd["path"], "demo.webm");
-        assert_eq!(cmd["url"], "https:
+        assert_eq!(cmd["url"], "https://example.com");
     }
 
     #[test]
@@ -3507,6 +3649,7 @@ mod tests {
         ));
     }
 
+    // === Profile (CDP Tracing) Tests ===
 
     #[test]
     fn test_profiler_start() {
@@ -3573,6 +3716,7 @@ mod tests {
         ));
     }
 
+    // === Eval Tests ===
 
     #[test]
     fn test_eval_basic() {
@@ -3583,13 +3727,16 @@ mod tests {
 
     #[test]
     fn test_eval_base64_short_flag() {
-        let cmd = parse_command(&test_args("eval -b ZG9jdW1lbnQudGl0bGU="), &default_flags()).unwrap();
+        // "document.title" in base64
+        let cmd =
+            parse_command(&test_args("eval -b ZG9jdW1lbnQudGl0bGU="), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "evaluate");
         assert_eq!(cmd["script"], "document.title");
     }
 
     #[test]
     fn test_eval_base64_long_flag() {
+        // "document.title" in base64
         let cmd = parse_command(
             &test_args("eval --base64 ZG9jdW1lbnQudGl0bGU="),
             &default_flags(),
@@ -3601,6 +3748,7 @@ mod tests {
 
     #[test]
     fn test_eval_base64_with_special_chars() {
+        // "document.querySelector('[src*=\"_next\"]')" in base64
         let cmd = parse_command(
             &test_args("eval -b ZG9jdW1lbnQucXVlcnlTZWxlY3RvcignW3NyYyo9Il9uZXh0Il0nKQ=="),
             &default_flags(),
@@ -3639,6 +3787,7 @@ mod tests {
         ));
     }
 
+    // === Error message tests ===
 
     #[test]
     fn test_get_missing_subcommand() {
@@ -3668,6 +3817,7 @@ mod tests {
         assert!(err.format().contains("get text"));
     }
 
+    // === Protocol alignment tests ===
 
     #[test]
     fn test_mouse_wheel() {
@@ -3687,7 +3837,11 @@ mod tests {
 
     #[test]
     fn test_set_media_reduced_motion() {
-        let cmd = parse_command(&test_args("set media light reduced-motion"), &default_flags()).unwrap();
+        let cmd = parse_command(
+            &test_args("set media light reduced-motion"),
+            &default_flags(),
+        )
+        .unwrap();
         assert_eq!(cmd["action"], "emulatemedia");
         assert_eq!(cmd["colorScheme"], "light");
         assert_eq!(cmd["reducedMotion"], "reduce");
@@ -3703,7 +3857,8 @@ mod tests {
 
     #[test]
     fn test_find_first_with_value() {
-        let cmd = parse_command(&test_args("find first input fill hello"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("find first input fill hello"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "nth");
         assert_eq!(cmd["index"], 0);
         assert_eq!(cmd["value"], "hello");
@@ -3717,6 +3872,7 @@ mod tests {
         assert!(cmd.get("value").is_none());
     }
 
+    // === Download Tests ===
 
     #[test]
     fn test_download() {
@@ -3728,7 +3884,8 @@ mod tests {
 
     #[test]
     fn test_download_with_ref() {
-        let cmd = parse_command(&test_args("download @e5 ./report.xlsx"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("download @e5 ./report.xlsx"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "download");
         assert_eq!(cmd["selector"], "@e5");
         assert_eq!(cmd["path"], "./report.xlsx");
@@ -3754,6 +3911,7 @@ mod tests {
         ));
     }
 
+    // === Wait for Download Tests ===
 
     #[test]
     fn test_wait_download() {
@@ -3764,15 +3922,19 @@ mod tests {
 
     #[test]
     fn test_wait_download_with_path() {
-        let cmd = parse_command(&test_args("wait --download ./file.pdf"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("wait --download ./file.pdf"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "waitfordownload");
         assert_eq!(cmd["path"], "./file.pdf");
     }
 
     #[test]
     fn test_wait_download_with_timeout() {
-        let cmd =
-            parse_command(&test_args("wait --download --timeout 30000"), &default_flags()).unwrap();
+        let cmd = parse_command(
+            &test_args("wait --download --timeout 30000"),
+            &default_flags(),
+        )
+        .unwrap();
         assert_eq!(cmd["action"], "waitfordownload");
         assert_eq!(cmd["timeout"], 30000);
     }
@@ -3796,6 +3958,7 @@ mod tests {
         assert_eq!(cmd["path"], "./file.pdf");
     }
 
+    // === Connect (CDP) tests ===
 
     #[test]
     fn test_connect_with_port() {
@@ -3809,11 +3972,11 @@ mod tests {
     fn test_connect_with_ws_url() {
         let input: Vec<String> = vec![
             "connect".to_string(),
-            "ws:
+            "ws://localhost:9222/devtools/browser/abc123".to_string(),
         ];
         let cmd = parse_command(&input, &default_flags()).unwrap();
         assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "ws:
+        assert_eq!(cmd["cdpUrl"], "ws://localhost:9222/devtools/browser/abc123");
         assert!(cmd.get("cdpPort").is_none());
     }
 
@@ -3821,23 +3984,23 @@ mod tests {
     fn test_connect_with_wss_url() {
         let input: Vec<String> = vec![
             "connect".to_string(),
-            "wss:
+            "wss://remote-browser.example.com/cdp?token=xyz".to_string(),
         ];
         let cmd = parse_command(&input, &default_flags()).unwrap();
         assert_eq!(cmd["action"], "launch");
         assert_eq!(
             cmd["cdpUrl"],
-            "wss:
+            "wss://remote-browser.example.com/cdp?token=xyz"
         );
         assert!(cmd.get("cdpPort").is_none());
     }
 
     #[test]
     fn test_connect_with_http_url() {
-        let input: Vec<String> = vec!["connect".to_string(), "http:
+        let input: Vec<String> = vec!["connect".to_string(), "http://localhost:9222".to_string()];
         let cmd = parse_command(&input, &default_flags()).unwrap();
         assert_eq!(cmd["action"], "launch");
-        assert_eq!(cmd["cdpUrl"], "http:
+        assert_eq!(cmd["cdpUrl"], "http://localhost:9222");
         assert!(cmd.get("cdpPort").is_none());
     }
 
@@ -3893,6 +4056,7 @@ mod tests {
         assert_eq!(cmd["cdpPort"], 1);
     }
 
+    // === Trace Tests ===
 
     #[test]
     fn test_trace_start() {
@@ -3914,6 +4078,7 @@ mod tests {
         assert!(cmd.get("path").is_none() || cmd["path"].is_null());
     }
 
+    // === Diff Tests ===
 
     #[test]
     fn test_diff_snapshot_basic() {
@@ -4007,19 +4172,19 @@ mod tests {
     #[test]
     fn test_diff_url_basic() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com"),
             &default_flags(),
         )
         .unwrap();
         assert_eq!(cmd["action"], "diff_url");
-        assert_eq!(cmd["url1"], "https:
-        assert_eq!(cmd["url2"], "https:
+        assert_eq!(cmd["url1"], "https://a.com");
+        assert_eq!(cmd["url2"], "https://b.com");
     }
 
     #[test]
     fn test_diff_url_with_screenshot_full() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --screenshot --full"),
             &default_flags(),
         )
         .unwrap();
@@ -4031,7 +4196,7 @@ mod tests {
     #[test]
     fn test_diff_url_with_wait_until() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --wait-until networkidle"),
             &default_flags(),
         )
         .unwrap();
@@ -4043,7 +4208,8 @@ mod tests {
     fn test_diff_url_global_full_flag() {
         let mut flags = default_flags();
         flags.full = true;
-        let cmd = parse_command(&test_args("diff url https:
+        let cmd =
+            parse_command(&test_args("diff url https://a.com https://b.com"), &flags).unwrap();
         assert_eq!(cmd["fullPage"], true);
     }
 
@@ -4126,7 +4292,7 @@ mod tests {
     #[test]
     fn test_diff_url_wait_until_missing_value() {
         let result = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --wait-until"),
             &default_flags(),
         );
         assert!(result.is_err());
@@ -4162,7 +4328,7 @@ mod tests {
     #[test]
     fn test_diff_url_unexpected_arg() {
         let result = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com extra"),
             &default_flags(),
         );
         assert!(result.is_err());
@@ -4194,7 +4360,7 @@ mod tests {
 
     #[test]
     fn test_diff_url_missing_second_url() {
-        let result = parse_command(&test_args("diff url https:
+        let result = parse_command(&test_args("diff url https://a.com"), &default_flags());
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -4250,7 +4416,7 @@ mod tests {
     #[test]
     fn test_diff_url_with_selector() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --selector #main"),
             &default_flags(),
         )
         .unwrap();
@@ -4261,7 +4427,7 @@ mod tests {
     #[test]
     fn test_diff_url_with_compact_depth() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --compact --depth 3"),
             &default_flags(),
         )
         .unwrap();
@@ -4273,7 +4439,7 @@ mod tests {
     #[test]
     fn test_diff_url_with_short_snapshot_flags() {
         let cmd = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com -s .content -c -d 2"),
             &default_flags(),
         )
         .unwrap();
@@ -4286,7 +4452,7 @@ mod tests {
     #[test]
     fn test_diff_url_depth_invalid_value() {
         let result = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --depth abc"),
             &default_flags(),
         );
         assert!(result.is_err());
@@ -4309,7 +4475,7 @@ mod tests {
     #[test]
     fn test_diff_url_depth_negative_value() {
         let result = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --depth -1"),
             &default_flags(),
         );
         assert!(result.is_err());
@@ -4322,7 +4488,7 @@ mod tests {
     #[test]
     fn test_diff_url_selector_missing_value() {
         let result = parse_command(
-            &test_args("diff url https:
+            &test_args("diff url https://a.com https://b.com --selector"),
             &default_flags(),
         );
         assert!(result.is_err());
@@ -4332,6 +4498,7 @@ mod tests {
         ));
     }
 
+    // === Scroll Tests ===
 
     #[test]
     fn test_scroll_defaults() {
@@ -4365,7 +4532,8 @@ mod tests {
 
     #[test]
     fn test_scroll_with_selector_short_flag() {
-        let cmd = parse_command(&test_args("scroll left 100 -s .sidebar"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("scroll left 100 -s .sidebar"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "scroll");
         assert_eq!(cmd["direction"], "left");
         assert_eq!(cmd["amount"], 100);
@@ -4374,8 +4542,11 @@ mod tests {
 
     #[test]
     fn test_scroll_selector_before_positional() {
-        let cmd =
-            parse_command(&test_args("scroll --selector .panel down 400"), &default_flags()).unwrap();
+        let cmd = parse_command(
+            &test_args("scroll --selector .panel down 400"),
+            &default_flags(),
+        )
+        .unwrap();
         assert_eq!(cmd["action"], "scroll");
         assert_eq!(cmd["direction"], "down");
         assert_eq!(cmd["amount"], 400);
@@ -4384,7 +4555,8 @@ mod tests {
 
     #[test]
     fn test_scroll_selector_only() {
-        let cmd = parse_command(&test_args("scroll --selector .content"), &default_flags()).unwrap();
+        let cmd =
+            parse_command(&test_args("scroll --selector .content"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "scroll");
         assert_eq!(cmd["direction"], "down");
         assert_eq!(cmd["amount"], 300);
@@ -4401,6 +4573,7 @@ mod tests {
         ));
     }
 
+    // === Nstbrowser Tests ===
 
     #[test]
     fn test_nst_browser_list() {
@@ -4408,220 +4581,234 @@ mod tests {
         assert_eq!(cmd["action"], "nst_browser_list");
     }
 
-#[test]
-fn test_nst_browser_start() {
-    let cmd = parse_command(&test_args("nst browser start profile123"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_browser_start");
-    assert_eq!(cmd["profileId"], "profile123");
-}
-
-#[test]
-fn test_nst_browser_start_with_options() {
-    let cmd = parse_command(
-        &test_args("nst browser start profile123 --headless --auto-close"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_browser_start");
-    assert_eq!(cmd["profileId"], "profile123");
-    assert_eq!(cmd["options"]["headless"], true);
-    assert_eq!(cmd["options"]["autoClose"], true);
-}
-
-#[test]
-fn test_nst_browser_stop() {
-    let cmd = parse_command(&test_args("nst browser stop profile123"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_browser_stop");
-    assert_eq!(cmd["profileId"], "profile123");
-}
-
-#[test]
-fn test_nst_browser_stop_all() {
-    let cmd = parse_command(&test_args("nst browser stop-all"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_browser_stop_all");
-}
-
-#[test]
-fn test_nst_profile_list() {
-    let cmd = parse_command(&test_args("nst profile list"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_list");
-}
-
-#[test]
-fn test_profile_list_alias_with_nst_provider() {
-    let mut flags = default_flags();
-    flags.provider = Some("nst".to_string());
-    let cmd = parse_command(&test_args("profile list"), &flags).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_list");
-}
-
-#[test]
-fn test_browser_list_alias_with_nst_provider() {
-    let mut flags = default_flags();
-    flags.provider = Some("nst".to_string());
-    let cmd = parse_command(&test_args("browser list"), &flags).unwrap();
-    assert_eq!(cmd["action"], "nst_browser_list");
-}
-
-#[test]
-fn test_profile_list_alias_with_nst_api_key() {
-    std::env::set_var("NST_API_KEY", "test-key");
-    let cmd = parse_command(&test_args("profile list"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_list");
-    std::env::remove_var("NST_API_KEY");
-}
-
-#[test]
-fn test_profile_list_alias_fails_with_local_provider() {
-    let mut flags = default_flags();
-    flags.provider = Some("local".to_string());
-    let result = parse_command(&test_args("profile list"), &flags);
-    assert!(result.is_err());
-    if let Err(ParseError::UnknownCommand { command }) = result {
-        assert_eq!(command, "profile");
-    } else {
-        panic!("Expected UnknownCommand error");
+    #[test]
+    fn test_nst_browser_start() {
+        let cmd =
+            parse_command(&test_args("nst browser start profile123"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_browser_start");
+        assert_eq!(cmd["profileId"], "profile123");
     }
-}
 
-#[test]
-fn test_nst_profile_create() {
-    let cmd = parse_command(&test_args("nst profile create test-profile"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_create");
-    assert_eq!(cmd["name"], "test-profile");
-}
+    #[test]
+    fn test_nst_browser_start_with_options() {
+        let cmd = parse_command(
+            &test_args("nst browser start profile123 --headless --auto-close"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_browser_start");
+        assert_eq!(cmd["profileId"], "profile123");
+        assert_eq!(cmd["options"]["headless"], true);
+        assert_eq!(cmd["options"]["autoClose"], true);
+    }
 
-#[test]
-fn test_nst_profile_create_with_proxy() {
-    let cmd = parse_command(
+    #[test]
+    fn test_nst_browser_stop() {
+        let cmd =
+            parse_command(&test_args("nst browser stop profile123"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_browser_stop");
+        assert_eq!(cmd["profileId"], "profile123");
+    }
+
+    #[test]
+    fn test_nst_browser_stop_all() {
+        let cmd = parse_command(&test_args("nst browser stop-all"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_browser_stop_all");
+    }
+
+    #[test]
+    fn test_nst_profile_list() {
+        let cmd = parse_command(&test_args("nst profile list"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_profile_list");
+    }
+
+    #[test]
+    fn test_profile_list_alias_with_nst_provider() {
+        // Test that "profile list" works when NST is the default provider
+        let mut flags = default_flags();
+        flags.provider = Some("nst".to_string());
+        let cmd = parse_command(&test_args("profile list"), &flags).unwrap();
+        assert_eq!(cmd["action"], "nst_profile_list");
+    }
+
+    #[test]
+    fn test_browser_list_alias_with_nst_provider() {
+        // Test that "browser list" works when NST is the default provider
+        let mut flags = default_flags();
+        flags.provider = Some("nst".to_string());
+        let cmd = parse_command(&test_args("browser list"), &flags).unwrap();
+        assert_eq!(cmd["action"], "nst_browser_list");
+    }
+
+    #[test]
+    fn test_profile_list_alias_with_nst_api_key() {
+        // Test that "profile list" works when NST_API_KEY is set (default provider)
+        std::env::set_var("NST_API_KEY", "test-key");
+        let cmd = parse_command(&test_args("profile list"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_profile_list");
+        std::env::remove_var("NST_API_KEY");
+    }
+
+    #[test]
+    fn test_profile_list_alias_fails_with_local_provider() {
+        // Test that "profile list" fails when using local provider
+        let mut flags = default_flags();
+        flags.provider = Some("local".to_string());
+        let result = parse_command(&test_args("profile list"), &flags);
+        assert!(result.is_err());
+        if let Err(ParseError::UnknownCommand { command }) = result {
+            assert_eq!(command, "profile");
+        } else {
+            panic!("Expected UnknownCommand error");
+        }
+    }
+
+    #[test]
+    fn test_nst_profile_create() {
+        let cmd = parse_command(
+            &test_args("nst profile create test-profile"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_create");
+        assert_eq!(cmd["name"], "test-profile");
+    }
+
+    #[test]
+    fn test_nst_profile_create_with_proxy() {
+        let cmd = parse_command(
             &test_args("nst profile create test-profile --proxy-host proxy.example.com --proxy-port 8080 --proxy-type http"),
             &default_flags(),
         )
         .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_create");
-    assert_eq!(cmd["name"], "test-profile");
-    assert_eq!(cmd["proxyConfig"]["host"], "proxy.example.com");
-    assert_eq!(cmd["proxyConfig"]["port"], 8080);
-    assert_eq!(cmd["proxyConfig"]["type"], "http");
-}
+        assert_eq!(cmd["action"], "nst_profile_create");
+        assert_eq!(cmd["name"], "test-profile");
+        assert_eq!(cmd["proxyConfig"]["host"], "proxy.example.com");
+        assert_eq!(cmd["proxyConfig"]["port"], 8080);
+        assert_eq!(cmd["proxyConfig"]["type"], "http");
+    }
 
-#[test]
-fn test_nst_profile_delete() {
-    let cmd = parse_command(
-        &test_args("nst profile delete profile1 profile2"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_delete");
-    assert_eq!(cmd["profileIds"][0], "profile1");
-    assert_eq!(cmd["profileIds"][1], "profile2");
-}
+    #[test]
+    fn test_nst_profile_delete() {
+        let cmd = parse_command(
+            &test_args("nst profile delete profile1 profile2"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_delete");
+        assert_eq!(cmd["profileIds"][0], "profile1");
+        assert_eq!(cmd["profileIds"][1], "profile2");
+    }
 
-#[test]
-fn test_nst_profile_proxy_update() {
-    let cmd = parse_command(
-        &test_args("nst profile proxy update profile123 --host proxy.example.com --port 8080"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_proxy_update");
-    assert_eq!(cmd["profileId"], "profile123");
-    assert_eq!(cmd["proxyConfig"]["host"], "proxy.example.com");
-    assert_eq!(cmd["proxyConfig"]["port"], 8080);
-}
+    #[test]
+    fn test_nst_profile_proxy_update() {
+        let cmd = parse_command(
+            &test_args("nst profile proxy update profile123 --host proxy.example.com --port 8080"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_proxy_update");
+        assert_eq!(cmd["profileId"], "profile123");
+        assert_eq!(cmd["proxyConfig"]["host"], "proxy.example.com");
+        assert_eq!(cmd["proxyConfig"]["port"], 8080);
+    }
 
-#[test]
-fn test_nst_profile_proxy_reset() {
-    let cmd = parse_command(
-        &test_args("nst profile proxy reset profile123"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_proxy_reset");
-    assert_eq!(cmd["profileIds"][0], "profile123");
-}
+    #[test]
+    fn test_nst_profile_proxy_reset() {
+        let cmd = parse_command(
+            &test_args("nst profile proxy reset profile123"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_proxy_reset");
+        assert_eq!(cmd["profileIds"][0], "profile123");
+    }
 
-#[test]
-fn test_nst_profile_tags_list() {
-    let cmd = parse_command(&test_args("nst profile tags list"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_tags_list");
-}
+    #[test]
+    fn test_nst_profile_tags_list() {
+        let cmd = parse_command(&test_args("nst profile tags list"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_profile_tags_list");
+    }
 
-#[test]
-fn test_nst_profile_tags_create() {
-    let cmd = parse_command(
-        &test_args("nst profile tags create profile123 my-tag"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_tags_create");
-    assert_eq!(cmd["profileId"], "profile123");
-    assert_eq!(cmd["tag"], "my-tag");
-}
+    #[test]
+    fn test_nst_profile_tags_create() {
+        let cmd = parse_command(
+            &test_args("nst profile tags create profile123 my-tag"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_tags_create");
+        assert_eq!(cmd["profileId"], "profile123");
+        assert_eq!(cmd["tag"], "my-tag");
+    }
 
-#[test]
-fn test_nst_profile_tags_clear() {
-    let cmd = parse_command(&test_args("nst profile tags clear profile123"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_tags_clear");
-    assert_eq!(cmd["profileIds"][0], "profile123");
-}
+    #[test]
+    fn test_nst_profile_tags_clear() {
+        let cmd = parse_command(
+            &test_args("nst profile tags clear profile123"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_tags_clear");
+        assert_eq!(cmd["profileIds"][0], "profile123");
+    }
 
-#[test]
-fn test_nst_profile_groups_list() {
-    let cmd = parse_command(&test_args("nst profile groups list"), &default_flags()).unwrap();
-    assert_eq!(cmd["action"], "nst_profile_groups_list");
-}
+    #[test]
+    fn test_nst_profile_groups_list() {
+        let cmd = parse_command(&test_args("nst profile groups list"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "nst_profile_groups_list");
+    }
 
-#[test]
-fn test_nst_profile_groups_change() {
-    let cmd = parse_command(
-        &test_args("nst profile groups change group1 profile1 profile2"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_group_change");
-    assert_eq!(cmd["groupId"], "group1");
-    assert_eq!(cmd["profileIds"][0], "profile1");
-    assert_eq!(cmd["profileIds"][1], "profile2");
-}
+    #[test]
+    fn test_nst_profile_groups_change() {
+        let cmd = parse_command(
+            &test_args("nst profile groups change group1 profile1 profile2"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_group_change");
+        assert_eq!(cmd["groupId"], "group1");
+        assert_eq!(cmd["profileIds"][0], "profile1");
+        assert_eq!(cmd["profileIds"][1], "profile2");
+    }
 
-#[test]
-fn test_nst_profile_cache_clear() {
-    let cmd = parse_command(
-        &test_args("nst profile cache clear profile123"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_cache_clear");
-    assert_eq!(cmd["profileIds"][0], "profile123");
-}
+    #[test]
+    fn test_nst_profile_cache_clear() {
+        let cmd = parse_command(
+            &test_args("nst profile cache clear profile123"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_cache_clear");
+        assert_eq!(cmd["profileIds"][0], "profile123");
+    }
 
-#[test]
-fn test_nst_profile_cookies_clear() {
-    let cmd = parse_command(
-        &test_args("nst profile cookies clear profile123"),
-        &default_flags(),
-    )
-    .unwrap();
-    assert_eq!(cmd["action"], "nst_profile_cookies_clear");
-    assert_eq!(cmd["profileIds"][0], "profile123");
-}
+    #[test]
+    fn test_nst_profile_cookies_clear() {
+        let cmd = parse_command(
+            &test_args("nst profile cookies clear profile123"),
+            &default_flags(),
+        )
+        .unwrap();
+        assert_eq!(cmd["action"], "nst_profile_cookies_clear");
+        assert_eq!(cmd["profileIds"][0], "profile123");
+    }
 
-#[test]
-fn test_nst_missing_subcommand() {
-    let result = parse_command(&test_args("nst"), &default_flags());
-    assert!(result.is_err());
-}
+    #[test]
+    fn test_nst_missing_subcommand() {
+        let result = parse_command(&test_args("nst"), &default_flags());
+        assert!(result.is_err());
+    }
 
-#[test]
-fn test_nst_browser_start_missing_profile() {
-    let result = parse_command(&test_args("nst browser start"), &default_flags());
-    assert!(result.is_err());
-}
+    #[test]
+    fn test_nst_browser_start_missing_profile() {
+        let result = parse_command(&test_args("nst browser start"), &default_flags());
+        assert!(result.is_err());
+    }
 
-#[test]
-fn test_nst_profile_create_missing_name() {
-    let result = parse_command(&test_args("nst profile create"), &default_flags());
-    assert!(result.is_err());
-}
+    #[test]
+    fn test_nst_profile_create_missing_name() {
+        let result = parse_command(&test_args("nst profile create"), &default_flags());
+        assert!(result.is_err());
+    }
 }

@@ -4,29 +4,35 @@ import { setScreencastFrameCallback } from './actions.js';
 
 /**
  * Check whether a WebSocket connection origin should be allowed.
- * Allows: no origin (CLI tools), file:
+ * Allows: no origin (CLI tools), file:// origins, and localhost/loopback origins.
  * Rejects: all other origins (prevents malicious web pages from connecting).
  */
 export function isAllowedOrigin(origin: string | undefined): boolean {
+  // Allow connections with no origin (non-browser clients like CLI tools)
   if (!origin) {
     return true;
   }
+  // Allow file:// origins (local HTML files)
   if (origin.startsWith('file://')) {
     return true;
   }
+  // Allow localhost/loopback origins (browser-based stream viewers)
   try {
     const url = new URL(origin);
     const host = url.hostname;
     if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
       return true;
     }
-  } catch {}
+  } catch {
+    // Invalid origin URL - reject
+  }
   return false;
 }
 
+// Message types for WebSocket communication
 export interface FrameMessage {
   type: 'frame';
-  data: string;
+  data: string; // base64 encoded image
   metadata: {
     offsetTop: number;
     pageScaleFactor: number;
@@ -108,9 +114,15 @@ export class StreamServer {
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // SECURITY: Bind to localhost only to prevent network exposure.
+        // The stream server allows direct input injection (mouse, keyboard, touch)
+        // which would be a critical security risk if exposed to the network.
         this.wss = new WebSocketServer({
           port: this.port,
           host: '127.0.0.1',
+          // Security: Reject cross-origin WebSocket connections from untrusted origins.
+          // This prevents malicious web pages from connecting and injecting input events.
+          // Localhost origins are allowed so browser-based stream viewers can connect.
           verifyClient: (info: {
             origin: string;
             secure: boolean;
@@ -136,6 +148,7 @@ export class StreamServer {
         this.wss.on('listening', () => {
           console.log(`[StreamServer] Listening on port ${this.port}`);
 
+          // Set up the screencast frame callback
           setScreencastFrameCallback((frame) => {
             this.broadcastFrame(frame);
           });
@@ -152,17 +165,21 @@ export class StreamServer {
    * Stop the WebSocket server
    */
   async stop(): Promise<void> {
+    // Stop screencasting
     if (this.isScreencasting) {
       await this.stopScreencast();
     }
 
+    // Clear the callback
     setScreencastFrameCallback(null);
 
+    // Close all clients
     for (const client of this.clients) {
       client.close();
     }
     this.clients.clear();
 
+    // Close the server
     if (this.wss) {
       return new Promise((resolve) => {
         this.wss!.close(() => {
@@ -180,8 +197,10 @@ export class StreamServer {
     console.log('[StreamServer] Client connected');
     this.clients.add(ws);
 
+    // Send initial status
     this.sendStatus(ws);
 
+    // Start screencasting if this is the first client
     if (this.clients.size === 1 && !this.isScreencasting) {
       this.startScreencast().catch((error) => {
         console.error('[StreamServer] Failed to start screencast:', error);
@@ -189,6 +208,7 @@ export class StreamServer {
       });
     }
 
+    // Handle messages from client
     ws.on('message', (data) => {
       try {
         const message = JSON.parse(data.toString()) as StreamMessage;
@@ -198,10 +218,12 @@ export class StreamServer {
       }
     });
 
+    // Handle client disconnect
     ws.on('close', () => {
       console.log('[StreamServer] Client disconnected');
       this.clients.delete(ws);
 
+      // Stop screencasting if no more clients
       if (this.clients.size === 0 && this.isScreencasting) {
         this.stopScreencast().catch((error) => {
           console.error('[StreamServer] Failed to stop screencast:', error);
@@ -253,6 +275,7 @@ export class StreamServer {
           break;
 
         case 'status':
+          // Client is requesting status
           this.sendStatus(ws);
           break;
       }
@@ -293,7 +316,9 @@ export class StreamServer {
       const viewport = page.viewportSize();
       viewportWidth = viewport?.width;
       viewportHeight = viewport?.height;
-    } catch {}
+    } catch {
+      // Browser not launched yet
+    }
 
     const message: StatusMessage = {
       type: 'status',
@@ -326,10 +351,12 @@ export class StreamServer {
    * Start screencasting
    */
   private async startScreencast(): Promise<void> {
+    // Set flag immediately to prevent race conditions with concurrent calls
     if (this.isScreencasting) return;
     this.isScreencasting = true;
 
     try {
+      // Check if browser is launched
       if (!this.browser.isLaunched()) {
         throw new Error('Browser not launched');
       }
@@ -342,10 +369,12 @@ export class StreamServer {
         everyNthFrame: 1,
       });
 
+      // Notify all clients
       for (const client of this.clients) {
         this.sendStatus(client);
       }
     } catch (error) {
+      // Reset flag on failure so caller can retry
       this.isScreencasting = false;
       throw error;
     }
@@ -360,6 +389,7 @@ export class StreamServer {
     await this.browser.stopScreencast();
     this.isScreencasting = false;
 
+    // Notify all clients
     for (const client of this.clients) {
       this.sendStatus(client);
     }

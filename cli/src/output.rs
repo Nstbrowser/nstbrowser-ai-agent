@@ -5,6 +5,9 @@ use crate::connection::Response;
 
 static BOUNDARY_NONCE: OnceLock<String> = OnceLock::new();
 
+/// Per-process nonce for content boundary markers. Uses a CSPRNG (getrandom) so
+/// that untrusted page content cannot predict or spoof the boundary delimiter.
+/// Process ID or timestamps would be insufficient since pages can read those.
 fn get_boundary_nonce() -> &'static str {
     BOUNDARY_NONCE.get_or_init(|| {
         let mut buf = [0u8; 16];
@@ -24,9 +27,12 @@ fn truncate_if_needed(content: &str, max: Option<usize>) -> String {
     let Some(limit) = max else {
         return content.to_string();
     };
+    // Fast path: byte length is a lower bound on char count, so if the
+    // byte length is within the limit the char count must be too.
     if content.len() <= limit {
         return content.to_string();
     }
+    // Find the byte offset of the limit-th character.
     match content.char_indices().nth(limit).map(|(i, _)| i) {
         Some(byte_offset) => {
             let total_chars = content.chars().count();
@@ -37,6 +43,7 @@ fn truncate_if_needed(content: &str, max: Option<usize>) -> String {
                 total_chars
             )
         }
+        // Content has fewer than `limit` chars despite more bytes
         None => content.to_string(),
     }
 }
@@ -96,6 +103,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
     }
 
     if let Some(data) = &resp.data {
+        // Navigation response
         if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
             if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
                 println!("{} {}", color::success_indicator(), color::bold(title));
@@ -105,6 +113,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             println!("{}", url);
             return;
         }
+        // Diff responses -- route by action to avoid fragile shape probing
         if let Some(obj) = data.as_object() {
             match action {
                 Some("diff_snapshot") => {
@@ -130,30 +139,37 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
         }
         let origin = data.get("origin").and_then(|v| v.as_str());
+        // Snapshot
         if let Some(snapshot) = data.get("snapshot").and_then(|v| v.as_str()) {
             print_with_boundaries(snapshot, origin, opts);
             return;
         }
+        // Title
         if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
             println!("{}", title);
             return;
         }
+        // Text
         if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
             print_with_boundaries(text, origin, opts);
             return;
         }
+        // HTML
         if let Some(html) = data.get("html").and_then(|v| v.as_str()) {
             print_with_boundaries(html, origin, opts);
             return;
         }
+        // Value
         if let Some(value) = data.get("value").and_then(|v| v.as_str()) {
             println!("{}", value);
             return;
         }
+        // Count
         if let Some(count) = data.get("count").and_then(|v| v.as_i64()) {
             println!("{}", count);
             return;
         }
+        // Boolean results
         if let Some(visible) = data.get("visible").and_then(|v| v.as_bool()) {
             println!("{}", visible);
             return;
@@ -166,73 +182,14 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             println!("{}", checked);
             return;
         }
+        // Eval result
         if let Some(result) = data.get("result") {
             let formatted = serde_json::to_string_pretty(result).unwrap_or_default();
             print_with_boundaries(&formatted, origin, opts);
             return;
         }
-        if let Some(devices) = data.get("devices").and_then(|v| v.as_array()) {
-            if devices.is_empty() {
-                println!("No iOS devices available. Open Xcode to download simulator runtimes.");
-                return;
-            }
 
-            let real_devices: Vec<_> = devices
-                .iter()
-                .filter(|d| {
-                    d.get("isRealDevice")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
-                .collect();
-            let simulators: Vec<_> = devices
-                .iter()
-                .filter(|d| {
-                    !d.get("isRealDevice")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
-                .collect();
-
-            if !real_devices.is_empty() {
-                println!("Connected Devices:\n");
-                for device in real_devices.iter() {
-                    let name = device
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown");
-                    let runtime = device.get("runtime").and_then(|v| v.as_str()).unwrap_or("");
-                    let udid = device.get("udid").and_then(|v| v.as_str()).unwrap_or("");
-                    println!("  {} {} ({})", color::green("●"), name, runtime);
-                    println!("    {}", color::dim(udid));
-                }
-                println!();
-            }
-
-            if !simulators.is_empty() {
-                println!("Simulators:\n");
-                for device in simulators.iter() {
-                    let name = device
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown");
-                    let runtime = device.get("runtime").and_then(|v| v.as_str()).unwrap_or("");
-                    let state = device
-                        .get("state")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown");
-                    let udid = device.get("udid").and_then(|v| v.as_str()).unwrap_or("");
-                    let state_indicator = if state == "Booted" {
-                        color::green("●")
-                    } else {
-                        color::dim("○")
-                    };
-                    println!("  {} {} ({})", state_indicator, name, runtime);
-                    println!("    {}", color::dim(udid));
-                }
-            }
-            return;
-        }
+        // Tabs
         if let Some(tabs) = data.get("tabs").and_then(|v| v.as_array()) {
             for (i, tab) in tabs.iter().enumerate() {
                 let title = tab
@@ -242,7 +199,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                 let url = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 let active = tab.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
                 let marker = if active {
-                    color::cyan("->")
+                    color::cyan("→")
                 } else {
                     " ".to_string()
                 };
@@ -250,6 +207,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Console logs
         if let Some(logs) = data.get("messages").and_then(|v| v.as_array()) {
             if opts.content_boundaries {
                 let mut console_output = String::new();
@@ -275,6 +233,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Errors
         if let Some(errors) = data.get("errors").and_then(|v| v.as_array()) {
             for err in errors {
                 let msg = err.get("message").and_then(|v| v.as_str()).unwrap_or("");
@@ -282,6 +241,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Cookies
         if let Some(cookies) = data.get("cookies").and_then(|v| v.as_array()) {
             for cookie in cookies {
                 let name = cookie.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -290,6 +250,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Network requests
         if let Some(requests) = data.get("requests").and_then(|v| v.as_array()) {
             if requests.is_empty() {
                 println!("No requests captured");
@@ -306,6 +267,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Cleared (cookies or request log)
         if let Some(cleared) = data.get("cleared").and_then(|v| v.as_bool()) {
             if cleared {
                 let label = match action {
@@ -316,6 +278,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                 return;
             }
         }
+        // Bounding box
         if let Some(box_data) = data.get("box") {
             println!(
                 "{}",
@@ -323,6 +286,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             );
             return;
         }
+        // Element styles
         if let Some(elements) = data.get("elements").and_then(|v| v.as_array()) {
             for (i, el) in elements.iter().enumerate() {
                 let tag = el.get("tag").and_then(|v| v.as_str()).unwrap_or("?");
@@ -371,6 +335,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Closed (browser or tab)
         if data.get("closed").is_some() {
             let label = match action {
                 Some("tab_close") => "Tab closed",
@@ -379,6 +344,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             println!("{} {}", color::success_indicator(), label);
             return;
         }
+        // Recording start (has "started" field)
         if let Some(started) = data.get("started").and_then(|v| v.as_bool()) {
             if started {
                 match action {
@@ -396,6 +362,8 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                 return;
             }
         }
+        // Recording restart (has "stopped" field - from recording_restart action)
+        // Note: NST browser stop also has "stopped" field, so check for "path" to distinguish
         if data.get("stopped").is_some() && data.get("path").is_some() {
             let path = data
                 .get("path")
@@ -413,7 +381,12 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
-        if data.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false) {
+        // NST browser stop/stop-all (has "stopped" field without "path")
+        if data
+            .get("stopped")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             match action {
                 Some("nst_browser_stop") => {
                     println!("{} Browser stopped", color::success_indicator());
@@ -422,11 +395,13 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                     println!("{} All browsers stopped", color::success_indicator());
                 }
                 _ => {
+                    // Generic stopped message for other cases
                     println!("{} Stopped", color::success_indicator());
                 }
             }
             return;
         }
+        // Recording stop (has "frames" field - from recording_stop action)
         if data.get("frames").is_some() {
             if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
                 if let Some(error) = data.get("error").and_then(|v| v.as_str()) {
@@ -444,6 +419,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
             return;
         }
+        // Download response (has "suggestedFilename" or "filename" field)
         if data.get("suggestedFilename").is_some() || data.get("filename").is_some() {
             if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
                 let filename = data
@@ -468,10 +444,12 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                 return;
             }
         }
+        // Trace stop without path
         if data.get("traceStopped").is_some() {
             println!("{} Trace stopped", color::success_indicator());
             return;
         }
+        // Path-based operations (screenshot/pdf/trace/har/download/state/video)
         if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
             match action.unwrap_or("") {
                 "screenshot" => {
@@ -551,6 +529,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
                         color::green(path)
                     );
                 }
+                // video_start and other commands that provide a path with a note
                 "video_start" => {
                     if let Some(note) = data.get("note").and_then(|v| v.as_str()) {
                         println!("{}", note);
@@ -566,6 +545,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // State list
         if let Some(files) = data.get("files").and_then(|v| v.as_array()) {
             if let Some(dir) = data.get("directory").and_then(|v| v.as_str()) {
                 println!("{}", color::bold(&format!("Saved states in {}", dir)));
@@ -598,6 +578,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // State rename
         if let Some(true) = data.get("renamed").and_then(|v| v.as_bool()) {
             let old_name = data.get("oldName").and_then(|v| v.as_str()).unwrap_or("");
             let new_name = data.get("newName").and_then(|v| v.as_str()).unwrap_or("");
@@ -610,6 +591,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // State clear
         if let Some(cleared) = data.get("cleared").and_then(|v| v.as_i64()) {
             println!(
                 "{} Cleared {} state file(s)",
@@ -619,6 +601,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // State show summary
         if let Some(summary) = data.get("summary") {
             let cookies = summary.get("cookies").and_then(|v| v.as_i64()).unwrap_or(0);
             let origins = summary.get("origins").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -633,6 +616,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // State clean
         if let Some(cleaned) = data.get("cleaned").and_then(|v| v.as_i64()) {
             println!(
                 "{} Cleaned {} old state file(s)",
@@ -642,52 +626,336 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // Informational note
         if let Some(note) = data.get("note").and_then(|v| v.as_str()) {
             println!("{}", note);
             return;
         }
+        // Profile list (NST browser profiles or auth profiles)
         if let Some(profiles) = data.get("profiles").and_then(|v| v.as_array()) {
             if profiles.is_empty() {
-                println!("{}", color::dim("No auth profiles saved"));
+                // Check if this is NST profiles or auth profiles by looking at action or first profile structure
+                let is_nst = profiles.is_empty()
+                    || profiles
+                        .first()
+                        .and_then(|p| p.as_object())
+                        .map(|p| p.contains_key("profileId"))
+                        .unwrap_or(false);
+
+                if is_nst {
+                    println!("{}", color::dim("No profiles found"));
+                } else {
+                    println!("{}", color::dim("No auth profiles saved"));
+                }
             } else {
-                println!("{}", color::bold("Auth profiles:"));
-                for p in profiles {
-                    let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    let user = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                // Check if these are NST profiles (have profileId) or auth profiles (have username/url)
+                let first_profile = profiles.first().and_then(|p| p.as_object());
+                let is_nst = first_profile
+                    .map(|p| p.contains_key("profileId"))
+                    .unwrap_or(false);
+
+                if is_nst {
+                    // NST browser profiles
                     println!(
-                        "  {} {} {}",
+                        "{}",
+                        color::bold(&format!("Profiles ({}):", profiles.len()))
+                    );
+                    for p in profiles {
+                        let name = p
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("(unnamed)");
+                        let profile_id = p.get("profileId").and_then(|v| v.as_str()).unwrap_or("");
+                        let platform = p.get("platform").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let platform_name = match platform {
+                            1 => "macOS",
+                            2 => "Windows",
+                            3 => "Linux",
+                            _ => "Unknown",
+                        };
+
+                        // Show proxy IP if available
+                        let proxy_info = p
+                            .get("proxyResult")
+                            .and_then(|pr| pr.as_object())
+                            .and_then(|pr| pr.get("ip"))
+                            .and_then(|ip| ip.as_str())
+                            .map(|ip| format!(" [{}]", color::cyan(ip)))
+                            .unwrap_or_default();
+
+                        // Show group name if available
+                        let group_info = p
+                            .get("groupName")
+                            .and_then(|g| g.as_str())
+                            .filter(|g| !g.is_empty())
+                            .map(|g| format!(" {}", color::dim(&format!("({})", g))))
+                            .unwrap_or_default();
+
+                        // Show tags if available
+                        let tags_info = p
+                            .get("tags")
+                            .and_then(|t| t.as_array())
+                            .filter(|tags| !tags.is_empty())
+                            .map(|tags| {
+                                let tag_names: Vec<String> = tags
+                                    .iter()
+                                    .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+                                    .map(|n| n.to_string())
+                                    .collect();
+                                if !tag_names.is_empty() {
+                                    format!(
+                                        " {}",
+                                        color::dim(&format!("[{}]", tag_names.join(", ")))
+                                    )
+                                } else {
+                                    String::new()
+                                }
+                            })
+                            .unwrap_or_default();
+
+                        println!(
+                            "  {} {}{}{}{}",
+                            color::green(name),
+                            color::dim(&format!(
+                                "({}, {})",
+                                profile_id.chars().take(8).collect::<String>(),
+                                platform_name
+                            )),
+                            proxy_info,
+                            group_info,
+                            tags_info
+                        );
+                    }
+                } else {
+                    // Auth profiles (legacy)
+                    println!("{}", color::bold("Auth profiles:"));
+                    for p in profiles {
+                        let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                        let user = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                        println!(
+                            "  {} {} {}",
+                            color::green(name),
+                            color::dim(user),
+                            color::dim(url)
+                        );
+                    }
+                }
+            }
+            return;
+        }
+
+        // Browser list (NST running browser instances)
+        if let Some(browsers) = data.get("browsers").and_then(|v| v.as_array()) {
+            if browsers.is_empty() {
+                println!("{}", color::dim("No browsers running"));
+            } else {
+                println!(
+                    "{}",
+                    color::bold(&format!("Running browsers ({}):", browsers.len()))
+                );
+                for b in browsers {
+                    let name = b
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("(unnamed)");
+                    let profile_id = b.get("profileId").and_then(|v| v.as_str()).unwrap_or("");
+                    let port = b
+                        .get("remoteDebuggingPort")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    let platform = b.get("platform").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let platform_name = match platform {
+                        1 => "macOS",
+                        2 => "Windows",
+                        3 => "Linux",
+                        _ => "Unknown",
+                    };
+
+                    // Show kernel version if available
+                    let kernel_info = b
+                        .get("kernel")
+                        .and_then(|k| k.as_str())
+                        .filter(|k| !k.is_empty())
+                        .map(|k| format!(" {}", color::dim(&format!("kernel:{}", k))))
+                        .unwrap_or_default();
+
+                    // Show running status
+                    let running = b.get("running").and_then(|r| r.as_bool()).unwrap_or(true);
+                    let status_info = if running {
+                        format!(" {}", color::green("●"))
+                    } else {
+                        format!(" {}", color::dim("○"))
+                    };
+
+                    println!(
+                        "  {}{} {} {}{}",
                         color::green(name),
-                        color::dim(user),
-                        color::dim(url)
+                        status_info,
+                        color::dim(&format!(
+                            "({}, {})",
+                            profile_id.chars().take(8).collect::<String>(),
+                            platform_name
+                        )),
+                        color::dim(&format!("port {}", port)),
+                        kernel_info
                     );
                 }
             }
             return;
         }
 
+        // NST Profile show (Nstbrowser profile, not auth profile)
         if let Some(profile) = data.get("profile").and_then(|v| v.as_object()) {
-            let name = profile.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let url = profile.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            let user = profile
-                .get("username")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let created = profile
-                .get("createdAt")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let last_login = profile.get("lastLoginAt").and_then(|v| v.as_str());
-            println!("Name: {}", name);
-            println!("URL: {}", url);
-            println!("Username: {}", user);
-            println!("Created: {}", created);
-            if let Some(ll) = last_login {
-                println!("Last login: {}", ll);
+            // Check if this is an NST profile (has profileId) or auth profile (has username/url)
+            if profile.contains_key("profileId") {
+                // This is an NST browser profile
+                let name = profile
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unnamed)");
+                let profile_id = profile
+                    .get("profileId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let created = profile
+                    .get("createdAt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let last_launched = profile.get("lastLaunchedAt").and_then(|v| v.as_str());
+
+                println!("{} {}", color::bold("Profile:"), color::green(name));
+                println!("  ID: {}", color::dim(profile_id));
+
+                // Show group name if available
+                if let Some(group_name) = profile.get("groupName").and_then(|v| v.as_str()) {
+                    if !group_name.is_empty() {
+                        println!("  Group: {}", color::dim(group_name));
+                    }
+                }
+
+                // Show tags if available
+                if let Some(tags) = profile.get("tags").and_then(|v| v.as_array()) {
+                    if !tags.is_empty() {
+                        let tag_names: Vec<String> = tags
+                            .iter()
+                            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+                            .map(|n| n.to_string())
+                            .collect();
+                        if !tag_names.is_empty() {
+                            println!("  Tags: {}", color::dim(&tag_names.join(", ")));
+                        }
+                    }
+                }
+
+                println!("  Created: {}", color::dim(created));
+                if let Some(ll) = last_launched {
+                    println!("  Last launched: {}", color::dim(ll));
+                }
+
+                // Show proxy info if available
+                if let Some(proxy_result) = profile.get("proxyResult").and_then(|v| v.as_object()) {
+                    if let Some(ip) = proxy_result.get("ip").and_then(|v| v.as_str()) {
+                        let country = proxy_result
+                            .get("country")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let city = proxy_result
+                            .get("city")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let location = if !city.is_empty() && !country.is_empty() {
+                            format!("{}, {}", city, country)
+                        } else if !country.is_empty() {
+                            country.to_string()
+                        } else {
+                            String::new()
+                        };
+
+                        if !location.is_empty() {
+                            println!("  Proxy: {} ({})", color::cyan(ip), color::dim(&location));
+                        } else {
+                            println!("  Proxy: {}", color::cyan(ip));
+                        }
+
+                        // Show proxy type if available
+                        if let Some(protocol) =
+                            proxy_result.get("protocol").and_then(|v| v.as_str())
+                        {
+                            if !protocol.is_empty() {
+                                println!("  Proxy type: {}", color::dim(protocol));
+                            }
+                        }
+                    }
+                } else if let Some(proxy_config) =
+                    profile.get("proxyConfig").and_then(|v| v.as_object())
+                {
+                    // Show proxy config if proxyResult is not available
+                    if let Some(proxy_type) = proxy_config.get("proxyType").and_then(|v| v.as_str())
+                    {
+                        println!("  Proxy type: {}", color::dim(proxy_type));
+                    }
+                }
+
+                // Show platform info
+                if let Some(platform) = profile.get("platform").and_then(|v| v.as_i64()) {
+                    let platform_name = match platform {
+                        1 => "macOS",
+                        2 => "Windows",
+                        3 => "Linux",
+                        _ => "Unknown",
+                    };
+                    if let Some(platform_version) =
+                        profile.get("platformVersion").and_then(|v| v.as_str())
+                    {
+                        println!(
+                            "  Platform: {} {}",
+                            platform_name,
+                            color::dim(platform_version)
+                        );
+                    } else {
+                        println!("  Platform: {}", platform_name);
+                    }
+                }
+
+                // Show kernel version if available
+                if let Some(kernel) = profile.get("kernel").and_then(|v| v.as_str()) {
+                    if !kernel.is_empty() {
+                        println!("  Kernel: {}", color::dim(kernel));
+                    }
+                }
+
+                return;
+            } else {
+                // This is an auth profile (legacy format)
+                let name = profile.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let url = profile.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let user = profile
+                    .get("username")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let created = profile
+                    .get("createdAt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let last_login = profile.get("lastLoginAt").and_then(|v| v.as_str());
+
+                println!("{} {}", color::bold("Auth Profile:"), color::green(name));
+                if !url.is_empty() {
+                    println!("  URL: {}", color::dim(url));
+                }
+                if !user.is_empty() {
+                    println!("  Username: {}", color::dim(user));
+                }
+                println!("  Created: {}", color::dim(created));
+                if let Some(ll) = last_login {
+                    println!("  Last login: {}", color::dim(ll));
+                }
+                return;
             }
-            return;
         }
 
+        // Auth save/update/login/delete
         if data.get("saved").and_then(|v| v.as_bool()).unwrap_or(false) {
             let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("");
             println!(
@@ -744,6 +1012,7 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             }
         }
 
+        // Confirmation required (for orchestrator use)
         if data
             .get("confirmation_required")
             .and_then(|v| v.as_bool())
@@ -781,12 +1050,15 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // Default success
         println!("{} Done", color::success_indicator());
     }
 }
 
+/// Print command-specific help. Returns true if help was printed, false if command unknown.
 pub fn print_command_help(command: &str) -> bool {
     let help = match command {
+        // === Navigation ===
         "open" | "goto" | "navigate" => {
             r##"
 nstbrowser-ai-agent open - Navigate to a URL
@@ -794,7 +1066,7 @@ nstbrowser-ai-agent open - Navigate to a URL
 Usage: nstbrowser-ai-agent open <url>
 
 Navigates the browser to the specified URL. If no protocol is provided,
-https:
+https:// is automatically prepended.
 
 Aliases: goto, navigate
 
@@ -806,7 +1078,7 @@ Global Options:
 
 Examples:
   nstbrowser-ai-agent open example.com
-  nstbrowser-ai-agent open https:
+  nstbrowser-ai-agent open https://github.com
   nstbrowser-ai-agent open localhost:3000
   nstbrowser-ai-agent open api.example.com --headers '{"Authorization": "Bearer token"}'
     # ^ Headers only sent to api.example.com, not other domains
@@ -864,6 +1136,7 @@ Examples:
 "##
         }
 
+        // === Core Actions ===
         "click" => {
             r##"
 nstbrowser-ai-agent click - Click an element
@@ -885,7 +1158,7 @@ Examples:
   nstbrowser-ai-agent click "#submit-button"
   nstbrowser-ai-agent click @e1
   nstbrowser-ai-agent click "button.primary"
-  nstbrowser-ai-agent click "
+  nstbrowser-ai-agent click "//button[@type='submit']"
   nstbrowser-ai-agent click @e3 --new-tab
 "##
         }
@@ -1093,6 +1366,7 @@ Examples:
 "##
         }
 
+        // === Keyboard ===
         "press" | "key" => {
             r##"
 nstbrowser-ai-agent press - Press a key or key combination
@@ -1196,6 +1470,7 @@ Use Cases:
 "##
         }
 
+        // === Scroll ===
         "scroll" => {
             r##"
 nstbrowser-ai-agent scroll - Scroll the page
@@ -1243,6 +1518,7 @@ Examples:
 "##
         }
 
+        // === Wait ===
         "wait" => {
             r##"
 nstbrowser-ai-agent wait - Wait for condition
@@ -1279,6 +1555,7 @@ Examples:
 "##
         }
 
+        // === Screenshot/PDF ===
         "screenshot" => {
             r##"
 nstbrowser-ai-agent screenshot - Take a screenshot
@@ -1326,6 +1603,7 @@ Examples:
 "##
         }
 
+        // === Snapshot ===
         "snapshot" => {
             r##"
 nstbrowser-ai-agent snapshot - Get accessibility tree snapshot
@@ -1356,6 +1634,7 @@ Examples:
 "##
         }
 
+        // === Eval ===
         "eval" => {
             r##"
 nstbrowser-ai-agent eval - Execute JavaScript
@@ -1386,6 +1665,7 @@ Examples:
 "##
         }
 
+        // === Close ===
         "close" | "quit" | "exit" => {
             r##"
 nstbrowser-ai-agent close - Close the browser
@@ -1406,6 +1686,7 @@ Examples:
 "##
         }
 
+        // === Get ===
         "get" => {
             r##"
 nstbrowser-ai-agent get - Retrieve information from elements or page
@@ -1443,6 +1724,7 @@ Examples:
 "##
         }
 
+        // === Is ===
         "is" => {
             r##"
 nstbrowser-ai-agent is - Check element state
@@ -1467,6 +1749,7 @@ Examples:
 "##
         }
 
+        // === Find ===
         "find" => {
             r##"
 nstbrowser-ai-agent find - Find and interact with elements by locator
@@ -1509,6 +1792,7 @@ Examples:
 "##
         }
 
+        // === Mouse ===
         "mouse" => {
             r##"
 nstbrowser-ai-agent mouse - Low-level mouse operations
@@ -1537,6 +1821,7 @@ Examples:
 "##
         }
 
+        // === Set ===
         "set" => {
             r##"
 nstbrowser-ai-agent set - Configure browser settings
@@ -1571,6 +1856,7 @@ Examples:
 "##
         }
 
+        // === Network ===
         "network" => {
             r##"
 nstbrowser-ai-agent network - Network interception and monitoring
@@ -1602,6 +1888,7 @@ Examples:
 "##
         }
 
+        // === Storage ===
         "storage" => {
             r##"
 nstbrowser-ai-agent storage - Manage web storage
@@ -1632,6 +1919,7 @@ Examples:
 "##
         }
 
+        // === Cookies ===
         "cookies" => {
             r##"
 nstbrowser-ai-agent cookies - Manage browser cookies
@@ -1666,7 +1954,7 @@ Examples:
   nstbrowser-ai-agent cookies set session_id "abc123"
 
   # Set cookie for a URL before loading it (useful for authentication)
-  nstbrowser-ai-agent cookies set session_id "abc123" --url https:
+  nstbrowser-ai-agent cookies set session_id "abc123" --url https://app.example.com
 
   # Set secure, httpOnly cookie with domain and path
   nstbrowser-ai-agent cookies set auth_token "xyz789" --domain example.com --path /api --httpOnly --secure
@@ -1685,6 +1973,7 @@ Examples:
 "##
         }
 
+        // === Tabs ===
         "tab" => {
             r##"
 nstbrowser-ai-agent tab - Manage browser tabs
@@ -1707,13 +1996,14 @@ Examples:
   nstbrowser-ai-agent tab
   nstbrowser-ai-agent tab list
   nstbrowser-ai-agent tab new
-  nstbrowser-ai-agent tab new https:
+  nstbrowser-ai-agent tab new https://example.com
   nstbrowser-ai-agent tab 2
   nstbrowser-ai-agent tab close
   nstbrowser-ai-agent tab close 1
 "##
         }
 
+        // === Window ===
         "window" => {
             r##"
 nstbrowser-ai-agent window - Manage browser windows
@@ -1734,6 +2024,7 @@ Examples:
 "##
         }
 
+        // === Frame ===
         "frame" => {
             r##"
 nstbrowser-ai-agent frame - Switch frame context
@@ -1757,6 +2048,7 @@ Examples:
 "##
         }
 
+        // === Auth ===
         "auth" => {
             r##"
 nstbrowser-ai-agent auth - Manage authentication profiles
@@ -1784,8 +2076,8 @@ Global Options:
   --session <name>         Use specific session
 
 Examples:
-  echo "pass" | nstbrowser-ai-agent auth save github --url https:
-  nstbrowser-ai-agent auth save github --url https:
+  echo "pass" | nstbrowser-ai-agent auth save github --url https://github.com/login --username user --password-stdin
+  nstbrowser-ai-agent auth save github --url https://github.com/login --username user --password pass
   nstbrowser-ai-agent auth login github
   nstbrowser-ai-agent auth list
   nstbrowser-ai-agent auth show github
@@ -1793,6 +2085,7 @@ Examples:
 "##
         }
 
+        // === Confirm/Deny ===
         "confirm" | "deny" => {
             r##"
 nstbrowser-ai-agent confirm/deny - Approve or deny pending actions
@@ -1813,6 +2106,7 @@ Examples:
 "##
         }
 
+        // === Dialog ===
         "dialog" => {
             r##"
 nstbrowser-ai-agent dialog - Handle browser dialogs
@@ -1836,6 +2130,7 @@ Examples:
 "##
         }
 
+        // === Trace ===
         "trace" => {
             r##"
 nstbrowser-ai-agent trace - Record execution trace
@@ -1860,6 +2155,7 @@ Examples:
 "##
         }
 
+        // === Profile (CDP Tracing) ===
         "profiler" => {
             r##"
 nstbrowser-ai-agent profiler - Record Chrome DevTools performance profile
@@ -1868,7 +2164,7 @@ Usage: nstbrowser-ai-agent profiler <operation> [options]
 
 Record a performance profile using Chrome DevTools Protocol (CDP) Tracing.
 The output JSON file can be loaded into Chrome DevTools Performance panel,
-Perfetto UI (https:
+Perfetto UI (https://ui.perfetto.dev/), or other trace analysis tools.
 
 Operations:
   start                Start profiling
@@ -1885,7 +2181,7 @@ Global Options:
 Examples:
   # Basic profiling
   nstbrowser-ai-agent profiler start
-  nstbrowser-ai-agent navigate https:
+  nstbrowser-ai-agent navigate https://example.com
   nstbrowser-ai-agent click "#button"
   nstbrowser-ai-agent profiler stop ./trace.json
 
@@ -1895,10 +2191,11 @@ Examples:
 
 The output file can be viewed in:
   - Chrome DevTools: Performance panel > Load profile
-  - Perfetto: https:
+  - Perfetto: https://ui.perfetto.dev/
 "##
         }
 
+        // === Record (video) ===
         "record" => {
             r##"
 nstbrowser-ai-agent record - Record browser session to video
@@ -1922,20 +2219,21 @@ Global Options:
 
 Examples:
   # Record from current page (preserves login state)
-  nstbrowser-ai-agent open https:
+  nstbrowser-ai-agent open https://app.example.com/dashboard
   nstbrowser-ai-agent snapshot -i            # Explore and plan
   nstbrowser-ai-agent record start ./demo.webm
   nstbrowser-ai-agent click @e3              # Execute planned actions
   nstbrowser-ai-agent record stop
 
   # Or specify a different URL
-  nstbrowser-ai-agent record start ./demo.webm https:
+  nstbrowser-ai-agent record start ./demo.webm https://example.com
 
   # Restart recording with a new file (stops previous, starts new)
   nstbrowser-ai-agent record restart ./take2.webm
 "##
         }
 
+        // === Console/Errors ===
         "console" => {
             r##"
 nstbrowser-ai-agent console - View console logs
@@ -1977,6 +2275,7 @@ Examples:
 "##
         }
 
+        // === Highlight ===
         "highlight" => {
             r##"
 nstbrowser-ai-agent highlight - Highlight an element
@@ -1995,6 +2294,7 @@ Examples:
 "##
         }
 
+        // === State ===
         "state" => {
             r##"
 nstbrowser-ai-agent state - Manage browser state
@@ -2014,7 +2314,7 @@ Operations:
 
 Automatic State Persistence:
   Use --session-name to auto-save/restore state across restarts:
-  nstbrowser-ai-agent --session-name myapp open https:
+  nstbrowser-ai-agent --session-name myapp open https://example.com
   Or set NSTBROWSER_AI_AGENT_SESSION_NAME environment variable.
 
 State Encryption:
@@ -2036,6 +2336,7 @@ Examples:
 "##
         }
 
+        // === Session ===
         "session" => {
             r##"
 nstbrowser-ai-agent session - Manage sessions
@@ -2063,6 +2364,7 @@ Examples:
 "##
         }
 
+        // === Install ===
         "install" => {
             r##"
 nstbrowser-ai-agent install - Install browser binaries
@@ -2080,6 +2382,7 @@ Examples:
 "##
         }
 
+        // === Connect ===
         "connect" => {
             r##"
 nstbrowser-ai-agent connect - Connect to browser via CDP
@@ -2091,12 +2394,12 @@ This allows controlling browsers, Electron apps, or remote browser services.
 
 Arguments:
   <port>               Local port number (e.g., 9222)
-  <url>                Full WebSocket URL (ws:
+  <url>                Full WebSocket URL (ws://, wss://, http://, https://)
 
 Supported URL formats:
-  - Port number: 9222 (connects to http:
-  - WebSocket URL: ws:
-  - Remote service: wss:
+  - Port number: 9222 (connects to http://localhost:9222)
+  - WebSocket URL: ws://localhost:9222/devtools/browser/...
+  - Remote service: wss://remote-browser.example.com/cdp?token=...
 
 Global Options:
   --json               Output as JSON
@@ -2108,75 +2411,14 @@ Examples:
   nstbrowser-ai-agent connect 9222
 
   # Connect using WebSocket URL from /json/version endpoint
-  nstbrowser-ai-agent connect "ws:
+  nstbrowser-ai-agent connect "ws://localhost:9222/devtools/browser/abc123"
 
   # Connect to remote browser service
-  nstbrowser-ai-agent connect "wss:
+  nstbrowser-ai-agent connect "wss://browser-service.example.com/cdp?token=xyz"
 
   # After connecting, run commands normally
   nstbrowser-ai-agent snapshot
   nstbrowser-ai-agent click @e1
-"##
-        }
-
-        "tap" => {
-            r##"
-nstbrowser-ai-agent tap - Tap an element (touch gesture)
-
-Usage: nstbrowser-ai-agent tap <selector>
-
-Taps an element. This is an alias for 'click' that provides semantic clarity
-for touch-based interfaces like iOS Safari.
-
-Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  nstbrowser-ai-agent tap "#submit-button"
-  nstbrowser-ai-agent tap @e1
-  nstbrowser-ai-agent -p ios tap "button:has-text('Sign In')"
-"##
-        }
-        "swipe" => {
-            r##"
-nstbrowser-ai-agent swipe - Swipe gesture (iOS)
-
-Usage: nstbrowser-ai-agent swipe <direction> [distance]
-
-Performs a swipe gesture on iOS Safari. The direction determines
-which way the content moves (swipe up scrolls down, etc.).
-
-Arguments:
-  direction    up, down, left, or right
-  distance     Optional distance in pixels (default: 300)
-
-Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  nstbrowser-ai-agent -p ios swipe up
-  nstbrowser-ai-agent -p ios swipe down 500
-  nstbrowser-ai-agent -p ios swipe left
-"##
-        }
-        "device" => {
-            r##"
-nstbrowser-ai-agent device - Manage iOS simulators
-
-Usage: nstbrowser-ai-agent device <subcommand>
-
-Subcommands:
-  list    List available iOS simulators
-
-Options:
-  --json               Output as JSON
-  --session <name>     Use specific session
-
-Examples:
-  nstbrowser-ai-agent device list
-  nstbrowser-ai-agent -p ios device list
 "##
         }
 
@@ -2197,11 +2439,19 @@ Categories:
 Browser Commands:
   nst browser list                    List running browser instances
   nst browser start <profile-id>      Start browser for profile
+  nst browser start-batch <id> [id...] Start multiple browsers in batch
+  nst browser start-once              Start temporary browser without profile
   nst browser stop <profile-id>       Stop browser instance
   nst browser stop-all                Stop all browser instances
+  nst browser cdp-url <profile-id>    Get CDP WebSocket URL for profile
+  nst browser cdp-url-once            Get CDP URL for temporary browser
+  nst browser connect <profile-id>    Connect and get CDP URL (starts if not running)
+  nst browser connect-once            Connect to temporary browser
 
 Profile Commands:
   nst profile list                    List all profiles
+  nst profile list-cursor             List profiles with cursor pagination
+    Options: --page-size <n>  --cursor <token>
   nst profile create <name>           Create new profile
     Options: --platform <Windows|macOS|Linux>
              --kernel <version>
@@ -2222,9 +2472,16 @@ Profile Commands:
 
 Default Provider Shortcuts (when NST_API_KEY is set):
   profile list                        Same as: nst profile list
+  profile list-cursor                 Same as: nst profile list-cursor
   profile create <name>               Same as: nst profile create <name>
   browser list                        Same as: nst browser list
   browser start <profile-id>          Same as: nst browser start <profile-id>
+  browser start-batch <id> [id...]    Same as: nst browser start-batch <id> [id...]
+  browser start-once                  Same as: nst browser start-once
+  browser cdp-url <profile-id>        Same as: nst browser cdp-url <profile-id>
+  browser cdp-url-once                Same as: nst browser cdp-url-once
+  browser connect <profile-id>        Same as: nst browser connect <profile-id>
+  browser connect-once                Same as: nst browser connect-once
   (All nst commands work without 'nst' prefix when using NST as default provider)
 
 Environment Variables:
@@ -2234,6 +2491,15 @@ Environment Variables:
   NST_PROFILE              Profile name for provider=nst launch (backward compatibility)
   NST_PROFILE_NAME         Profile name for provider=nst launch
   NST_PROFILE_ID           Profile ID for provider=nst launch
+
+Configuration File:
+  Config file location: ~/.nst-ai-agent/config.json
+  Priority: Config file > Environment variables > Defaults
+  
+  Use 'config set' to configure once and use forever:
+    nstbrowser-ai-agent config set key <your-api-key>
+    nstbrowser-ai-agent config set host <custom-host>
+    nstbrowser-ai-agent config set port <custom-port>
 
 Options:
   --json                   Output as JSON
@@ -2256,15 +2522,19 @@ Examples:
   # Launch browser using Nstbrowser provider with profile name
   nstbrowser-ai-agent -p nst --profile myprofile
 
-  # Launch browser using Nstbrowser provider with profile ID
-  nstbrowser-ai-agent -p nst --profile-id "527e7b55-ca19-4422-89e4-88af4cf0f543"
+  # Launch browser using Nstbrowser provider with profile ID (auto-detected)
+  nstbrowser-ai-agent -p nst --profile "527e7b55-ca19-4422-89e4-88af4cf0f543"
+
+  # Both work the same way - UUID pattern is auto-detected
+  nstbrowser-ai-agent -p nst --profile proxy_ph
+  nstbrowser-ai-agent -p nst --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b
 
   # Launch browser using Nstbrowser provider (once profile, temporary)
   nstbrowser-ai-agent -p nst
 
   # Launch browser using environment variable (backward compatible)
   NST_PROFILE=myprofile nstbrowser-ai-agent -p nst
-  nstbrowser-ai-agent -p nst open https:
+  nstbrowser-ai-agent -p nst open https://example.com
 
   # Update proxy settings
   nstbrowser-ai-agent nst profile proxy update profile-123 \
@@ -2333,8 +2603,8 @@ Examples:
   nstbrowser-ai-agent diff snapshot --baseline before.txt
   nstbrowser-ai-agent diff screenshot --baseline before.png
   nstbrowser-ai-agent diff screenshot --baseline before.png --output diff.png --threshold 0.2
-  nstbrowser-ai-agent diff url https:
-  nstbrowser-ai-agent diff url https:
+  nstbrowser-ai-agent diff url https://staging.example.com https://prod.example.com
+  nstbrowser-ai-agent diff url https://v1.example.com https://v2.example.com --screenshot
 "##
         }
 
@@ -2433,6 +2703,12 @@ Auth Vault:
   auth show <name>           Show auth profile metadata
   auth delete <name>         Delete auth profile
 
+Configuration:
+  config set <key> <value>   Set configuration value (key, host, port)
+  config get <key>           Get configuration value
+  config show                Show all configuration
+  config unset <key>         Remove configuration value
+
 Nstbrowser Integration:
   nst browser list           List running browser instances
   nst browser start <id>     Start browser for profile
@@ -2482,14 +2758,14 @@ Quick Start with Nstbrowser:
   export NST_API_KEY="your-api-key"
   
   # Launch browser (uses nst by default)
-  nstbrowser-ai-agent open https:
+  nstbrowser-ai-agent open https://example.com
   
   # Nstbrowser management (no 'nst' prefix needed with default provider)
   nstbrowser-ai-agent profile list               # List profiles
   nstbrowser-ai-agent browser list               # List running browsers
   
   # Or use local browser mode
-  nstbrowser-ai-agent --local open https:
+  nstbrowser-ai-agent --local open https://example.com
 
 Options:
   --session <name>           Isolated session (or NSTBROWSER_AI_AGENT_SESSION env)
@@ -2502,15 +2778,17 @@ Options:
                              e.g., --args "--no-sandbox,--disable-blink-features=AutomationControlled"
   --user-agent <ua>          Custom User-Agent (or NSTBROWSER_AI_AGENT_USER_AGENT)
   --proxy <server>           Proxy server URL (or NSTBROWSER_AI_AGENT_PROXY)
-                             e.g., --proxy "http:
+                             e.g., --proxy "http://user:pass@127.0.0.1:7890"
   --proxy-bypass <hosts>     Bypass proxy for these hosts (or NSTBROWSER_AI_AGENT_PROXY_BYPASS)
                              e.g., --proxy-bypass "localhost,*.internal.com"
   --ignore-https-errors      Ignore HTTPS certificate errors
-  --allow-file-access        Allow file:
-  -p, --provider <name>      Browser provider: ios, browserbase, kernel, browseruse, nst (default: nst)
+  --allow-file-access        Allow file:// URLs to access local files (Chromium only)
+  -p, --provider <name>      Browser provider: nst (default), local
   --local                    Use local browser instead of Nstbrowser (or NSTBROWSER_AI_AGENT_LOCAL env)
-  --device <name>            iOS device name (e.g., "iPhone 15 Pro")
-  --profile <name>           Connect to Nstbrowser profile by name (or NST_PROFILE env)
+  --profile <name|id>        Connect to Nstbrowser profile by name or ID (auto-detected)
+                             Accepts profile name (e.g., "proxy_ph") or UUID
+                             (e.g., "ef2b083a-8f77-4a7f-8441-a8d56bbd832b")
+                             Can also be set via NST_PROFILE environment variable
   --profile-id <id>          Connect to Nstbrowser profile by ID (or NST_PROFILE_ID env)
   --browser-profile <path>   Local browser profile path (or NSTBROWSER_AI_AGENT_PROFILE env)
   --json                     JSON output
@@ -2550,7 +2828,7 @@ Configuration:
   Extensions from user and project configs are merged (not replaced).
 
   Example nstbrowser-ai-agent.json:
-    {{"headed": true, "proxy": "http:
+    {{"headed": true, "proxy": "http://localhost:8080", "profile": "./browser-data"}}
 
 .env File Support:
   Environment variables can be stored in .env files for easier configuration:
@@ -2581,13 +2859,11 @@ Environment:
   NSTBROWSER_AI_AGENT_PROVIDER         Browser provider (default: nst)
   NSTBROWSER_AI_AGENT_LOCAL            Use local browser instead of Nstbrowser
   NSTBROWSER_AI_AGENT_AUTO_CONNECT     Auto-discover and connect to running Chrome
-  NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS Allow file:
+  NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS Allow file:// URLs to access local files
   NSTBROWSER_AI_AGENT_COLOR_SCHEME     Color scheme preference (dark, light, no-preference)
   NSTBROWSER_AI_AGENT_DOWNLOAD_PATH    Default download directory for browser downloads
   NSTBROWSER_AI_AGENT_DEFAULT_TIMEOUT  Default Playwright timeout in ms (default: 25000)
   NSTBROWSER_AI_AGENT_STREAM_PORT      Enable WebSocket streaming on port (e.g., 9223)
-  NSTBROWSER_AI_AGENT_IOS_DEVICE       Default iOS device name
-  NSTBROWSER_AI_AGENT_IOS_UDID         Default iOS device UDID
   NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES Wrap page output in boundary markers
   NSTBROWSER_AI_AGENT_MAX_OUTPUT       Max characters for page output
   NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS  Comma-separated allowed domain patterns
@@ -2637,13 +2913,6 @@ Command Chaining:
   nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent snapshot -i
   nstbrowser-ai-agent fill @e1 "user@example.com" && nstbrowser-ai-agent fill @e2 "pass" && nstbrowser-ai-agent click @e3
   nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent screenshot page.png
-
-iOS Simulator (requires Xcode and Appium):
-  nstbrowser-ai-agent -p ios open example.com                    # Use default iPhone
-  nstbrowser-ai-agent -p ios --device "iPhone 15 Pro" open url   # Specific device
-  nstbrowser-ai-agent -p ios device list                         # List simulators
-  nstbrowser-ai-agent -p ios swipe up                            # Swipe gesture
-  nstbrowser-ai-agent -p ios tap @e1                             # Touch element
 "#
     );
 }
@@ -2728,39 +2997,117 @@ pub fn print_version() {
     println!("nstbrowser-ai-agent {}", env!("CARGO_PKG_VERSION"));
 }
 
+/// Print error message when Nstbrowser is not configured
 pub fn show_nst_not_configured_error(validation_error: &str) {
     eprintln!("{} {}", color::error_indicator(), validation_error);
     eprintln!();
-    eprintln!("{} Quick Setup:", color::info_indicator());
+    eprintln!("{} Setup Required:", color::info_indicator());
     eprintln!();
-    eprintln!("  1. Get your API key from https:
-    eprintln!("  2. Set the environment variable:");
+    eprintln!("  1. Download and install Nstbrowser client from:");
+    eprintln!("     {}", color::dim("https://www.nstbrowser.io"));
+    eprintln!();
+    eprintln!("  2. Start the Nstbrowser client application");
+    eprintln!();
+    eprintln!("  3. Get your API key from the Nstbrowser dashboard");
+    eprintln!();
+    eprintln!("  4. Configure the API key (choose one method):");
+    eprintln!();
+    eprintln!("     Method 1 (Recommended): Use config command");
     eprintln!(
-        "     {}",
+        "       {}",
+        color::dim("nstbrowser-ai-agent config set key your-api-key-here")
+    );
+    eprintln!();
+    eprintln!("     Method 2: Set environment variable");
+    eprintln!(
+        "       {}",
         color::dim("export NST_API_KEY=your-api-key-here")
     );
     eprintln!();
-    eprintln!("{} Optional Configuration:", color::info_indicator());
-    eprintln!();
-    eprintln!("  Custom API endpoint:");
-    eprintln!("    {}", color::dim("export NST_HOST=api.nstbrowser.io"));
-    eprintln!("    {}", color::dim("export NST_PORT=443"));
+    eprintln!("{} Documentation:", color::info_indicator());
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
+}
+
+/// Print error message when Nstbrowser is not configured for NST-specific commands
+pub fn show_nst_not_configured_error_for_nst_command(validation_error: &str, command: &str) {
+    eprintln!("{} {}", color::error_indicator(), validation_error);
     eprintln!();
     eprintln!(
-        "{} Alternative: Use Local Browser Mode",
+        "The '{}' command requires Nstbrowser to be configured.",
+        color::yellow(command)
+    );
+    eprintln!();
+    eprintln!("{} Setup Required:", color::info_indicator());
+    eprintln!();
+    eprintln!("  1. Download and install Nstbrowser client from:");
+    eprintln!("     {}", color::dim("https://www.nstbrowser.io"));
+    eprintln!();
+    eprintln!("  2. Start the Nstbrowser client application");
+    eprintln!();
+    eprintln!("  3. Get your API key from the Nstbrowser dashboard");
+    eprintln!();
+    eprintln!("  4. Configure the API key (choose one method):");
+    eprintln!();
+    eprintln!("     Method 1 (Recommended): Use config command");
+    eprintln!(
+        "       {}",
+        color::dim("nstbrowser-ai-agent config set key your-api-key-here")
+    );
+    eprintln!();
+    eprintln!("     Method 2: Set environment variable");
+    eprintln!(
+        "       {}",
+        color::dim("export NST_API_KEY=your-api-key-here")
+    );
+    eprintln!();
+    eprintln!("{} Documentation:", color::info_indicator());
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
+}
+
+/// Print error message when Nstbrowser is not configured (with local mode alternative)
+pub fn show_nst_not_configured_error_with_local_alternative(validation_error: &str) {
+    eprintln!("{} {}", color::error_indicator(), validation_error);
+    eprintln!();
+    eprintln!(
+        "{} Option 1: Use Nstbrowser (default)",
         color::info_indicator()
     );
     eprintln!();
-    eprintln!("  If you don't have an Nstbrowser account, use local mode:");
+    eprintln!("  1. Download and install Nstbrowser client from:");
+    eprintln!("     {}", color::dim("https://www.nstbrowser.io"));
+    eprintln!();
+    eprintln!("  2. Start the Nstbrowser client and get your API key");
+    eprintln!();
+    eprintln!("  3. Configure the API key (choose one method):");
+    eprintln!();
+    eprintln!("     Method 1 (Recommended): Use config command");
+    eprintln!(
+        "       {}",
+        color::dim("nstbrowser-ai-agent config set key your-api-key-here")
+    );
+    eprintln!();
+    eprintln!("     Method 2: Set environment variable");
+    eprintln!(
+        "       {}",
+        color::dim("export NST_API_KEY=your-api-key-here")
+    );
+    eprintln!();
+    eprintln!(
+        "{} Option 2: Use Local Browser Mode",
+        color::info_indicator()
+    );
+    eprintln!();
+    eprintln!("  Use the --local flag to run with your local browser:");
     eprintln!(
         "    {}",
         color::dim("nstbrowser-ai-agent --local open example.com")
     );
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https:
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
 }
 
+/// Print error message for invalid Nstbrowser configuration
 pub fn show_nst_config_invalid_error(field: &str, reason: &str) {
     eprintln!(
         "{} Invalid Nstbrowser configuration",
@@ -2806,9 +3153,10 @@ pub fn show_nst_config_invalid_error(field: &str, reason: &str) {
     }
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https:
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#configuration");
 }
 
+/// Print error message for Nstbrowser connection failures
 pub fn show_nst_connection_error(error_details: &str) {
     eprintln!(
         "{} Failed to connect to Nstbrowser",
@@ -2837,9 +3185,10 @@ pub fn show_nst_connection_error(error_details: &str) {
     );
     eprintln!();
     eprintln!("{} Need Help?", color::info_indicator());
-    eprintln!("  https:
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent/issues");
 }
 
+/// Print error message for profile-related errors
 pub fn show_nst_profile_error(operation: &str, error_details: &str) {
     eprintln!(
         "{} Nstbrowser profile {} failed",
@@ -2869,5 +3218,5 @@ pub fn show_nst_profile_error(operation: &str, error_details: &str) {
     }
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https:
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#profile-management");
 }

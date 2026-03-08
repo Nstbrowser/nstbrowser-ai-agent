@@ -9,6 +9,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::cdp::client::CdpClient;
 
+/// Frame metadata from CDP Page.screencastFrame events.
 #[derive(Debug, Clone)]
 pub struct FrameMetadata {
     pub offset_top: f64,
@@ -84,10 +85,12 @@ impl StreamServer {
         self.port
     }
 
+    /// Broadcast a raw frame string (legacy).
     pub fn broadcast_frame(&self, frame_json: &str) {
         let _ = self.frame_tx.send(frame_json.to_string());
     }
 
+    /// Broadcast a screencast frame with structured metadata.
     pub fn broadcast_screencast_frame(&self, base64_data: &str, metadata: &FrameMetadata) {
         let msg = json!({
             "type": "frame",
@@ -105,6 +108,7 @@ impl StreamServer {
         let _ = self.frame_tx.send(msg.to_string());
     }
 
+    /// Broadcast a status message to all connected clients.
     pub fn broadcast_status(
         &self,
         connected: bool,
@@ -122,6 +126,7 @@ impl StreamServer {
         let _ = self.frame_tx.send(msg.to_string());
     }
 
+    /// Broadcast an error message to all connected clients.
     pub fn broadcast_error(&self, message: &str) {
         let msg = json!({
             "type": "error",
@@ -158,6 +163,7 @@ async fn handle_ws_client(
     cdp_client: Arc<CdpClient>,
     session_id: String,
 ) {
+    // Origin checking on WebSocket handshake
     let callback =
         |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
          resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
@@ -275,6 +281,7 @@ async fn handle_client_message(msg: &str, client: &CdpClient, session_id: &str) 
                 .await;
         }
         "status" => {
+            // Client requesting status -- handled via broadcast_status from the caller
         }
         _ => {}
     }
@@ -354,18 +361,18 @@ mod tests {
 
     #[test]
     fn test_allowed_origin_file() {
-        assert!(is_allowed_origin(Some("file:
+        assert!(is_allowed_origin(Some("file:///path/to/file")));
     }
 
     #[test]
     fn test_allowed_origin_localhost() {
-        assert!(is_allowed_origin(Some("http:
-        assert!(is_allowed_origin(Some("http:
+        assert!(is_allowed_origin(Some("http://localhost:3000")));
+        assert!(is_allowed_origin(Some("http://127.0.0.1:8080")));
     }
 
     #[test]
     fn test_disallowed_origin() {
-        assert!(!is_allowed_origin(Some("http:
+        assert!(!is_allowed_origin(Some("http://evil.com")));
     }
 
     #[test]

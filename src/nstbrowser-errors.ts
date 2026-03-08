@@ -52,10 +52,12 @@ export function handleNstbrowserError(error: unknown): Error {
   }
 
   if (error instanceof Error) {
+    // Check for network errors
     if (error.message.includes('ECONNREFUSED')) {
       return new NstbrowserNotRunningError();
     }
 
+    // Check for authentication errors
     if (error.message.includes('401') || error.message.includes('Unauthorized')) {
       return new NstbrowserAuthError();
     }

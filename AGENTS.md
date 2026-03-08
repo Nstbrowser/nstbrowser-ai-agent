@@ -19,12 +19,9 @@ When adding or changing user-facing features (new flags, commands, behaviors, en
 1. `cli/src/output.rs` -- `--help` output (flags list, examples, environment variables)
 2. `README.md` -- Options table, relevant feature sections, examples
 3. `skills/nstbrowser-ai-agent/SKILL.md` -- so AI agents know about the feature
-4. `docs/src/app/` -- the Next.js docs site (MDX pages)
-5. Inline doc comments in the relevant source files
+4. Inline doc comments in the relevant source files
 
 This applies to changes that either human users or AI agents would need to know about. Do not skip any of these locations.
-
-In the `docs/src/app/` MDX files, always use HTML `<table>` syntax for tables (not markdown pipe tables). This matches the existing convention across the docs site.
 
 ## Dual Architecture (Node.js + Native)
 
@@ -95,6 +92,7 @@ To fetch source code for a package or repository you need to understand, run:
 npx opensrc <package>           # npm package (e.g., npx opensrc zod)
 npx opensrc pypi:<package>      # Python package (e.g., npx opensrc pypi:requests)
 npx opensrc crates:<package>    # Rust crate (e.g., npx opensrc crates:serde)
+npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc facebook/react)
 ```
 
 <!-- opensrc:end -->

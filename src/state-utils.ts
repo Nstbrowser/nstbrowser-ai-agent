@@ -64,6 +64,9 @@ export function isValidSessionName(name: string): boolean {
 export function getAutoStateFilePath(sessionName: string, sessionId: string): string | null {
   if (!sessionName) return null;
 
+  // SECURITY: Validate sessionName to prevent path traversal attacks.
+  // The daemon reads NSTBROWSER_AI_AGENT_SESSION_NAME from environment which
+  // can be set directly by attackers, bypassing CLI validation.
   if (!isValidSessionName(sessionName)) {
     throw new Error(
       `Invalid session name '${sessionName}'. Only alphanumeric characters, hyphens, and underscores are allowed.`
@@ -172,7 +175,9 @@ export function cleanupExpiredStates(days: number): string[] {
         fs.unlinkSync(filepath);
         deleted.push(file);
       }
-    } catch {}
+    } catch {
+      // Ignore individual file errors
+    }
   }
 
   return deleted;
@@ -208,6 +213,7 @@ export function safeHeaderMerge(
   return result;
 }
 
+// Re-export encryption utilities
 export {
   getEncryptionKey,
   encryptData,

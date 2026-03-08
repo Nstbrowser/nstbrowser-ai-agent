@@ -74,6 +74,7 @@ pub fn recording_stop(state: &mut RecordingState) -> Result<Value, String> {
 
     let output = &state.output_path;
 
+    // Encode with ffmpeg
     let result = Command::new("ffmpeg")
         .args([
             "-y",
@@ -132,6 +133,7 @@ mod tests {
         assert!(state.active);
         assert_eq!(state.output_path, "/tmp/test.mp4");
         assert_eq!(state.frame_count, 0);
+        // Cleanup
         let _ = std::fs::remove_dir_all(&state.temp_dir);
     }
 

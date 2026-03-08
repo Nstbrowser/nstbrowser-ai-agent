@@ -61,6 +61,7 @@ pub async fn fill(
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
+    // Focus the element
     client
         .send_command_typed::<_, Value>(
             "Runtime.callFunctionOn",
@@ -75,6 +76,7 @@ pub async fn fill(
         )
         .await?;
 
+    // Select all + delete to clear
     client
         .send_command_typed::<_, Value>(
             "Runtime.callFunctionOn",
@@ -94,6 +96,7 @@ pub async fn fill(
         )
         .await?;
 
+    // Insert text
     client
         .send_command_typed::<_, Value>(
             "Input.insertText",
@@ -118,6 +121,7 @@ pub async fn type_text(
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
+    // Focus
     client
         .send_command_typed::<_, Value>(
             "Runtime.callFunctionOn",
@@ -589,6 +593,7 @@ async fn dispatch_click(
     button: &str,
     click_count: i32,
 ) -> Result<(), String> {
+    // Move
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -613,6 +618,7 @@ async fn dispatch_click(
         _ => 1,
     };
 
+    // Press
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -631,6 +637,7 @@ async fn dispatch_click(
         )
         .await?;
 
+    // Release
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",

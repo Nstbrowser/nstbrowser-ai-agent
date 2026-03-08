@@ -32,6 +32,7 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e:dogfood": "vitest run test/e2e/dogfood.eval.ts",
     "postinstall": "node scripts/postinstall.js",
     "changeset": "changeset",
     "ci:version": "changeset version && pnpm run version:sync && pnpm install --no-frozen-lockfile",
@@ -43,7 +44,14 @@
     "headless",
     "playwright",
     "cli",
-    "agent"
+    "agent",
+    "nstbrowser",
+    "fingerprinting",
+    "anti-detection",
+    "web-scraping",
+    "testing",
+    "cdp",
+    "chrome-devtools-protocol"
   ],
   "license": "Apache-2.0",
   "repository": {

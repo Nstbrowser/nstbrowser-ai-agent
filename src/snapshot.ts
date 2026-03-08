@@ -47,6 +47,7 @@ export interface SnapshotOptions {
   selector?: string;
 }
 
+// Counter for generating refs
 let refCounter = 0;
 
 /**
@@ -153,15 +154,18 @@ async function findCursorInteractiveElements(
 > {
   const rootSelector = selector || 'body';
 
+  // Use a string function body to avoid TypeScript transpilation issues
   const scriptBody = `(rootSel) => {
     const results = [];
 
+    // Elements that already have interactive ARIA roles - skip these
     const interactiveRoles = new Set([
       'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'listbox',
       'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'searchbox',
       'slider', 'spinbutton', 'switch', 'tab', 'treeitem'
     ]);
 
+    // Tags that are already interactive by default
     const interactiveTags = new Set([
       'a', 'button', 'input', 'select', 'textarea', 'details', 'summary'
     ]);
@@ -169,6 +173,7 @@ async function findCursorInteractiveElements(
     const root = document.querySelector(rootSel) || document.body;
     const allElements = root.querySelectorAll('*');
 
+    // Build a unique selector for an element
     const buildSelector = (el) => {
       const testId = el.getAttribute('data-testid');
       if (testId) return '[data-testid="' + testId + '"]';
@@ -196,11 +201,13 @@ async function findCursorInteractiveElements(
         }
         path.unshift(sel);
         current = current.parentElement;
+        // Stop once the selector uniquely identifies the element (max 10 levels)
         if (path.length >= 1) {
           try {
             const candidate = path.join(' > ');
             if (document.querySelectorAll(candidate).length === 1) break;
           } catch (e) {
+            // If selector is invalid, keep building
           }
         }
         if (path.length >= 10) break;
@@ -223,6 +230,8 @@ async function findCursorInteractiveElements(
 
       if (!hasCursorPointer && !hasOnClick && !hasTabIndex) continue;
 
+      // Skip elements that only inherit cursor:pointer from an ancestor
+      // (the ancestor itself will be captured instead)
       if (hasCursorPointer && !hasOnClick && !hasTabIndex) {
         const parent = el.parentElement;
         if (parent && getComputedStyle(parent).cursor === 'pointer') continue;
@@ -246,6 +255,7 @@ async function findCursorInteractiveElements(
     return results;
   }`;
 
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const fn = new Function('return ' + scriptBody)();
   return page.evaluate(fn, rootSelector);
 }
@@ -260,6 +270,7 @@ export async function getEnhancedSnapshot(
   resetRefs();
   const refs: RefMap = {};
 
+  // Get ARIA snapshot from Playwright
   const locator = options.selector ? page.locator(options.selector) : page.locator(':root');
   const ariaTree = await locator.ariaSnapshot();
 
@@ -270,12 +281,17 @@ export async function getEnhancedSnapshot(
     };
   }
 
+  // Parse and enhance the ARIA tree
   const enhancedTree = processAriaTree(ariaTree, refs, options);
 
+  // When cursor flag is set, also find cursor-interactive elements
+  // that may not have proper ARIA roles
   if (options.cursor) {
     const cursorElements = await findCursorInteractiveElements(page, options.selector);
 
+    // Filter out elements whose text is already captured in the snapshot
     const existingTexts = new Set(Object.values(refs).map((r) => r.name.toLowerCase()));
+    // Also extract quoted strings from the ARIA tree for broader dedup
     for (const m of enhancedTree.matchAll(/"([^"]+)"/g)) {
       existingTexts.add(m[1].toLowerCase());
     }
@@ -283,6 +299,7 @@ export async function getEnhancedSnapshot(
     const additionalLines: string[] = [];
     for (const el of cursorElements) {
       const elTextLower = el.text.toLowerCase();
+      // Skip if text already captured in the ARIA tree
       if (existingTexts.has(elTextLower)) continue;
       existingTexts.add(elTextLower);
 
@@ -295,6 +312,7 @@ export async function getEnhancedSnapshot(
         name: el.text,
       };
 
+      // Build description of why it's interactive
       const hints: string[] = [];
       if (el.hasCursorPointer) hints.push('cursor:pointer');
       if (el.hasOnClick) hints.push('onclick');
@@ -372,6 +390,7 @@ function processAriaTree(ariaTree: string, refs: RefMap, options: SnapshotOption
   const result: string[] = [];
   const tracker = createRoleNameTracker();
 
+  // For interactive-only mode, we collect just interactive elements
   if (options.interactive) {
     for (const line of lines) {
       const match = line.match(/^(\s*-\s*)(\w+)(?:\s+"([^"]*)")?(.*)$/);
@@ -389,12 +408,13 @@ function processAriaTree(ariaTree: string, refs: RefMap, options: SnapshotOption
           selector: buildSelector(roleLower, resolvedName),
           role: roleLower,
           name: resolvedName,
-          nth,
+          nth, // Always store nth, we'll use it for duplicates
         };
 
         let enhanced = `- ${role}`;
         if (name) enhanced += ` "${name}"`;
         enhanced += ` [ref=${ref}]`;
+        // Only show nth in output if it's > 0 (for readability)
         if (nth > 0) enhanced += ` [nth=${nth}]`;
         if (suffix && suffix.includes('[')) enhanced += suffix;
 
@@ -402,11 +422,13 @@ function processAriaTree(ariaTree: string, refs: RefMap, options: SnapshotOption
       }
     }
 
+    // Post-process: remove nth from refs that don't have duplicates
     removeNthFromNonDuplicates(refs, tracker);
 
     return result.join('\n') || '(no interactive elements)';
   }
 
+  // Normal processing with depth/compact filters
   for (const line of lines) {
     const processed = processLine(line, refs, options, tracker);
     if (processed !== null) {
@@ -414,8 +436,10 @@ function processAriaTree(ariaTree: string, refs: RefMap, options: SnapshotOption
     }
   }
 
+  // Post-process: remove nth from refs that don't have duplicates
   removeNthFromNonDuplicates(refs, tracker);
 
+  // If compact mode, remove empty structural elements
   if (options.compact) {
     return compactTree(result.join('\n'));
   }
@@ -433,6 +457,7 @@ function removeNthFromNonDuplicates(refs: RefMap, tracker: RoleNameTracker): voi
   for (const [ref, data] of Object.entries(refs)) {
     const key = tracker.getKey(data.role, data.name);
     if (!duplicateKeys.has(key)) {
+      // Not a duplicate, remove nth to keep locator simple
       delete refs[ref].nth;
     }
   }
@@ -457,14 +482,21 @@ function processLine(
 ): string | null {
   const depth = getIndentLevel(line);
 
+  // Check max depth
   if (options.maxDepth !== undefined && depth > options.maxDepth) {
     return null;
   }
 
+  // Match lines like:
+  //   - button "Submit"
+  //   - heading "Title" [level=1]
+  //   - link "Click me":
   const match = line.match(/^(\s*-\s*)(\w+)(?:\s+"([^"]*)")?(.*)$/);
 
   if (!match) {
+    // Metadata lines (like /url:) or text content
     if (options.interactive) {
+      // In interactive mode, only keep metadata under interactive elements
       return null;
     }
     return line;
@@ -473,6 +505,7 @@ function processLine(
   const [, prefix, role, name, suffix] = match;
   const roleLower = role.toLowerCase();
 
+  // Skip metadata lines (like /url:)
   if (role.startsWith('/')) {
     return line;
   }
@@ -481,18 +514,22 @@ function processLine(
   const isContent = CONTENT_ROLES.has(roleLower);
   const isStructural = STRUCTURAL_ROLES.has(roleLower);
 
+  // In interactive-only mode, filter non-interactive elements
   if (options.interactive && !isInteractive) {
     return null;
   }
 
+  // In compact mode, skip unnamed structural elements
   if (options.compact && isStructural && !name) {
     return null;
   }
 
+  // Add ref for interactive or named content elements
   const shouldHaveRef = isInteractive || (isContent && name);
 
   if (shouldHaveRef) {
     const ref = nextRef();
+    // Normalize to "" so unnamed elements get exact-match selectors
     const resolvedName = isInteractive ? (name ?? '') : name!;
     const nth = tracker.getNextIndex(roleLower, resolvedName);
     tracker.trackRef(roleLower, resolvedName, ref);
@@ -501,12 +538,14 @@ function processLine(
       selector: buildSelector(roleLower, resolvedName),
       role: roleLower,
       name: resolvedName,
-      nth,
+      nth, // Always store nth, we'll clean up non-duplicates later
     };
 
+    // Build enhanced line with ref
     let enhanced = `${prefix}${role}`;
     if (name) enhanced += ` "${name}"`;
     enhanced += ` [ref=${ref}]`;
+    // Only show nth in output if it's > 0 (for readability)
     if (nth > 0) enhanced += ` [nth=${nth}]`;
     if (suffix) enhanced += suffix;
 
@@ -523,19 +562,23 @@ function compactTree(tree: string): string {
   const lines = tree.split('\n');
   const result: string[] = [];
 
+  // Simple pass: keep lines that have content or refs
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
+    // Always keep lines with refs
     if (line.includes('[ref=')) {
       result.push(line);
       continue;
     }
 
+    // Keep lines with text content (after :)
     if (line.includes(':') && !line.endsWith(':')) {
       result.push(line);
       continue;
     }
 
+    // Check if this structural element has children with refs
     const currentIndent = getIndentLevel(line);
     let hasRelevantChildren = false;
 

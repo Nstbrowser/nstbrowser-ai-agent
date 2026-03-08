@@ -81,23 +81,29 @@ impl Connection {
     }
 }
 
+/// Get the base directory for socket/pid files.
+/// Priority: NSTBROWSER_AI_AGENT_SOCKET_DIR > XDG_RUNTIME_DIR > ~/.nstbrowser-ai-agent > tmpdir
 pub fn get_socket_dir() -> PathBuf {
+    // 1. Explicit override (ignore empty string)
     if let Ok(dir) = env::var("NSTBROWSER_AI_AGENT_SOCKET_DIR") {
         if !dir.is_empty() {
             return PathBuf::from(dir);
         }
     }
 
+    // 2. XDG_RUNTIME_DIR (Linux standard, ignore empty string)
     if let Ok(runtime_dir) = env::var("XDG_RUNTIME_DIR") {
         if !runtime_dir.is_empty() {
             return PathBuf::from(runtime_dir).join("nstbrowser-ai-agent");
         }
     }
 
+    // 3. Home directory fallback (like Docker Desktop's ~/.docker/run/)
     if let Some(home) = dirs::home_dir() {
         return home.join(".nstbrowser-ai-agent");
     }
 
+    // 4. Last resort: temp dir
     env::temp_dir().join("nstbrowser-ai-agent")
 }
 
@@ -110,6 +116,7 @@ fn get_pid_path(session: &str) -> PathBuf {
     get_socket_dir().join(format!("{}.pid", session))
 }
 
+/// Clean up stale socket and PID files for a session
 fn cleanup_stale_files(session: &str) {
     let pid_path = get_pid_path(session);
     let _ = fs::remove_file(&pid_path);
@@ -138,6 +145,8 @@ fn get_port_for_session(session: &str) -> u16 {
     for c in session.chars() {
         hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(c as i32);
     }
+    // Correct logic: first take absolute modulo, then cast to u16
+    // Using unsigned_abs() to safely handle i32::MIN
     49152 + ((hash.unsigned_abs() as u32 % 16383) as u16)
 }
 
@@ -153,6 +162,9 @@ fn is_daemon_running(session: &str) -> bool {
                 if libc::kill(pid, 0) == 0 {
                     return true;
                 }
+                // EPERM means the process exists but we lack permission to
+                // signal it (e.g. inside a macOS sandbox). Only ESRCH means
+                // the process is genuinely gone.
                 return std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
             }
         }
@@ -191,10 +203,16 @@ fn daemon_ready(session: &str) -> bool {
     }
 }
 
+/// Result of ensure_daemon indicating whether a new daemon was started
 pub struct DaemonResult {
+    /// True if we connected to an existing daemon, false if we started a new one
     pub already_running: bool,
 }
 
+/// Options forwarded to the daemon process as environment variables.
+/// Note: `confirm_interactive` is intentionally absent -- it is a CLI-side
+/// UX concern (prompting the user on stdin) and not a daemon configuration.
+/// The daemon only needs `confirm_actions` to gate action categories.
 pub struct DaemonOptions<'a> {
     pub headed: bool,
     pub executable_path: Option<&'a str>,
@@ -208,7 +226,6 @@ pub struct DaemonOptions<'a> {
     pub profile: Option<&'a str>,
     pub state: Option<&'a str>,
     pub provider: Option<&'a str>,
-    pub device: Option<&'a str>,
     pub session_name: Option<&'a str>,
     pub download_path: Option<&'a str>,
     pub allowed_domains: Option<&'a [String]>,
@@ -257,9 +274,6 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
     if let Some(p) = opts.provider {
         cmd.env("NSTBROWSER_AI_AGENT_PROVIDER", p);
     }
-    if let Some(d) = opts.device {
-        cmd.env("NSTBROWSER_AI_AGENT_IOS_DEVICE", d);
-    }
     if let Some(sn) = opts.session_name {
         cmd.env("NSTBROWSER_AI_AGENT_SESSION_NAME", sn);
     }
@@ -276,26 +290,38 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
         cmd.env("NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS", ca);
     }
 
-    if let Ok(nst_api_key) = env::var("NST_API_KEY") {
-        cmd.env("NST_API_KEY", nst_api_key);
+    // Read NST configuration from config file first, then fall back to environment variables
+    // Priority: config file > environment variable > defaults
+    use crate::config::ConfigManager;
+    if let Ok(nst_config) = ConfigManager::read() {
+        if let Some(api_key) = nst_config.api_key {
+            cmd.env("NST_API_KEY", api_key);
+        }
+        if let Some(host) = nst_config.host {
+            cmd.env("NST_HOST", host);
+        }
+        if let Some(port) = nst_config.port {
+            cmd.env("NST_PORT", port.to_string());
+        }
     }
-    if let Ok(nst_host) = env::var("NST_HOST") {
-        cmd.env("NST_HOST", nst_host);
-    }
-    if let Ok(nst_port) = env::var("NST_PORT") {
-        cmd.env("NST_PORT", nst_port);
-    }
+
+    // Forward NST profile environment variable (not in config file)
     if let Ok(nst_profile) = env::var("NST_PROFILE") {
         cmd.env("NST_PROFILE", nst_profile);
     }
 
+    // Forward debug flag
     if let Ok(debug) = env::var("NSTBROWSER_AI_AGENT_DEBUG") {
         cmd.env("NSTBROWSER_AI_AGENT_DEBUG", debug);
     }
 }
 
 pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult, String> {
+    // Check if daemon is running AND responsive
     if is_daemon_running(session) && daemon_ready(session) {
+        // Double-check it's actually responsive by waiting and checking again
+        // This handles the race condition where daemon is shutting down
+        // (daemon has a 100ms shutdown delay, so we wait longer)
         thread::sleep(Duration::from_millis(150));
         if daemon_ready(session) {
             return Ok(DaemonResult {
@@ -304,14 +330,17 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
         }
     }
 
+    // Clean up any stale socket/pid files before starting fresh
     cleanup_stale_files(session);
 
+    // Ensure socket directory exists
     let socket_dir = get_socket_dir();
     if !socket_dir.exists() {
         fs::create_dir_all(&socket_dir)
             .map_err(|e| format!("Failed to create socket directory: {}", e))?;
     }
 
+    // Pre-flight check: Validate socket path length (Unix limit is 104 bytes including null terminator)
     #[cfg(unix)]
     {
         let socket_path = get_socket_path(session);
@@ -325,6 +354,7 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
         }
     }
 
+    // Pre-flight check: Verify socket directory is writable
     {
         let test_file = socket_dir.join(".write_test");
         match fs::write(&test_file, b"") {
@@ -342,7 +372,10 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
     }
 
     let exe_path = env::current_exe().map_err(|e| e.to_string())?;
+    // Canonicalize to resolve symlinks (e.g., npm global bin symlink -> actual binary)
     let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+    // On Windows, canonicalize() returns \\?\ prefixed extended-length paths.
+    // Node.js cannot handle these, so strip the prefix.
     #[cfg(windows)]
     let exe_path = {
         let p = exe_path.to_string_lossy();
@@ -354,6 +387,7 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
     };
 
     if opts.native {
+        // Native mode: spawn self as daemon (Rust/CDP, no Node.js needed)
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -395,6 +429,7 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
                 .map_err(|e| format!("Failed to start native daemon: {}", e))?;
         }
     } else {
+        // Default mode: spawn Node.js daemon (Playwright)
         let exe_dir = exe_path.parent().unwrap();
 
         let mut daemon_paths = vec![
@@ -440,6 +475,7 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
         {
             use std::os::windows::process::CommandExt;
 
+            // Use node.exe explicitly to avoid Git Bash/MSYS2 shell wrapper resolution
             let mut cmd = Command::new("node.exe");
             cmd.arg(daemon_path)
                 .env("MSYS_NO_PATHCONV", "1")
@@ -496,6 +532,7 @@ fn connect(session: &str) -> Result<Connection, String> {
 }
 
 pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
+    // Retry logic for transient errors (EAGAIN/EWOULDBLOCK/connection issues)
     const MAX_RETRIES: u32 = 5;
     const RETRY_DELAY_MS: u64 = 200;
 
@@ -513,6 +550,7 @@ pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
                     last_error = e;
                     continue;
                 }
+                // Non-transient error, fail immediately
                 return Err(e);
             }
         }
@@ -524,20 +562,26 @@ pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
     ))
 }
 
+/// Check if an error is transient and worth retrying.
+/// Transient errors include:
+/// - EAGAIN/EWOULDBLOCK (os error 35 on macOS, 11 on Linux)
+/// - EOF errors (daemon closed connection before responding)
+/// - Connection reset/broken pipe (daemon crashed or restarting)
+/// - Connection refused/socket not found (daemon still starting)
 fn is_transient_error(error: &str) -> bool {
-    error.contains("os error 35") 
-        || error.contains("os error 11") 
+    error.contains("os error 35") // EAGAIN on macOS
+        || error.contains("os error 11") // EAGAIN on Linux
         || error.contains("WouldBlock")
         || error.contains("Resource temporarily unavailable")
         || error.contains("EOF")
-        || error.contains("line 1 column 0") 
+        || error.contains("line 1 column 0") // Empty JSON response
         || error.contains("Connection reset")
         || error.contains("Broken pipe")
-        || error.contains("os error 54") 
-        || error.contains("os error 104") 
-        || error.contains("os error 2") 
-        || error.contains("os error 61") 
-        || error.contains("os error 111") 
+        || error.contains("os error 54") // Connection reset by peer (macOS)
+        || error.contains("os error 104") // Connection reset by peer (Linux)
+        || error.contains("os error 2") // No such file or directory (socket gone)
+        || error.contains("os error 61") // Connection refused (macOS)
+        || error.contains("os error 111") // Connection refused (Linux)
 }
 
 fn send_command_once(cmd: &Value, session: &str) -> Result<Response, String> {
@@ -567,8 +611,10 @@ mod tests {
     use super::*;
     use std::sync::{Mutex, MutexGuard};
 
+    // Mutex to prevent parallel tests from interfering with env vars
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+    /// RAII guard that locks env mutex and restores env vars on drop
     struct EnvGuard<'a> {
         _lock: MutexGuard<'a, ()>,
         vars: Vec<(String, Option<String>)>,
@@ -657,6 +703,7 @@ mod tests {
         );
     }
 
+    // === Transient Error Detection Tests ===
 
     #[test]
     fn test_is_transient_error_eagain_macos() {
@@ -743,6 +790,7 @@ mod tests {
 
     #[test]
     fn test_is_transient_error_non_transient() {
+        // These should NOT be considered transient
         assert!(!is_transient_error("Unknown command: foo"));
         assert!(!is_transient_error("Invalid JSON syntax"));
         assert!(!is_transient_error("Permission denied"));

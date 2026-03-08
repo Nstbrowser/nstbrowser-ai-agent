@@ -7,7 +7,7 @@ import type { BrowserContext, Route } from 'playwright-core';
 export function isDomainAllowed(hostname: string, allowedDomains: string[]): boolean {
   for (const pattern of allowedDomains) {
     if (pattern.startsWith('*.')) {
-      const suffix = pattern.slice(1);
+      const suffix = pattern.slice(1); // ".example.com"
       if (hostname === pattern.slice(2) || hostname.endsWith(suffix)) {
         return true;
       }

@@ -1,9 +1,9 @@
 /**
  * Nstbrowser Performance Tests
- *
+ * 
  * These tests measure performance metrics for Nstbrowser integration.
  * Requires a running Nstbrowser client with valid API credentials.
- *
+ * 
  * Run with: NST_API_KEY=your-key pnpm test test/nstbrowser-performance.test.ts
  */
 
@@ -40,27 +40,24 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
   afterAll(() => {
     // Print performance summary
     console.log('\n=== Performance Test Summary ===\n');
-
-    const successfulMetrics = metrics.filter((m) => m.success);
-    const failedMetrics = metrics.filter((m) => !m.success);
-
+    
+    const successfulMetrics = metrics.filter(m => m.success);
+    const failedMetrics = metrics.filter(m => !m.success);
+    
     console.log(`Total operations: ${metrics.length}`);
     console.log(`Successful: ${successfulMetrics.length}`);
     console.log(`Failed: ${failedMetrics.length}\n`);
-
+    
     if (successfulMetrics.length > 0) {
       console.log('Operation Performance:');
-      const grouped = successfulMetrics.reduce(
-        (acc, m) => {
-          if (!acc[m.operation]) {
-            acc[m.operation] = [];
-          }
-          acc[m.operation].push(m.duration);
-          return acc;
-        },
-        {} as Record<string, number[]>
-      );
-
+      const grouped = successfulMetrics.reduce((acc, m) => {
+        if (!acc[m.operation]) {
+          acc[m.operation] = [];
+        }
+        acc[m.operation].push(m.duration);
+        return acc;
+      }, {} as Record<string, number[]>);
+      
       Object.entries(grouped).forEach(([operation, durations]) => {
         const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
         const min = Math.min(...durations);
@@ -71,18 +68,21 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
         console.log(`    Max: ${max.toFixed(2)}ms`);
       });
     }
-
+    
     if (failedMetrics.length > 0) {
       console.log('\nFailed Operations:');
-      failedMetrics.forEach((m) => {
+      failedMetrics.forEach(m => {
         console.log(`  ${m.operation}: ${m.error}`);
       });
     }
-
+    
     console.log('\n================================\n');
   });
 
-  async function measureOperation<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+  async function measureOperation<T>(
+    operation: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
     const startTime = performance.now();
     try {
       const result = await fn();
@@ -105,7 +105,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
     it('should list browsers within acceptable time', async () => {
       const result = await measureOperation('getBrowsers', () => client.getBrowsers());
       expect(Array.isArray(result)).toBe(true);
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(2000); // Should complete in < 2 seconds
     });
@@ -113,7 +113,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
     it('should list profiles within acceptable time', async () => {
       const result = await measureOperation('getProfiles', () => client.getProfiles());
       expect(Array.isArray(result)).toBe(true);
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(2000);
     });
@@ -121,7 +121,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
     it('should list profile tags within acceptable time', async () => {
       const result = await measureOperation('getProfileTags', () => client.getProfileTags());
       expect(Array.isArray(result)).toBe(true);
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(2000);
     });
@@ -131,7 +131,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
         client.getAllProfileGroups()
       );
       expect(Array.isArray(result)).toBe(true);
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(2000);
     });
@@ -156,15 +156,17 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
       }
 
       // Start browser
-      const result = await measureOperation('startBrowser', () => client.startBrowser(profileId));
+      const result = await measureOperation('startBrowser', () =>
+        client.startBrowser(profileId)
+      );
       expect(result.webSocketDebuggerUrl).toBeDefined();
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(10000); // Should start in < 10 seconds
 
       // Stop browser
       await measureOperation('stopBrowser', () => client.stopBrowser(profileId));
-
+      
       const stopMetric = metrics[metrics.length - 1];
       expect(stopMetric.duration).toBeLessThan(5000); // Should stop in < 5 seconds
     }, 30000);
@@ -188,7 +190,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
         client.connectBrowser(profileId)
       );
       expect(result.webSocketDebuggerUrl).toBeDefined();
-
+      
       const metric = metrics[metrics.length - 1];
       expect(metric.duration).toBeLessThan(10000); // Should connect in < 10 seconds
 
@@ -217,7 +219,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
     it('should handle batch profile operations efficiently', async () => {
       // Create multiple profiles
       const profileNames = Array.from({ length: 5 }, (_, i) => `batch-test-${Date.now()}-${i}`);
-
+      
       const createStartTime = performance.now();
       const profiles = await Promise.all(
         profileNames.map((name) =>
@@ -249,23 +251,23 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
   describe('Memory Usage', () => {
     it('should not leak memory during repeated operations', async () => {
       const initialMemory = process.memoryUsage().heapUsed;
-
+      
       // Perform 50 operations
       for (let i = 0; i < 50; i++) {
         await measureOperation(`memory-test-${i}`, () => client.getBrowsers());
       }
-
+      
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
       }
-
+      
       const finalMemory = process.memoryUsage().heapUsed;
       const memoryIncrease = finalMemory - initialMemory;
       const memoryIncreaseMB = memoryIncrease / 1024 / 1024;
-
+      
       console.log(`Memory increase after 50 operations: ${memoryIncreaseMB.toFixed(2)} MB`);
-
+      
       // Memory increase should be reasonable (< 50MB for 50 operations)
       expect(memoryIncreaseMB).toBeLessThan(50);
     }, 60000);
@@ -274,7 +276,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
   describe('Error Recovery Performance', () => {
     it('should handle errors quickly', async () => {
       const startTime = performance.now();
-
+      
       try {
         await measureOperation('error-invalidProfile', () =>
           client.startBrowser('invalid-profile-id-12345')
@@ -282,7 +284,7 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
       } catch (error) {
         // Expected to fail
       }
-
+      
       const errorTime = performance.now() - startTime;
       expect(errorTime).toBeLessThan(5000); // Error should be detected quickly
     });
@@ -294,9 +296,11 @@ describe.skipIf(SKIP_PERFORMANCE_TESTS)('Nstbrowser Performance Tests', () => {
       } catch {
         // Expected
       }
-
+      
       // Verify subsequent operations still work
-      const result = await measureOperation('recovery-getBrowsers', () => client.getBrowsers());
+      const result = await measureOperation('recovery-getBrowsers', () =>
+        client.getBrowsers()
+      );
       expect(Array.isArray(result)).toBe(true);
     });
   });

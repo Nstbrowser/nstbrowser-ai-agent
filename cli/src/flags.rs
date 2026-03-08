@@ -1,14 +1,19 @@
 use crate::color;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CONFIG_DIR: &str = ".nstbrowser-ai-agent";
+const CONFIG_DIR: &str = ".nst-ai-agent";
 const CONFIG_FILENAME: &str = "config.json";
 const PROJECT_CONFIG_FILENAME: &str = "nstbrowser-ai-agent.json";
 
+/// Load environment variables from .env files
+/// Tries to load in this order:
+/// 1. .nstbrowser-ai-agent.env (project-specific)
+/// 2. .env (standard)
 pub fn load_env_files() {
+    // Try project-specific env file first
     if let Ok(_) = dotenvy::from_filename(".nstbrowser-ai-agent.env") {
         if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
             eprintln!("[DEBUG] Loaded environment from .nstbrowser-ai-agent.env");
@@ -16,6 +21,7 @@ pub fn load_env_files() {
         return;
     }
 
+    // Fall back to standard .env file
     if let Ok(_) = dotenvy::dotenv() {
         if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
             eprintln!("[DEBUG] Loaded environment from .env");
@@ -23,12 +29,13 @@ pub fn load_env_files() {
         return;
     }
 
+    // No .env file found - this is OK, not an error
     if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
         eprintln!("[DEBUG] No .env file found (this is OK)");
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub headed: Option<bool>,
@@ -46,7 +53,6 @@ pub struct Config {
     pub args: Option<String>,
     pub user_agent: Option<String>,
     pub provider: Option<String>,
-    pub device: Option<String>,
     pub ignore_https_errors: Option<bool>,
     pub allow_file_access: Option<bool>,
     pub cdp: Option<String>,
@@ -63,6 +69,10 @@ pub struct Config {
     pub confirm_interactive: Option<bool>,
     pub native: Option<bool>,
     pub local: Option<bool>,
+    // NST configuration
+    pub nst_api_key: Option<String>,
+    pub nst_host: Option<String>,
+    pub nst_port: Option<u16>,
 }
 
 impl Config {
@@ -89,7 +99,6 @@ impl Config {
             args: other.args.or(self.args),
             user_agent: other.user_agent.or(self.user_agent),
             provider: other.provider.or(self.provider),
-            device: other.device.or(self.device),
             ignore_https_errors: other.ignore_https_errors.or(self.ignore_https_errors),
             allow_file_access: other.allow_file_access.or(self.allow_file_access),
             cdp: other.cdp.or(self.cdp),
@@ -106,6 +115,9 @@ impl Config {
             confirm_interactive: other.confirm_interactive.or(self.confirm_interactive),
             native: other.native.or(self.native),
             local: other.local.or(self.local),
+            nst_api_key: other.nst_api_key.or(self.nst_api_key),
+            nst_host: other.nst_host.or(self.nst_host),
+            nst_port: other.nst_port.or(self.nst_port),
         }
     }
 }
@@ -126,6 +138,8 @@ fn read_config_file(path: &Path) -> Option<Config> {
     }
 }
 
+/// Check if a boolean environment variable is set to a truthy value.
+/// Returns false when unset, empty, or set to "0", "false", or "no" (case-insensitive).
 fn env_var_is_truthy(name: &str) -> bool {
     match env::var(name) {
         Ok(val) => !matches!(val.to_lowercase().as_str(), "0" | "false" | "no" | ""),
@@ -133,6 +147,8 @@ fn env_var_is_truthy(name: &str) -> bool {
     }
 }
 
+/// Parse an optional boolean value after a flag. Returns (value, consumed_next_arg).
+/// Recognizes "true" as true, "false" as false. Bare flag defaults to true.
 fn parse_bool_arg(args: &[String], i: usize) -> (bool, bool) {
     if let Some(v) = args.get(i + 1) {
         match v.as_str() {
@@ -145,7 +161,14 @@ fn parse_bool_arg(args: &[String], i: usize) -> (bool, bool) {
     }
 }
 
+/// Extract --config <path> from args before full flag parsing.
+/// Returns `Some(Some(path))` if --config <path> found, `Some(None)` if --config
+/// was the last arg with no value, `None` if --config not present.
 ///
+/// Only flags that consume a following argument need to be listed here.
+/// Boolean flags (--content-boundaries, --confirm-interactive, etc.) are
+/// intentionally absent -- they don't take a value, so they can't cause
+/// the next argument to be mis-consumed.
 fn extract_config_path(args: &[String]) -> Option<Option<String>> {
     const FLAGS_WITH_VALUE: &[&str] = &[
         "--session",
@@ -153,9 +176,9 @@ fn extract_config_path(args: &[String]) -> Option<Option<String>> {
         "--executable-path",
         "--cdp",
         "--extension",
-        "--profile",           
-        "--profile-id",        
-        "--browser-profile",   
+        "--profile",         // NST profile name
+        "--profile-id",      // NST profile ID
+        "--browser-profile", // Local browser profile path
         "--state",
         "--proxy",
         "--proxy-bypass",
@@ -171,8 +194,8 @@ fn extract_config_path(args: &[String]) -> Option<Option<String>> {
         "--allowed-domains",
         "--action-policy",
         "--confirm-actions",
-        "--nst-profile-name",  
-        "--nst-profile-id",    
+        "--nst-profile-name", // Deprecated
+        "--nst-profile-id",   // Deprecated
     ];
     let mut i = 0;
     while i < args.len() {
@@ -229,7 +252,7 @@ pub struct Flags {
     pub executable_path: Option<String>,
     pub cdp: Option<String>,
     pub extensions: Vec<String>,
-    pub profile: Option<String>,  
+    pub profile: Option<String>, // Local browser profile path (renamed from --profile to --browser-profile)
     pub state: Option<String>,
     pub proxy: Option<String>,
     pub proxy_bypass: Option<String>,
@@ -238,7 +261,6 @@ pub struct Flags {
     pub provider: Option<String>,
     pub ignore_https_errors: bool,
     pub allow_file_access: bool,
-    pub device: Option<String>,
     pub auto_connect: bool,
     pub session_name: Option<String>,
     pub annotate: bool,
@@ -252,9 +274,11 @@ pub struct Flags {
     pub confirm_interactive: bool,
     pub native: bool,
     pub local: bool,
-    pub nst_profile: Option<String>,      
-    pub nst_profile_id: Option<String>,   
+    pub nst_profile: Option<String>, // NST profile name (--profile)
+    pub nst_profile_id: Option<String>, // NST profile ID (--profile-id)
 
+    // Track which launch-time options were explicitly passed via CLI
+    // (as opposed to being set only via environment variables)
     pub cli_executable_path: bool,
     pub cli_extensions: bool,
     pub cli_profile: bool,
@@ -266,7 +290,7 @@ pub struct Flags {
     pub cli_allow_file_access: bool,
     pub cli_annotate: bool,
     pub cli_download_path: bool,
-    pub cli_provider: bool,  
+    pub cli_provider: bool, // Track if --provider was set via CLI
 }
 
 pub fn parse_flags(args: &[String]) -> Flags {
@@ -325,9 +349,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
             || config.ignore_https_errors.unwrap_or(false),
         allow_file_access: env_var_is_truthy("NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS")
             || config.allow_file_access.unwrap_or(false),
-        device: env::var("NSTBROWSER_AI_AGENT_IOS_DEVICE")
-            .ok()
-            .or(config.device),
         auto_connect: env_var_is_truthy("NSTBROWSER_AI_AGENT_AUTO_CONNECT")
             || config.auto_connect.unwrap_or(false),
         session_name: env::var("NSTBROWSER_AI_AGENT_SESSION_NAME")
@@ -446,18 +467,21 @@ pub fn parse_flags(args: &[String]) -> Flags {
                 }
             }
             "--profile" => {
+                // NST profile name (when using NST provider)
                 if let Some(s) = args.get(i + 1) {
                     flags.nst_profile = Some(s.clone());
                     i += 1;
                 }
             }
             "--profile-id" => {
+                // NST profile ID (when using NST provider)
                 if let Some(s) = args.get(i + 1) {
                     flags.nst_profile_id = Some(s.clone());
                     i += 1;
                 }
             }
             "--browser-profile" => {
+                // Local browser profile path (when using local provider)
                 if let Some(s) = args.get(i + 1) {
                     flags.profile = Some(s.clone());
                     flags.cli_profile = true;
@@ -518,12 +542,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
                 flags.allow_file_access = val;
                 flags.cli_allow_file_access = true;
                 if consumed {
-                    i += 1;
-                }
-            }
-            "--device" => {
-                if let Some(d) = args.get(i + 1) {
-                    flags.device = Some(d.clone());
                     i += 1;
                 }
             }
@@ -588,15 +606,23 @@ pub fn parse_flags(args: &[String]) -> Flags {
                 }
             }
             "--nst-profile-name" => {
+                // Deprecated: use --profile instead
                 if let Some(s) = args.get(i + 1) {
-                    eprintln!("{} --nst-profile-name is deprecated, use --profile instead", color::warning_indicator());
+                    eprintln!(
+                        "{} --nst-profile-name is deprecated, use --profile instead",
+                        color::warning_indicator()
+                    );
                     flags.nst_profile = Some(s.clone());
                     i += 1;
                 }
             }
             "--nst-profile-id" => {
+                // Deprecated: use --profile-id instead
                 if let Some(s) = args.get(i + 1) {
-                    eprintln!("{} --nst-profile-id is deprecated, use --profile-id instead", color::warning_indicator());
+                    eprintln!(
+                        "{} --nst-profile-id is deprecated, use --profile-id instead",
+                        color::warning_indicator()
+                    );
                     flags.nst_profile_id = Some(s.clone());
                     i += 1;
                 }
@@ -635,6 +661,7 @@ pub fn parse_flags(args: &[String]) -> Flags {
                 }
             }
             "--config" => {
+                // Already handled by load_config(); skip the value
                 i += 1;
             }
             _ => {}
@@ -642,6 +669,8 @@ pub fn parse_flags(args: &[String]) -> Flags {
         i += 1;
     }
 
+    // Apply provider selection logic
+    // Only pass provider to determine_provider if it was explicitly set via CLI
     let explicit_provider = if flags.cli_provider {
         flags.provider.as_deref()
     } else {
@@ -662,41 +691,80 @@ pub fn parse_flags(args: &[String]) -> Flags {
     flags
 }
 
+/// Determine the provider based on flags and environment variables.
+/// Returns (provider, reason) tuple for debugging purposes.
+/// Priority order:
+/// 1. Explicit --provider flag (passed as explicit_provider parameter)
+/// 2. --local flag (returns "local")
+/// 3. --headed without --provider (returns "local")
+/// 4. --cdp (returns "local")
+/// 5. --auto-connect (returns "local")
+/// 6. NST_API_KEY environment variable present (returns "nst")
+/// 7. Default (returns "nst")
 fn determine_provider(flags: &Flags, explicit_provider: Option<&str>) -> (String, &'static str) {
+    // Priority 1: Explicit --provider flag (from command line, not env/config)
     if let Some(provider) = explicit_provider {
         return (provider.to_string(), "explicit --provider flag");
     }
 
+    // Priority 2: --local flag
     if flags.local {
         return ("local".to_string(), "--local flag");
     }
 
+    // Priority 3: --headed without --provider
     if flags.headed {
         return ("local".to_string(), "--headed flag (implies local)");
     }
 
+    // Priority 4: --cdp
     if flags.cdp.is_some() {
         return ("local".to_string(), "--cdp flag (implies local)");
     }
 
+    // Priority 5: --auto-connect
     if flags.auto_connect {
         return ("local".to_string(), "--auto-connect flag (implies local)");
     }
 
+    // Priority 6: NST_API_KEY environment variable present
     if env::var("NST_API_KEY").is_ok() {
         return ("nst".to_string(), "NST_API_KEY environment variable");
     }
 
+    // Priority 7: Default
     ("nst".to_string(), "default")
 }
 
+/// Validate Nstbrowser configuration from config file or environment variables.
+/// Returns Ok(()) if valid, or Err(error_message) if invalid.
 pub fn validate_nst_config() -> Result<(), String> {
-    let api_key = match env::var("NST_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => key,
-        Ok(_) => return Err("NST_API_KEY is set but empty".to_string()),
-        Err(_) => return Err("NST_API_KEY environment variable is not set".to_string()),
+    use crate::config::ConfigManager;
+
+    // Read configuration from config file first, then fall back to environment variables
+    // Priority: config file > environment variable
+    let api_key = if let Ok(nst_config) = ConfigManager::read() {
+        // Try config file first
+        if let Some(key) = nst_config.api_key {
+            key
+        } else {
+            // Fall back to environment variable
+            match env::var("NST_API_KEY") {
+                Ok(key) if !key.trim().is_empty() => key,
+                Ok(_) => return Err("NST_API_KEY is set but empty".to_string()),
+                Err(_) => return Err("NST_API_KEY environment variable is not set".to_string()),
+            }
+        }
+    } else {
+        // Config file not available, check environment variable
+        match env::var("NST_API_KEY") {
+            Ok(key) if !key.trim().is_empty() => key,
+            Ok(_) => return Err("NST_API_KEY is set but empty".to_string()),
+            Err(_) => return Err("NST_API_KEY environment variable is not set".to_string()),
+        }
     };
 
+    // Validate API key format (should be non-empty and reasonable length)
     if api_key.len() < 10 {
         return Err(format!(
             "NST_API_KEY appears invalid (too short: {} characters, expected at least 10)",
@@ -711,8 +779,10 @@ pub fn validate_nst_config() -> Result<(), String> {
         ));
     }
 
+    // Validate NST_HOST if set (optional, has default)
     if let Ok(host) = env::var("NST_HOST") {
         if !host.trim().is_empty() {
+            // Basic hostname/IP validation
             if host.contains("://") {
                 return Err(format!(
                     "NST_HOST should be a hostname or IP address, not a URL: {}",
@@ -720,6 +790,7 @@ pub fn validate_nst_config() -> Result<(), String> {
                 ));
             }
 
+            // Check for valid characters (alphanumeric, dots, hyphens, colons for IPv6)
             if !host
                 .chars()
                 .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == ':')
@@ -729,6 +800,7 @@ pub fn validate_nst_config() -> Result<(), String> {
         }
     }
 
+    // Validate NST_PORT if set (optional, has default)
     if let Ok(port_str) = env::var("NST_PORT") {
         if !port_str.trim().is_empty() {
             match port_str.parse::<u16>() {
@@ -736,6 +808,7 @@ pub fn validate_nst_config() -> Result<(), String> {
                     return Err("NST_PORT must be between 1 and 65535".to_string());
                 }
                 Ok(_) => {
+                    // Valid port
                 }
                 Err(_) => {
                     return Err(format!("NST_PORT is not a valid port number: {}", port_str));
@@ -751,6 +824,7 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
     let mut result = Vec::new();
     let mut skip_next = false;
 
+    // Boolean flags that optionally take true/false
     const GLOBAL_BOOL_FLAGS: &[&str] = &[
         "--json",
         "--full",
@@ -765,15 +839,16 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
         "--native",
         "--local",
     ];
+    // Global flags that always take a value (need to skip the next arg too)
     const GLOBAL_FLAGS_WITH_VALUE: &[&str] = &[
         "--session",
         "--headers",
         "--executable-path",
         "--cdp",
         "--extension",
-        "--profile",           
-        "--profile-id",        
-        "--browser-profile",   
+        "--profile",         // NST profile name
+        "--profile-id",      // NST profile ID
+        "--browser-profile", // Local browser profile path
         "--state",
         "--proxy",
         "--proxy-bypass",
@@ -790,8 +865,8 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
         "--action-policy",
         "--confirm-actions",
         "--config",
-        "--nst-profile-name",  
-        "--nst-profile-id",    
+        "--nst-profile-name", // Deprecated, use --profile
+        "--nst-profile-id",   // Deprecated, use --profile-id
     ];
 
     let mut i = 0;
@@ -838,6 +913,7 @@ mod tests {
 
     #[test]
     fn test_parse_headers_flag_with_spaces() {
+        // Headers JSON is passed as a single quoted argument in shell
         let input: Vec<String> = vec![
             "open".to_string(),
             "example.com".to_string(),
@@ -941,6 +1017,7 @@ mod tests {
 
     #[test]
     fn test_cli_executable_path_tracking() {
+        // When --executable-path is passed via CLI, cli_executable_path should be true
         let flags = parse_flags(&args("--executable-path /path/to/chrome snapshot"));
         assert!(flags.cli_executable_path);
         assert_eq!(flags.executable_path, Some("/path/to/chrome".to_string()));
@@ -948,6 +1025,8 @@ mod tests {
 
     #[test]
     fn test_cli_executable_path_not_set_without_flag() {
+        // When no --executable-path is passed, cli_executable_path should be false
+        // (even if env var sets executable_path to Some value, which we can't test here)
         let flags = parse_flags(&args("snapshot"));
         assert!(!flags.cli_executable_path);
     }
@@ -993,7 +1072,7 @@ mod tests {
     #[test]
     fn test_cli_multiple_flags_tracking() {
         let flags = parse_flags(&args(
-            "--executable-path /chrome --browser-profile /profile --proxy http:
+            "--executable-path /chrome --browser-profile /profile --proxy http://proxy snapshot",
         ));
         assert!(flags.cli_executable_path);
         assert!(flags.cli_profile);
@@ -1002,6 +1081,7 @@ mod tests {
         assert!(!flags.cli_state);
     }
 
+    // === Config file tests ===
 
     #[test]
     fn test_config_deserialize_full() {
@@ -1016,12 +1096,11 @@ mod tests {
             "extensions": ["/ext1", "/ext2"],
             "profile": "/tmp/profile",
             "state": "/tmp/state.json",
-            "proxy": "http:
+            "proxy": "http://proxy:8080",
             "proxyBypass": "localhost",
             "args": "--no-sandbox",
             "userAgent": "test-agent",
-            "provider": "ios",
-            "device": "iPhone 15",
+            "provider": "nst",
             "ignoreHttpsErrors": true,
             "allowFileAccess": true,
             "cdp": "9222",
@@ -1042,12 +1121,11 @@ mod tests {
         );
         assert_eq!(config.profile.as_deref(), Some("/tmp/profile"));
         assert_eq!(config.state.as_deref(), Some("/tmp/state.json"));
-        assert_eq!(config.proxy.as_deref(), Some("http:
+        assert_eq!(config.proxy.as_deref(), Some("http://proxy:8080"));
         assert_eq!(config.proxy_bypass.as_deref(), Some("localhost"));
         assert_eq!(config.args.as_deref(), Some("--no-sandbox"));
         assert_eq!(config.user_agent.as_deref(), Some("test-agent"));
-        assert_eq!(config.provider.as_deref(), Some("ios"));
-        assert_eq!(config.device.as_deref(), Some("iPhone 15"));
+        assert_eq!(config.provider.as_deref(), Some("nst"));
         assert_eq!(config.ignore_https_errors, Some(true));
         assert_eq!(config.allow_file_access, Some(true));
         assert_eq!(config.cdp.as_deref(), Some("9222"));
@@ -1057,10 +1135,10 @@ mod tests {
 
     #[test]
     fn test_config_deserialize_partial() {
-        let json = r#"{"headed": true, "proxy": "http:
+        let json = r#"{"headed": true, "proxy": "http://localhost:8080"}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.headed, Some(true));
-        assert_eq!(config.proxy.as_deref(), Some("http:
+        assert_eq!(config.proxy.as_deref(), Some("http://localhost:8080"));
         assert_eq!(config.session, None);
         assert_eq!(config.extensions, None);
         assert_eq!(config.debug, None);
@@ -1085,33 +1163,33 @@ mod tests {
     fn test_config_merge_project_overrides_user() {
         let user = Config {
             headed: Some(true),
-            proxy: Some("http:
+            proxy: Some("http://user-proxy:8080".to_string()),
             profile: Some("/user/profile".to_string()),
             ..Config::default()
         };
         let project = Config {
-            proxy: Some("http:
+            proxy: Some("http://project-proxy:9090".to_string()),
             debug: Some(true),
             ..Config::default()
         };
         let merged = user.merge(project);
-        assert_eq!(merged.headed, Some(true)); 
-        assert_eq!(merged.proxy.as_deref(), Some("http:
-        assert_eq!(merged.profile.as_deref(), Some("/user/profile")); 
-        assert_eq!(merged.debug, Some(true)); 
+        assert_eq!(merged.headed, Some(true)); // kept from user
+        assert_eq!(merged.proxy.as_deref(), Some("http://project-proxy:9090")); // overridden by project
+        assert_eq!(merged.profile.as_deref(), Some("/user/profile")); // kept from user
+        assert_eq!(merged.debug, Some(true)); // added by project
     }
 
     #[test]
     fn test_config_merge_none_does_not_override() {
         let user = Config {
             headed: Some(true),
-            proxy: Some("http:
+            proxy: Some("http://proxy:8080".to_string()),
             ..Config::default()
         };
         let project = Config::default();
         let merged = user.merge(project);
         assert_eq!(merged.headed, Some(true));
-        assert_eq!(merged.proxy.as_deref(), Some("http:
+        assert_eq!(merged.proxy.as_deref(), Some("http://proxy:8080"));
     }
 
     #[test]
@@ -1121,11 +1199,11 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let config_path = dir.join("test-config.json");
         let mut f = fs::File::create(&config_path).unwrap();
-        writeln!(f, r#"{{"headed": true, "proxy": "http:
+        writeln!(f, r#"{{"headed": true, "proxy": "http://test:1234"}}"#).unwrap();
 
         let config = read_config_file(&config_path).unwrap();
         assert_eq!(config.headed, Some(true));
-        assert_eq!(config.proxy.as_deref(), Some("http:
+        assert_eq!(config.proxy.as_deref(), Some("http://test:1234"));
 
         let _ = fs::remove_file(&config_path);
         let _ = fs::remove_dir(&dir);
@@ -1240,6 +1318,7 @@ mod tests {
         let _ = fs::remove_dir(&dir);
     }
 
+    // === Boolean flag value tests ===
 
     #[test]
     fn test_headed_false() {
@@ -1332,6 +1411,7 @@ mod tests {
         assert_eq!(cleaned, vec!["open", "example.com"]);
     }
 
+    // === Extensions merge tests ===
 
     #[test]
     fn test_config_merge_extensions_concatenated() {
@@ -1376,6 +1456,7 @@ mod tests {
         assert_eq!(merged.extensions, Some(vec!["/ext2".to_string()]));
     }
 
+    // === Provider selection tests ===
 
     #[test]
     fn test_provider_explicit_flag_takes_priority() {
@@ -1430,6 +1511,7 @@ mod tests {
     fn test_local_flag_false() {
         let flags = parse_flags(&args("--local false open example.com"));
         assert!(!flags.local);
+        // When --local is false and no other flags, should default to "nst"
         assert_eq!(flags.provider.as_deref(), Some("nst"));
     }
 
@@ -1445,6 +1527,7 @@ mod tests {
         assert_eq!(cleaned, vec!["open", "example.com"]);
     }
 
+    // === Configuration validation tests ===
 
     #[test]
     fn test_validate_nst_config_missing_api_key() {
@@ -1485,7 +1568,7 @@ mod tests {
     #[test]
     fn test_validate_nst_config_invalid_host_with_protocol() {
         env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_HOST", "https:
+        env::set_var("NST_HOST", "https://example.com");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not a URL"));
@@ -1535,10 +1618,13 @@ mod tests {
         env::remove_var("NST_PORT");
     }
 
+    // === .env file loading tests ===
 
     #[test]
     fn test_load_env_files_no_file() {
+        // This should not panic when no .env file exists
         load_env_files();
+        // Test passes if no panic occurs
     }
 
     #[test]
@@ -1548,20 +1634,25 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let env_path = dir.join(".nstbrowser-ai-agent.env");
 
+        // Create test .env file
         let mut f = fs::File::create(&env_path).unwrap();
         writeln!(f, "TEST_VAR_PROJECT=project_value").unwrap();
         drop(f);
 
+        // Change to test directory
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(&dir).unwrap();
 
+        // Load env files
         load_env_files();
 
+        // Verify variable was loaded
         assert_eq!(
             env::var("TEST_VAR_PROJECT").ok(),
             Some("project_value".to_string())
         );
 
+        // Cleanup
         env::set_current_dir(original_dir).unwrap();
         env::remove_var("TEST_VAR_PROJECT");
         let _ = fs::remove_file(&env_path);
@@ -1575,20 +1666,25 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let env_path = dir.join(".env");
 
+        // Create test .env file
         let mut f = fs::File::create(&env_path).unwrap();
         writeln!(f, "TEST_VAR_STANDARD=standard_value").unwrap();
         drop(f);
 
+        // Change to test directory
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(&dir).unwrap();
 
+        // Load env files
         load_env_files();
 
+        // Verify variable was loaded
         assert_eq!(
             env::var("TEST_VAR_STANDARD").ok(),
             Some("standard_value".to_string())
         );
 
+        // Cleanup
         env::set_current_dir(original_dir).unwrap();
         env::remove_var("TEST_VAR_STANDARD");
         let _ = fs::remove_file(&env_path);
@@ -1603,6 +1699,7 @@ mod tests {
         let project_env_path = dir.join(".nstbrowser-ai-agent.env");
         let standard_env_path = dir.join(".env");
 
+        // Create both .env files with different values
         let mut f1 = fs::File::create(&project_env_path).unwrap();
         writeln!(f1, "TEST_VAR_PRIORITY=project_wins").unwrap();
         drop(f1);
@@ -1611,16 +1708,20 @@ mod tests {
         writeln!(f2, "TEST_VAR_PRIORITY=standard_loses").unwrap();
         drop(f2);
 
+        // Change to test directory
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(&dir).unwrap();
 
+        // Load env files
         load_env_files();
 
+        // Verify project-specific file takes priority
         assert_eq!(
             env::var("TEST_VAR_PRIORITY").ok(),
             Some("project_wins".to_string())
         );
 
+        // Cleanup
         env::set_current_dir(original_dir).unwrap();
         env::remove_var("TEST_VAR_PRIORITY");
         let _ = fs::remove_file(&project_env_path);

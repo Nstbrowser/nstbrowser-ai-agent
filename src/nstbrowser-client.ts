@@ -32,8 +32,10 @@ export class NstbrowserClient {
     this.baseUrl = `http://${host}:${port}`;
     this.apiKey = apiKey;
 
+    // Validate endpoint
     this.validateEndpoint(host, port);
 
+    // Debug mode warning
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[SECURITY] Debug mode enabled - API keys may be logged');
     }
@@ -51,6 +53,7 @@ export class NstbrowserClient {
       throw new Error('Invalid Nstbrowser port (must be 1-65535)');
     }
 
+    // Prevent connecting to dangerous internal addresses
     const dangerousHosts = ['0.0.0.0', '169.254.169.254'];
     if (dangerousHosts.includes(host)) {
       throw new Error(`Connecting to ${host} is not allowed for security reasons`);
@@ -122,6 +125,7 @@ export class NstbrowserClient {
 
         const result = (await response.json()) as NstApiResponse<T>;
 
+        // Nstbrowser API uses 'err: false' to indicate success
         if (result.err) {
           throw new NstbrowserError(result.msg || 'Unknown error', result.code?.toString());
         }
@@ -134,10 +138,12 @@ export class NstbrowserClient {
 
         lastError = error instanceof Error ? error : new Error(String(error));
 
+        // If last attempt, throw error
         if (attempt === retries - 1) {
           throw handleNstbrowserError(lastError);
         }
 
+        // Wait before retry
         await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
       }
     }
@@ -157,6 +163,8 @@ export class NstbrowserClient {
     }
   }
 
+  // ==================== Browser Instance Management ====================
+
   /**
    * Get all running browser instances
    */
@@ -172,6 +180,8 @@ export class NstbrowserClient {
     profileId: string,
     options?: StartBrowserOptions
   ): Promise<StartBrowserResponse> {
+    // Note: Options are not supported by this endpoint
+    // Use startOnceBrowser for custom configuration
     const response = await this.request<{
       profileId: string;
       port: number;
@@ -215,7 +225,7 @@ export class NstbrowserClient {
 
   /**
    * Stop all browser instances
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-15554896.md
    * Note: Requires empty array as request body to stop all browsers
    * Note: Endpoint requires trailing slash to avoid 307 redirect
    */
@@ -237,16 +247,19 @@ export class NstbrowserClient {
     return this.request<{ debuggerUrl: string }>('GET', `/api/v2/browsers/${profileId}/debugger`);
   }
 
+  // ==================== Profile Management ====================
+
   /**
    * Get profiles with optional query
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-15554903.md
    */
   async getProfiles(query?: ProfileQuery): Promise<Profile[]> {
+    // Build query parameters for server-side filtering
     const params = new URLSearchParams();
 
     if (query) {
       if (query.name) {
-        params.append('s', query.name);
+        params.append('s', query.name); // 's' parameter searches by name or id
       }
       if (query.groupId) {
         params.append('groupId', query.groupId);
@@ -255,6 +268,8 @@ export class NstbrowserClient {
         const tagsStr = Array.isArray(query.tags) ? query.tags.join(',') : query.tags;
         params.append('tags', tagsStr);
       }
+      // Note: platform filtering is not supported by the API query parameters
+      // We'll apply it client-side if needed
     }
 
     const queryString = params.toString();
@@ -263,6 +278,7 @@ export class NstbrowserClient {
     const response = await this.request<{ docs: Profile[] }>('GET', endpoint);
     let profiles = response.docs || [];
 
+    // Apply client-side platform filtering if needed (API doesn't support this parameter)
     if (query?.platform) {
       const platformMap: Record<string, number> = { Windows: 0, macOS: 1, Linux: 2 };
       const platformNum = platformMap[query.platform];
@@ -276,7 +292,7 @@ export class NstbrowserClient {
 
   /**
    * Get profiles with cursor-based pagination
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-19974738.md
    * Note: Requires Nstbrowser 1.17.3+
    */
   async getProfilesByCursor(
@@ -289,6 +305,7 @@ export class NstbrowserClient {
     nextCursor?: string;
     prevCursor?: string;
   }> {
+    // Build query parameters
     const params = new URLSearchParams();
 
     if (pageSize) {
@@ -320,6 +337,7 @@ export class NstbrowserClient {
   async createProfile(config: ProfileConfig): Promise<Profile> {
     const response = await this.request<Profile>('POST', '/api/v2/profiles', config);
 
+    // Debug log in debug mode
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[DEBUG] Create profile response:', JSON.stringify(response, null, 2));
     }
@@ -336,33 +354,37 @@ export class NstbrowserClient {
 
   /**
    * Delete multiple profiles in batch
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-15554905.md
    */
   async deleteProfilesBatch(profileIds: string[]): Promise<void> {
+    // Note: API expects array directly as request body, not wrapped in object
     await this.request<void>('DELETE', '/api/v2/profiles', profileIds);
   }
 
+  // ==================== Proxy Management ====================
+
   /**
    * Update profile proxy configuration
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-15554907.md
    */
   async updateProfileProxy(profileId: string, proxy: ProxyConfig): Promise<void> {
-    const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
-    const proxyUrl = `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+    // Convert ProxyConfig to URL format expected by API
+    const proxyUrl = `${proxy.type}://${proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
     await this.request<void>('PUT', `/api/v2/profiles/${profileId}/proxy`, { url: proxyUrl });
   }
 
   /**
    * Update proxy for multiple profiles in batch
-   * API Doc: https:
+   * API Doc: https://apidocs.nstbrowser.io/api-15554909.md
    */
   async batchUpdateProxy(profileIds: string[], proxy: ProxyConfig): Promise<void> {
-    const auth = proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : '';
-    const proxyUrl = `${proxy.type}://${auth}${proxy.host}:${proxy.port}`;
+    // Convert ProxyConfig to URL format expected by API
+    const proxyUrl = `${proxy.type}://${proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
 
     await this.request<void>('PUT', '/api/v2/profiles/proxy/batch', {
       profileIds,
       proxyConfig: {
+        // Note: API expects 'proxyConfig', not 'proxy'
         url: proxyUrl,
       },
     });
@@ -382,6 +404,8 @@ export class NstbrowserClient {
     await this.request<void>('POST', '/api/v2/profiles/proxy/batch-reset', { profileIds });
   }
 
+  // ==================== Tag Management ====================
+
   /**
    * Get all available tags
    */
@@ -393,6 +417,7 @@ export class NstbrowserClient {
    * Create tags for a profile
    */
   async createProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
+    // API expects array directly, not wrapped in object
     await this.request<void>('POST', `/api/v2/profiles/${profileId}/tags`, tags);
   }
 
@@ -437,6 +462,8 @@ export class NstbrowserClient {
     await this.request<void>('POST', '/api/v2/profiles/tags/batch-clear', { profileIds });
   }
 
+  // ==================== Group Management ====================
+
   /**
    * Get all profile groups
    */
@@ -461,6 +488,8 @@ export class NstbrowserClient {
     });
   }
 
+  // ==================== Local Data Management ====================
+
   /**
    * Clear profile cache
    */
@@ -474,6 +503,8 @@ export class NstbrowserClient {
   async clearProfileCookies(profileId: string): Promise<void> {
     await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/cookies`);
   }
+
+  // ==================== CDP Endpoints ====================
 
   /**
    * Get CDP WebSocket URL for a profile browser
@@ -538,6 +569,8 @@ export class NstbrowserClient {
       remoteDebuggingPort: response.port,
     };
   }
+
+  // ==================== Method Aliases for Convenience ====================
 
   /**
    * Alias for getProfiles()

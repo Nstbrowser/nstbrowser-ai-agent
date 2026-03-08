@@ -30,6 +30,7 @@ pub fn find_safaridriver() -> Option<PathBuf> {
         }
     }
 
+    // Try PATH
     if let Ok(output) = Command::new("which").arg("safaridriver").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -55,6 +56,7 @@ pub fn launch_safaridriver(port: u16) -> Result<SafariDriverProcess, String> {
         .spawn()
         .map_err(|e| format!("Failed to launch safaridriver: {}", e))?;
 
+    // Wait for driver to be ready
     std::thread::sleep(Duration::from_millis(500));
 
     Ok(SafariDriverProcess { child, port })
@@ -66,8 +68,10 @@ mod tests {
 
     #[test]
     fn test_find_safaridriver() {
+        // Only check on macOS
         if cfg!(target_os = "macos") {
             let result = find_safaridriver();
+            // Don't assert Some since it may not be enabled
             if let Some(path) = result {
                 assert!(path.exists());
             }

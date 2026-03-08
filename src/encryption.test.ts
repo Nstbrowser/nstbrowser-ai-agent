@@ -10,6 +10,7 @@ import {
   type EncryptedPayload,
 } from './encryption.js';
 
+// Generate a valid test key (256 bits = 32 bytes = 64 hex chars)
 const generateTestKey = () => crypto.randomBytes(32);
 const generateTestKeyHex = () => crypto.randomBytes(32).toString('hex');
 
@@ -62,7 +63,7 @@ describe('encryption', () => {
 
     it('should round-trip with large data', () => {
       const key = generateTestKey();
-      const plaintext = 'x'.repeat(100000);
+      const plaintext = 'x'.repeat(100000); // 100KB of data
 
       const encrypted = encryptData(plaintext, key);
       const decrypted = decryptData(encrypted, key);
@@ -79,10 +80,13 @@ describe('encryption', () => {
       const encrypted1 = encryptData(plaintext, key);
       const encrypted2 = encryptData(plaintext, key);
 
+      // IVs should be different
       expect(encrypted1.iv).not.toBe(encrypted2.iv);
 
+      // Ciphertext should also be different due to different IVs
       expect(encrypted1.data).not.toBe(encrypted2.data);
 
+      // Both should decrypt to the same plaintext
       expect(decryptData(encrypted1, key)).toBe(plaintext);
       expect(decryptData(encrypted2, key)).toBe(plaintext);
     });
@@ -103,8 +107,9 @@ describe('encryption', () => {
 
       const encrypted = encryptData(plaintext, key);
 
+      // Tamper with the auth tag
       const tamperedAuthTag = Buffer.from(encrypted.authTag, 'base64');
-      tamperedAuthTag[0] ^= 0xff;
+      tamperedAuthTag[0] ^= 0xff; // Flip bits
       const tamperedPayload: EncryptedPayload = {
         ...encrypted,
         authTag: tamperedAuthTag.toString('base64'),
@@ -119,8 +124,9 @@ describe('encryption', () => {
 
       const encrypted = encryptData(plaintext, key);
 
+      // Tamper with the ciphertext
       const tamperedData = Buffer.from(encrypted.data, 'base64');
-      tamperedData[0] ^= 0xff;
+      tamperedData[0] ^= 0xff; // Flip bits
       const tamperedPayload: EncryptedPayload = {
         ...encrypted,
         data: tamperedData.toString('base64'),
@@ -135,8 +141,9 @@ describe('encryption', () => {
 
       const encrypted = encryptData(plaintext, key);
 
+      // Tamper with the IV
       const tamperedIv = Buffer.from(encrypted.iv, 'base64');
-      tamperedIv[0] ^= 0xff;
+      tamperedIv[0] ^= 0xff; // Flip bits
       const tamperedPayload: EncryptedPayload = {
         ...encrypted,
         iv: tamperedIv.toString('base64'),
@@ -154,6 +161,7 @@ describe('encryption', () => {
 
       const encrypted = encryptData(plaintext, key1);
 
+      // Try to decrypt with a different key
       expect(() => decryptData(encrypted, key2)).toThrow();
     });
 
@@ -163,6 +171,7 @@ describe('encryption', () => {
 
       const encrypted = encryptData(plaintext, key);
 
+      // Create a key with one byte different
       const wrongKey = Buffer.from(key);
       wrongKey[0] ^= 0xff;
 
@@ -211,12 +220,16 @@ describe('encryption', () => {
       const key = generateTestKey();
       const encrypted = encryptData('test', key);
 
-      const truncatedTag = crypto.randomBytes(4);
+      // Truncate auth tag to just 4 bytes (minimum allowed, but wrong value)
+      // This won't match the actual tag, so authentication will fail
+      const truncatedTag = crypto.randomBytes(4); // Random 4 bytes won't match
       const malformed: EncryptedPayload = {
         ...encrypted,
         authTag: truncatedTag.toString('base64'),
       };
 
+      // Note: With Node.js deprecation warning, very short tags may still be
+      // accepted but will fail authentication during decipher.final()
       expect(() => decryptData(malformed, key)).toThrow();
     });
 
@@ -224,7 +237,8 @@ describe('encryption', () => {
       const key = generateTestKey();
       const encrypted = encryptData('test', key);
 
-      const wrongTag = crypto.randomBytes(16);
+      // Use a completely wrong auth tag (right length but wrong value)
+      const wrongTag = crypto.randomBytes(16); // Same length as real tag
       const malformed: EncryptedPayload = {
         ...encrypted,
         authTag: wrongTag.toString('base64'),
@@ -238,6 +252,7 @@ describe('encryption', () => {
     const originalEnv = process.env[ENCRYPTION_KEY_ENV];
 
     afterEach(() => {
+      // Restore original env
       if (originalEnv !== undefined) {
         process.env[ENCRYPTION_KEY_ENV] = originalEnv;
       } else {
@@ -256,17 +271,17 @@ describe('encryption', () => {
     });
 
     it('should return null for invalid hex (too short)', () => {
-      process.env[ENCRYPTION_KEY_ENV] = 'abc123';
+      process.env[ENCRYPTION_KEY_ENV] = 'abc123'; // Only 6 chars, need 64
       expect(getEncryptionKey()).toBeNull();
     });
 
     it('should return null for invalid hex (too long)', () => {
-      process.env[ENCRYPTION_KEY_ENV] = 'a'.repeat(128);
+      process.env[ENCRYPTION_KEY_ENV] = 'a'.repeat(128); // 128 chars, need 64
       expect(getEncryptionKey()).toBeNull();
     });
 
     it('should return null for non-hex characters', () => {
-      process.env[ENCRYPTION_KEY_ENV] = 'g'.repeat(64);
+      process.env[ENCRYPTION_KEY_ENV] = 'g'.repeat(64); // 'g' is not hex
       expect(getEncryptionKey()).toBeNull();
     });
 
@@ -277,7 +292,7 @@ describe('encryption', () => {
       const key = getEncryptionKey();
       expect(key).not.toBeNull();
       expect(key).toBeInstanceOf(Buffer);
-      expect(key!.length).toBe(32);
+      expect(key!.length).toBe(32); // 256 bits
       expect(key!.toString('hex')).toBe(keyHex.toLowerCase());
     });
 

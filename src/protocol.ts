@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import type { Command, Response } from './types.js';
 
+// Base schema for all commands
 const baseCommandSchema = z.object({
   id: z.string(),
   action: z.string(),
 });
 
+// Individual action schemas
 const launchSchema = baseCommandSchema.extend({
   action: z.literal('launch'),
   headless: z.boolean().optional(),
@@ -351,6 +353,7 @@ const videoStopSchema = baseCommandSchema.extend({
   action: z.literal('video_stop'),
 });
 
+// Recording schemas (Playwright native video recording)
 const recordingStartSchema = baseCommandSchema.extend({
   action: z.literal('recording_start'),
   path: z.string().min(1),
@@ -687,6 +690,7 @@ const responseBodySchema = baseCommandSchema.extend({
   timeout: z.number().positive().optional(),
 });
 
+// Screencast schemas for streaming browser viewport
 const screencastStartSchema = baseCommandSchema.extend({
   action: z.literal('screencast_start'),
   format: z.enum(['jpeg', 'png']).optional(),
@@ -700,6 +704,7 @@ const screencastStopSchema = baseCommandSchema.extend({
   action: z.literal('screencast_stop'),
 });
 
+// Input injection schemas for pair browsing
 const inputMouseSchema = baseCommandSchema.extend({
   action: z.literal('input_mouse'),
   type: z.enum(['mousePressed', 'mouseReleased', 'mouseMoved', 'mouseWheel']),
@@ -734,6 +739,7 @@ const inputTouchSchema = baseCommandSchema.extend({
   modifiers: z.number().optional(),
 });
 
+// iOS-specific schemas
 const swipeSchema = baseCommandSchema.extend({
   action: z.literal('swipe'),
   direction: z.enum(['up', 'down', 'left', 'right']),
@@ -744,6 +750,7 @@ const deviceListSchema = baseCommandSchema.extend({
   action: z.literal('device_list'),
 });
 
+// Diff schemas
 const diffSnapshotSchema = baseCommandSchema.extend({
   action: z.literal('diff_snapshot'),
   baseline: z.string().optional(),
@@ -840,6 +847,7 @@ const closeSchema = baseCommandSchema.extend({
   action: z.literal('close'),
 });
 
+// Tab/Window schemas
 const tabNewSchema = baseCommandSchema.extend({
   action: z.literal('tab_new'),
   url: z.string().min(1).optional(),
@@ -916,6 +924,8 @@ const denySchema = baseCommandSchema.extend({
   action: z.literal('deny'),
   confirmationId: z.string().min(1),
 });
+
+// ==================== Nstbrowser Commands ====================
 
 const nstBrowserListSchema = baseCommandSchema.extend({
   action: z.literal('nst_browser_list'),
@@ -1036,6 +1046,7 @@ const nstProfileCookiesClearSchema = baseCommandSchema.extend({
   profileIds: z.array(z.string().min(1)).min(1),
 });
 
+// New Nstbrowser commands
 const nstProfileShowSchema = baseCommandSchema.extend({
   action: z.literal('nst_profile_show'),
   profileId: z.string().min(1),
@@ -1117,6 +1128,70 @@ const nstProfileGroupBatchChangeSchema = baseCommandSchema.extend({
   groupId: z.string().min(1),
 });
 
+// New commands - Batch operations and CDP endpoints
+const nstBrowserStartBatchSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_start_batch'),
+  profileIds: z.array(z.string().min(1)).min(1),
+  config: z
+    .object({
+      remoteDebuggingPort: z.number().optional(),
+      headless: z.boolean().optional(),
+      disableGpu: z.boolean().optional(),
+      proxyEnabled: z.boolean().optional(),
+      autoClose: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+const nstBrowserStartOnceSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_start_once'),
+  config: z
+    .object({
+      platform: z.enum(['Windows', 'macOS', 'Linux']).optional(),
+      kernel: z.string().optional(),
+      fingerprint: z.record(z.unknown()).optional(),
+      remoteDebuggingPort: z.number().optional(),
+      headless: z.boolean().optional(),
+      disableGpu: z.boolean().optional(),
+      proxyEnabled: z.boolean().optional(),
+      autoClose: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+const nstProfileListCursorSchema = baseCommandSchema.extend({
+  action: z.literal('nst_profile_list_cursor'),
+  cursor: z.string().optional(),
+  pageSize: z.number().optional(),
+  direction: z.enum(['next', 'prev']).optional(),
+});
+
+const nstBrowserConnectSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_connect'),
+  profileId: z.string().min(1),
+});
+
+const nstBrowserConnectOnceSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_connect_once'),
+  config: z
+    .object({
+      platform: z.enum(['Windows', 'macOS', 'Linux']).optional(),
+      kernel: z.string().optional(),
+      fingerprint: z.record(z.unknown()).optional(),
+    })
+    .optional(),
+});
+
+const nstBrowserCdpUrlSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_cdp_url'),
+  profileId: z.string().min(1),
+});
+
+const nstBrowserCdpUrlOnceSchema = baseCommandSchema.extend({
+  action: z.literal('nst_browser_cdp_url_once'),
+});
+
+// Union schema for all commands
 const commandSchema = z.discriminatedUnion('action', [
   launchSchema,
   navigateSchema,
@@ -1260,6 +1335,7 @@ const commandSchema = z.discriminatedUnion('action', [
   authListSchema,
   authDeleteSchema,
   authShowSchema,
+  // Nstbrowser commands
   nstBrowserListSchema,
   nstBrowserStartSchema,
   nstBrowserStopSchema,
@@ -1287,8 +1363,17 @@ const commandSchema = z.discriminatedUnion('action', [
   nstProfileTagsBatchUpdateSchema,
   nstProfileTagsBatchClearSchema,
   nstProfileGroupBatchChangeSchema,
+  // New commands - Batch operations and CDP endpoints
+  nstBrowserStartBatchSchema,
+  nstBrowserStartOnceSchema,
+  nstProfileListCursorSchema,
+  nstBrowserConnectSchema,
+  nstBrowserConnectOnceSchema,
+  nstBrowserCdpUrlSchema,
+  nstBrowserCdpUrlOnceSchema,
 ]);
 
+// Parse result type
 export type ParseResult =
   | { success: true; command: Command }
   | { success: false; error: string; id?: string };
@@ -1297,6 +1382,7 @@ export type ParseResult =
  * Parse a JSON string into a validated command
  */
 export function parseCommand(input: string): ParseResult {
+  // First, try to parse JSON
   let json: unknown;
   try {
     json = JSON.parse(input);
@@ -1304,11 +1390,13 @@ export function parseCommand(input: string): ParseResult {
     return { success: false, error: 'Invalid JSON' };
   }
 
+  // Extract id for error responses if possible
   const id =
     typeof json === 'object' && json !== null && 'id' in json
       ? String((json as { id: unknown }).id)
       : undefined;
 
+  // Validate against schema
   const result = commandSchema.safeParse(json);
 
   if (!result.success) {
@@ -1318,6 +1406,7 @@ export function parseCommand(input: string): ParseResult {
 
   const command = result.data as Command;
 
+  // Post-parse validation for commands that need cross-field checks
   if (
     (command.action === 'addscript' || command.action === 'addstyle') &&
     !command.content &&

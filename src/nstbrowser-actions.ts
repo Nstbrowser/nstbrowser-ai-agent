@@ -12,15 +12,18 @@ import type {
   TagConfig,
   StartBrowserOptions,
 } from './nstbrowser-types.js';
+import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
 
 /**
  * Execute a Nstbrowser command
  */
 export async function executeNstbrowserCommand(command: Command): Promise<Response> {
+  // Get Nstbrowser configuration from environment
   const host = process.env.NST_HOST || 'localhost';
   const port = parseInt(process.env.NST_PORT || '8848', 10);
   const apiKey = process.env.NST_API_KEY || '';
 
+  // Debug: log environment variables
   if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
     console.error('[DEBUG] Nstbrowser daemon environment variables:', {
       NST_HOST: process.env.NST_HOST,
@@ -104,6 +107,8 @@ export async function executeNstbrowserCommand(command: Command): Promise<Respon
   }
 }
 
+// ==================== Browser Instance Management ====================
+
 async function handleBrowserList(
   command: { id: string; action: 'nst_browser_list' },
   client: NstbrowserClient
@@ -121,7 +126,8 @@ async function handleBrowserStart(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  const result = await client.startBrowser(command.profileId, command.options);
+  const profileId = await resolveProfileId(client, command.profileId);
+  const result = await client.startBrowser(profileId, command.options);
   return successResponse(command.id, result);
 }
 
@@ -129,7 +135,8 @@ async function handleBrowserStop(
   command: { id: string; action: 'nst_browser_stop'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.stopBrowser(command.profileId);
+  const profileId = await resolveProfileId(client, command.profileId);
+  await client.stopBrowser(profileId);
   return successResponse(command.id, { stopped: true });
 }
 
@@ -140,6 +147,8 @@ async function handleBrowserStopAll(
   await client.stopAllBrowsers();
   return successResponse(command.id, { stopped: true });
 }
+
+// ==================== Profile Management ====================
 
 async function handleProfileList(
   command: {
@@ -173,6 +182,7 @@ async function handleProfileCreate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
+  // Build ProfileConfig from command
   const profileConfig: ProfileConfig = {
     name: command.name,
     platform: command.platform,
@@ -181,6 +191,7 @@ async function handleProfileCreate(
     groupId: command.groupId,
   };
 
+  // Add proxy config if provided
   if (command.proxyConfig) {
     profileConfig.proxy = {
       type: command.proxyConfig.type,
@@ -199,13 +210,16 @@ async function handleProfileDelete(
   command: { id: string; action: 'nst_profile_delete'; profileIds: string[] },
   client: NstbrowserClient
 ): Promise<Response> {
-  if (command.profileIds.length === 1) {
-    await client.deleteProfile(command.profileIds[0]);
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  if (profileIds.length === 1) {
+    await client.deleteProfile(profileIds[0]);
   } else {
-    await client.deleteProfilesBatch(command.profileIds);
+    await client.deleteProfilesBatch(profileIds);
   }
-  return successResponse(command.id, { deleted: command.profileIds.length });
+  return successResponse(command.id, { deleted: profileIds.length });
 }
+
+// ==================== Proxy Management ====================
 
 async function handleProfileProxyUpdate(
   command: {
@@ -222,7 +236,8 @@ async function handleProfileProxyUpdate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.updateProfileProxy(command.profileId, command.proxyConfig);
+  const profileId = await resolveProfileId(client, command.profileId);
+  await client.updateProfileProxy(profileId, command.proxyConfig);
   return successResponse(command.id, { updated: true });
 }
 
@@ -230,13 +245,16 @@ async function handleProfileProxyReset(
   command: { id: string; action: 'nst_profile_proxy_reset'; profileIds: string[] },
   client: NstbrowserClient
 ): Promise<Response> {
-  if (command.profileIds.length === 1) {
-    await client.resetProfileProxy(command.profileIds[0]);
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  if (profileIds.length === 1) {
+    await client.resetProfileProxy(profileIds[0]);
   } else {
-    await client.batchResetProfileProxy(command.profileIds);
+    await client.batchResetProfileProxy(profileIds);
   }
-  return successResponse(command.id, { reset: command.profileIds.length });
+  return successResponse(command.id, { reset: profileIds.length });
 }
+
+// ==================== Tag Management ====================
 
 async function handleProfileTagsList(
   command: { id: string; action: 'nst_profile_tags_list' },
@@ -255,8 +273,10 @@ async function handleProfileTagsCreate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
+  const profileId = await resolveProfileId(client, command.profileId);
+  // Convert single tag string to TagConfig array
   const tags = [{ name: command.tag }];
-  await client.createProfileTags(command.profileId, tags);
+  await client.createProfileTags(profileId, tags);
   return successResponse(command.id, { created: true });
 }
 
@@ -264,13 +284,16 @@ async function handleProfileTagsClear(
   command: { id: string; action: 'nst_profile_tags_clear'; profileIds: string[] },
   client: NstbrowserClient
 ): Promise<Response> {
-  if (command.profileIds.length === 1) {
-    await client.clearProfileTags(command.profileIds[0]);
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  if (profileIds.length === 1) {
+    await client.clearProfileTags(profileIds[0]);
   } else {
-    await client.batchClearProfileTags(command.profileIds);
+    await client.batchClearProfileTags(profileIds);
   }
-  return successResponse(command.id, { cleared: command.profileIds.length });
+  return successResponse(command.id, { cleared: profileIds.length });
 }
+
+// ==================== Group Management ====================
 
 async function handleProfileGroupsList(
   command: { id: string; action: 'nst_profile_groups_list' },
@@ -289,47 +312,48 @@ async function handleProfileGroupChange(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  if (command.profileIds.length === 1) {
-    await client.changeProfileGroup(command.profileIds[0], command.groupId);
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  if (profileIds.length === 1) {
+    await client.changeProfileGroup(profileIds[0], command.groupId);
   } else {
-    await client.batchChangeProfileGroup(command.profileIds, command.groupId);
+    await client.batchChangeProfileGroup(profileIds, command.groupId);
   }
-  return successResponse(command.id, { changed: command.profileIds.length });
+  return successResponse(command.id, { changed: profileIds.length });
 }
+
+// ==================== Local Data Management ====================
 
 async function handleProfileCacheClear(
   command: { id: string; action: 'nst_profile_cache_clear'; profileIds: string[] },
   client: NstbrowserClient
 ): Promise<Response> {
-  for (const profileId of command.profileIds) {
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  // Note: API doesn't have batch cache clear, so we do them sequentially
+  for (const profileId of profileIds) {
     await client.clearProfileCache(profileId);
   }
-  return successResponse(command.id, { cleared: command.profileIds.length });
+  return successResponse(command.id, { cleared: profileIds.length });
 }
 
 async function handleProfileCookiesClear(
   command: { id: string; action: 'nst_profile_cookies_clear'; profileIds: string[] },
   client: NstbrowserClient
 ): Promise<Response> {
-  for (const profileId of command.profileIds) {
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  // Note: API doesn't have batch cookies clear, so we do them sequentially
+  for (const profileId of profileIds) {
     await client.clearProfileCookies(profileId);
   }
-  return successResponse(command.id, { cleared: command.profileIds.length });
+  return successResponse(command.id, { cleared: profileIds.length });
 }
+
+// ==================== New Commands ====================
 
 async function handleProfileShow(
   command: { id: string; action: 'nst_profile_show'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  const profiles = await client.getProfiles();
-  const profile = profiles.find(
-    (p) => p.profileId === command.profileId || p.name === command.profileId
-  );
-
-  if (!profile) {
-    throw new Error(`Profile ${command.profileId} not found`);
-  }
-
+  const profile = await getProfileByNameOrId(client, command.profileId);
   return successResponse(command.id, { profile });
 }
 
@@ -337,15 +361,7 @@ async function handleProfileProxyShow(
   command: { id: string; action: 'nst_profile_proxy_show'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  const profiles = await client.getProfiles();
-  const profile = profiles.find(
-    (p) => p.profileId === command.profileId || p.name === command.profileId
-  );
-
-  if (!profile) {
-    throw new Error(`Profile ${command.profileId} not found`);
-  }
-
+  const profile = await getProfileByNameOrId(client, command.profileId);
   return successResponse(command.id, {
     proxyConfig: profile.proxyConfig,
     proxyResult: profile.proxyResult,
@@ -356,7 +372,8 @@ async function handleBrowserPages(
   command: { id: string; action: 'nst_browser_pages'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  const pages = await client.getBrowserPages(command.profileId);
+  const profileId = await resolveProfileId(client, command.profileId);
+  const pages = await client.getBrowserPages(profileId);
   return successResponse(command.id, { pages });
 }
 
@@ -364,7 +381,8 @@ async function handleBrowserDebugger(
   command: { id: string; action: 'nst_browser_debugger'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  const debuggerInfo = await client.getBrowserDebugger(command.profileId);
+  const profileId = await resolveProfileId(client, command.profileId);
+  const debuggerInfo = await client.getBrowserDebugger(profileId);
   return successResponse(command.id, debuggerInfo);
 }
 
@@ -377,7 +395,8 @@ async function handleProfileTagsUpdate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.updateProfileTags(command.profileId, command.tags);
+  const profileId = await resolveProfileId(client, command.profileId);
+  await client.updateProfileTags(profileId, command.tags);
   return successResponse(command.id, { updated: true });
 }
 
@@ -396,8 +415,9 @@ async function handleProfileProxyBatchUpdate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchUpdateProxy(command.profileIds, command.proxyConfig);
-  return successResponse(command.id, { updated: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchUpdateProxy(profileIds, command.proxyConfig);
+  return successResponse(command.id, { updated: profileIds.length });
 }
 
 async function handleProfileProxyBatchReset(
@@ -408,8 +428,9 @@ async function handleProfileProxyBatchReset(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchResetProfileProxy(command.profileIds);
-  return successResponse(command.id, { reset: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchResetProfileProxy(profileIds);
+  return successResponse(command.id, { reset: profileIds.length });
 }
 
 async function handleProfileTagsBatchCreate(
@@ -421,8 +442,9 @@ async function handleProfileTagsBatchCreate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchCreateProfileTags(command.profileIds, command.tags);
-  return successResponse(command.id, { created: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchCreateProfileTags(profileIds, command.tags);
+  return successResponse(command.id, { created: profileIds.length });
 }
 
 async function handleProfileTagsBatchUpdate(
@@ -434,8 +456,9 @@ async function handleProfileTagsBatchUpdate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchUpdateProfileTags(command.profileIds, command.tags);
-  return successResponse(command.id, { updated: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchUpdateProfileTags(profileIds, command.tags);
+  return successResponse(command.id, { updated: profileIds.length });
 }
 
 async function handleProfileTagsBatchClear(
@@ -446,8 +469,9 @@ async function handleProfileTagsBatchClear(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchClearProfileTags(command.profileIds);
-  return successResponse(command.id, { cleared: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchClearProfileTags(profileIds);
+  return successResponse(command.id, { cleared: profileIds.length });
 }
 
 async function handleProfileGroupBatchChange(
@@ -459,10 +483,12 @@ async function handleProfileGroupBatchChange(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  await client.batchChangeProfileGroup(command.profileIds, command.groupId);
-  return successResponse(command.id, { changed: command.profileIds.length });
+  const profileIds = await resolveProfileIds(client, command.profileIds);
+  await client.batchChangeProfileGroup(profileIds, command.groupId);
+  return successResponse(command.id, { changed: profileIds.length });
 }
 
+// Type for Nstbrowser commands
 type NstCommand =
   | { id: string; action: 'nst_browser_list' }
   | { id: string; action: 'nst_browser_start'; profileId: string; options?: StartBrowserOptions }

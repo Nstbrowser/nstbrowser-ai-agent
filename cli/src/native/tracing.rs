@@ -78,12 +78,14 @@ pub async fn trace_stop(
         return Err("No tracing in progress".to_string());
     }
 
+    // Subscribe to events before stopping
     let mut rx = client.subscribe();
 
     client
         .send_command_no_params("Tracing.end", Some(session_id))
         .await?;
 
+    // Collect trace data with timeout
     let mut trace_events: Vec<Value> = Vec::new();
     let mut stream_handle: Option<String> = None;
 
@@ -121,6 +123,7 @@ pub async fn trace_stop(
         }
     }
 
+    // If ReturnAsStream mode was used, read trace data from the IO stream
     if let Some(handle) = stream_handle {
         if trace_events.is_empty() {
             let stream_data = read_io_stream(client, session_id, &handle).await?;
@@ -129,6 +132,7 @@ pub async fn trace_stop(
                     trace_events.extend(events.iter().cloned());
                 }
             } else {
+                // Try parsing as newline-delimited JSON
                 for line in stream_data.lines() {
                     if let Ok(val) = serde_json::from_str::<Value>(line) {
                         if let Some(events) = val.get("traceEvents").and_then(|v| v.as_array()) {
@@ -140,6 +144,7 @@ pub async fn trace_stop(
                 }
             }
         }
+        // Close the IO stream
         let _ = client
             .send_command(
                 "IO.close",
@@ -310,6 +315,7 @@ pub async fn profiler_stop(
     Ok(result)
 }
 
+/// Read all data from a CDP IO stream handle.
 async fn read_io_stream(
     client: &CdpClient,
     session_id: &str,

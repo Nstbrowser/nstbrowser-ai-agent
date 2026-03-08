@@ -64,6 +64,7 @@ pub async fn take_screenshot(
             });
         }
     } else if let Some(ref selector) = options.selector {
+        // Element screenshot via bounding box
         let object_id =
             super::element::resolve_element_object_id(client, session_id, ref_map, selector)
                 .await?;

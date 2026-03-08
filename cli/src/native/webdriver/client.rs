@@ -9,7 +9,7 @@ pub struct WebDriverClient {
 impl WebDriverClient {
     pub fn new(port: u16) -> Self {
         Self {
-            base_url: format!("http:
+            base_url: format!("http://127.0.0.1:{}", port),
             session_id: None,
         }
     }
@@ -182,7 +182,7 @@ impl WebDriverClient {
 
     pub fn new_with_session(port: u16, session_id: String) -> Self {
         Self {
-            base_url: format!("http:
+            base_url: format!("http://127.0.0.1:{}", port),
             session_id: Some(session_id),
         }
     }
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn test_client_new() {
         let client = WebDriverClient::new(4444);
-        assert_eq!(client.base_url, "http:
+        assert_eq!(client.base_url, "http://127.0.0.1:4444");
         assert!(client.session_id.is_none());
     }
 
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_client_custom_port() {
         let client = WebDriverClient::new(9515);
-        assert_eq!(client.base_url, "http:
+        assert_eq!(client.base_url, "http://127.0.0.1:9515");
     }
 }
 
@@ -286,6 +286,7 @@ async fn http_request(method: &str, url: &str, body: Option<&Value>) -> Result<V
     let response_str = String::from_utf8_lossy(&response);
     let body_part = response_str.split("\r\n\r\n").nth(1).unwrap_or("").trim();
 
+    // Handle chunked encoding
     let json_body = if body_part.contains('\n')
         && body_part
             .chars()
@@ -293,6 +294,7 @@ async fn http_request(method: &str, url: &str, body: Option<&Value>) -> Result<V
             .map(|c| c.is_ascii_hexdigit())
             .unwrap_or(false)
     {
+        // Chunked: skip chunk size lines
         body_part
             .lines()
             .filter(|l| !l.chars().all(|c| c.is_ascii_hexdigit() || c == '\r'))

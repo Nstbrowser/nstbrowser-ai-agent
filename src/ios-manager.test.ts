@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IOSManager } from './ios-manager.js';
 
+// Mock node-simctl
 vi.mock('node-simctl', () => {
   return {
     Simctl: class MockSimctl {
@@ -71,11 +72,13 @@ describe('IOSManager', () => {
 
   describe('getRefData', () => {
     it('should return null for unknown refs', () => {
+      // Access private method via bracket notation for testing
       const result = (manager as any).getRefData('@e99');
       expect(result).toBeNull();
     });
 
     it('should handle @-prefixed refs', () => {
+      // Set up a ref in the refMap
       (manager as any).refMap = {
         e1: { selector: 'button', role: 'button', name: 'Submit' },
       };
@@ -105,10 +108,13 @@ describe('IOSManager', () => {
 });
 
 describe('IOSManager integration', () => {
+  // These tests require Appium and iOS Simulator to be available
+  // They are skipped by default and can be run manually
   describe.skip('with real simulator', () => {
     let manager: IOSManager;
 
     beforeEach(() => {
+      // Use real implementation for integration tests
       vi.resetModules();
       manager = new IOSManager();
     });

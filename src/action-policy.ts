@@ -22,6 +22,10 @@ const ACTION_CATEGORIES: Record<string, string> = {
 
   fill: 'fill',
   type: 'fill',
+  // The `keyboard` action is a compound command that dispatches to sub-actions
+  // (type, inserttext, press, down, up). Its primary use is text input, so it
+  // maps to 'fill'. The interact-like sub-actions (press, down, up) are less
+  // common and don't have separate top-level action names in the protocol.
   keyboard: 'fill',
   inserttext: 'fill',
   select: 'fill',
@@ -95,6 +99,7 @@ const ACTION_CATEGORIES: Record<string, string> = {
   wheel: 'interact',
   dispatch: 'interact',
 
+  // These are always allowed (internal/meta operations)
   launch: '_internal',
   close: '_internal',
   tab_list: '_internal',
@@ -158,6 +163,7 @@ const ACTION_CATEGORIES: Record<string, string> = {
   confirm: '_internal',
   deny: '_internal',
 
+  // Find/semantic locator actions (read-only element resolution)
   getbyrole: 'get',
   getbytext: 'get',
   getbylabel: 'get',
@@ -168,6 +174,11 @@ const ACTION_CATEGORIES: Record<string, string> = {
   nth: 'get',
 };
 
+// User-facing categories used in policy files. '_internal' is excluded because
+// internal actions always bypass policy. 'unknown' is intentionally not a value
+// in ACTION_CATEGORIES -- it is only the fallback return of getActionCategory()
+// for unrecognized actions. If a user puts "unknown" in a policy file,
+// loadPolicyFile will warn about it as unrecognized, which is correct.
 export const KNOWN_CATEGORIES = new Set(
   Object.values(ACTION_CATEGORIES).filter((c) => c !== '_internal')
 );
@@ -227,7 +238,9 @@ export function reloadPolicyIfChanged(): ActionPolicy | null {
       cachedPolicy = loadPolicyFile(cachedPolicyPath);
       cachedPolicyMtimeMs = currentMtime;
     }
-  } catch {}
+  } catch {
+    // File may have been removed; keep using cached policy
+  }
 
   return cachedPolicy;
 }
@@ -239,14 +252,18 @@ export function checkPolicy(
 ): PolicyDecision {
   const category = getActionCategory(action);
 
+  // Internal actions are always allowed
   if (category === '_internal') return 'allow';
 
+  // Explicit deny takes precedence over confirmation
   if (policy?.deny?.includes(category)) return 'deny';
 
+  // Check if this category requires confirmation
   if (confirmCategories.has(category)) return 'confirm';
 
   if (!policy) return 'allow';
 
+  // Explicit allow list
   if (policy.allow?.includes(category)) return 'allow';
 
   return policy.default;

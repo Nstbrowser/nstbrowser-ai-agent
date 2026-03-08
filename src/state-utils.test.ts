@@ -102,9 +102,10 @@ describe('state-utils', () => {
     });
 
     it('should reject Unicode tricks', () => {
-      expect(isValidSessionName('sеssion')).toBe(false);
-      expect(isValidSessionName('session\u2024')).toBe(false);
-      expect(isValidSessionName('session\u2025')).toBe(false);
+      // Homograph attacks
+      expect(isValidSessionName('sеssion')).toBe(false); // Cyrillic 'е'
+      expect(isValidSessionName('session\u2024')).toBe(false); // One dot leader
+      expect(isValidSessionName('session\u2025')).toBe(false); // Two dot leader
     });
   });
 
@@ -155,6 +156,7 @@ describe('state-utils', () => {
       expect(result).toContain('my-session_v2-agent_1.json');
     });
 
+    // Security: Ensure the resulting path is within the sessions directory
     it('should always produce path within sessions directory', () => {
       const sessionsDir = getSessionsDir();
       const result = getAutoStateFilePath('twitter', 'default');
@@ -162,6 +164,7 @@ describe('state-utils', () => {
       expect(result).not.toBeNull();
       expect(result!.startsWith(sessionsDir)).toBe(true);
 
+      // Verify the path is actually within the directory (no traversal)
       const resolvedPath = path.resolve(result!);
       const resolvedSessionsDir = path.resolve(sessionsDir);
       expect(resolvedPath.startsWith(resolvedSessionsDir)).toBe(true);

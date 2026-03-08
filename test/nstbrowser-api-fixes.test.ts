@@ -48,7 +48,7 @@ describe('Nstbrowser API Fixes', () => {
       for (const call of calls) {
         const url = call[0] as string;
         const options = call[1] as any;
-
+        
         // Should not have POST method with /query path
         if (options.method === 'POST') {
           expect(url).not.toContain('/api/v2/profiles/query');
@@ -246,7 +246,7 @@ describe('Nstbrowser API Fixes', () => {
     it('should have documentation links in method comments', () => {
       // This is a meta-test to ensure we maintain documentation
       const clientSource = client.constructor.toString();
-
+      
       // Check that key methods have doc comments (this is a basic check)
       expect(typeof client.getProfiles).toBe('function');
       expect(typeof client.getProfilesByCursor).toBe('function');
