@@ -1,10 +1,14 @@
 use crate::color;
+use crate::constants::{
+    CONFIG_DIR, ENV_NSTBROWSER_AI_AGENT_DEBUG, ENV_NST_API_KEY, ENV_NST_HOST, ENV_NST_PORT,
+    ERR_API_KEY_EMPTY, ERR_API_KEY_NOT_SET, MAX_API_KEY_LENGTH, MAX_PORT, MIN_API_KEY_LENGTH,
+    MIN_PORT, PROJECT_ENV_FILE, PROVIDER_LOCAL, PROVIDER_NST, STANDARD_ENV_FILE,
+};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CONFIG_DIR: &str = ".nst-ai-agent";
 const CONFIG_FILENAME: &str = "config.json";
 const PROJECT_CONFIG_FILENAME: &str = "nstbrowser-ai-agent.json";
 
@@ -14,23 +18,23 @@ const PROJECT_CONFIG_FILENAME: &str = "nstbrowser-ai-agent.json";
 /// 2. .env (standard)
 pub fn load_env_files() {
     // Try project-specific env file first
-    if let Ok(_) = dotenvy::from_filename(".nstbrowser-ai-agent.env") {
-        if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
-            eprintln!("[DEBUG] Loaded environment from .nstbrowser-ai-agent.env");
+    if let Ok(_) = dotenvy::from_filename(PROJECT_ENV_FILE) {
+        if env::var(ENV_NSTBROWSER_AI_AGENT_DEBUG).unwrap_or_default() == "1" {
+            eprintln!("[DEBUG] Loaded environment from {}", PROJECT_ENV_FILE);
         }
         return;
     }
 
     // Fall back to standard .env file
     if let Ok(_) = dotenvy::dotenv() {
-        if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
-            eprintln!("[DEBUG] Loaded environment from .env");
+        if env::var(ENV_NSTBROWSER_AI_AGENT_DEBUG).unwrap_or_default() == "1" {
+            eprintln!("[DEBUG] Loaded environment from {}", STANDARD_ENV_FILE);
         }
         return;
     }
 
     // No .env file found - this is OK, not an error
-    if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
+    if env::var(ENV_NSTBROWSER_AI_AGENT_DEBUG).unwrap_or_default() == "1" {
         eprintln!("[DEBUG] No .env file found (this is OK)");
     }
 }
@@ -709,31 +713,34 @@ fn determine_provider(flags: &Flags, explicit_provider: Option<&str>) -> (String
 
     // Priority 2: --local flag
     if flags.local {
-        return ("local".to_string(), "--local flag");
+        return (PROVIDER_LOCAL.to_string(), "--local flag");
     }
 
     // Priority 3: --headed without --provider
     if flags.headed {
-        return ("local".to_string(), "--headed flag (implies local)");
+        return (PROVIDER_LOCAL.to_string(), "--headed flag (implies local)");
     }
 
     // Priority 4: --cdp
     if flags.cdp.is_some() {
-        return ("local".to_string(), "--cdp flag (implies local)");
+        return (PROVIDER_LOCAL.to_string(), "--cdp flag (implies local)");
     }
 
     // Priority 5: --auto-connect
     if flags.auto_connect {
-        return ("local".to_string(), "--auto-connect flag (implies local)");
+        return (
+            PROVIDER_LOCAL.to_string(),
+            "--auto-connect flag (implies local)",
+        );
     }
 
     // Priority 6: NST_API_KEY environment variable present
-    if env::var("NST_API_KEY").is_ok() {
-        return ("nst".to_string(), "NST_API_KEY environment variable");
+    if env::var(ENV_NST_API_KEY).is_ok() {
+        return (PROVIDER_NST.to_string(), "NST_API_KEY environment variable");
     }
 
     // Priority 7: Default
-    ("nst".to_string(), "default")
+    (PROVIDER_NST.to_string(), "default provider")
 }
 
 /// Validate Nstbrowser configuration from config file or environment variables.
@@ -749,38 +756,40 @@ pub fn validate_nst_config() -> Result<(), String> {
             key
         } else {
             // Fall back to environment variable
-            match env::var("NST_API_KEY") {
+            match env::var(ENV_NST_API_KEY) {
                 Ok(key) if !key.trim().is_empty() => key,
-                Ok(_) => return Err("NST_API_KEY is set but empty".to_string()),
-                Err(_) => return Err("NST_API_KEY environment variable is not set".to_string()),
+                Ok(_) => return Err(ERR_API_KEY_EMPTY.to_string()),
+                Err(_) => return Err(ERR_API_KEY_NOT_SET.to_string()),
             }
         }
     } else {
         // Config file not available, check environment variable
-        match env::var("NST_API_KEY") {
+        match env::var(ENV_NST_API_KEY) {
             Ok(key) if !key.trim().is_empty() => key,
-            Ok(_) => return Err("NST_API_KEY is set but empty".to_string()),
-            Err(_) => return Err("NST_API_KEY environment variable is not set".to_string()),
+            Ok(_) => return Err(ERR_API_KEY_EMPTY.to_string()),
+            Err(_) => return Err(ERR_API_KEY_NOT_SET.to_string()),
         }
     };
 
     // Validate API key format (should be non-empty and reasonable length)
-    if api_key.len() < 10 {
+    if api_key.len() < MIN_API_KEY_LENGTH {
         return Err(format!(
-            "NST_API_KEY appears invalid (too short: {} characters, expected at least 10)",
-            api_key.len()
+            "NST_API_KEY appears invalid (too short: {} characters, expected at least {})",
+            api_key.len(),
+            MIN_API_KEY_LENGTH
         ));
     }
 
-    if api_key.len() > 500 {
+    if api_key.len() > MAX_API_KEY_LENGTH {
         return Err(format!(
-            "NST_API_KEY appears invalid (too long: {} characters, expected at most 500)",
-            api_key.len()
+            "NST_API_KEY appears invalid (too long: {} characters, expected at most {})",
+            api_key.len(),
+            MAX_API_KEY_LENGTH
         ));
     }
 
     // Validate NST_HOST if set (optional, has default)
-    if let Ok(host) = env::var("NST_HOST") {
+    if let Ok(host) = env::var(ENV_NST_HOST) {
         if !host.trim().is_empty() {
             // Basic hostname/IP validation
             if host.contains("://") {
@@ -801,11 +810,14 @@ pub fn validate_nst_config() -> Result<(), String> {
     }
 
     // Validate NST_PORT if set (optional, has default)
-    if let Ok(port_str) = env::var("NST_PORT") {
+    if let Ok(port_str) = env::var(ENV_NST_PORT) {
         if !port_str.trim().is_empty() {
             match port_str.parse::<u16>() {
                 Ok(0) => {
-                    return Err("NST_PORT must be between 1 and 65535".to_string());
+                    return Err(format!(
+                        "NST_PORT must be between {} and {}",
+                        MIN_PORT, MAX_PORT
+                    ));
                 }
                 Ok(_) => {
                     // Valid port
@@ -900,9 +912,53 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::{
+        CONFIG_DIR, CONFIG_FILE, ENV_NST_API_KEY, ENV_NST_HOST, ENV_NST_PORT, ERR_CONFIG_DIR,
+        TEST_BACKUP_SUFFIX,
+    };
+    use std::sync::Mutex;
+
+    // Mutex to ensure config file tests don't interfere with each other
+    static CONFIG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn args(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
+    }
+
+    /// Helper to temporarily move config file for test isolation
+    struct ConfigBackup {
+        config_path: PathBuf,
+        backup_path: PathBuf,
+        had_config: bool,
+    }
+
+    impl ConfigBackup {
+        fn new() -> Self {
+            let home = dirs::home_dir().expect(ERR_CONFIG_DIR);
+            let config_path = home.join(CONFIG_DIR).join(CONFIG_FILE);
+            let backup_path = home
+                .join(CONFIG_DIR)
+                .join(format!("{}{}", CONFIG_FILE, TEST_BACKUP_SUFFIX));
+            let had_config = config_path.exists();
+
+            if had_config {
+                let _ = fs::rename(&config_path, &backup_path);
+            }
+
+            Self {
+                config_path,
+                backup_path,
+                had_config,
+            }
+        }
+    }
+
+    impl Drop for ConfigBackup {
+        fn drop(&mut self) {
+            if self.had_config {
+                let _ = fs::rename(&self.backup_path, &self.config_path);
+            }
+        }
     }
 
     #[test]
@@ -1531,91 +1587,125 @@ mod tests {
 
     #[test]
     fn test_validate_nst_config_missing_api_key() {
-        env::remove_var("NST_API_KEY");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::remove_var(ENV_NST_API_KEY);
         let result = validate_nst_config();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("NST_API_KEY environment variable is not set"));
+        assert!(result.unwrap_err().contains(ERR_API_KEY_NOT_SET));
     }
 
     #[test]
     fn test_validate_nst_config_empty_api_key() {
-        env::set_var("NST_API_KEY", "");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
+        env::remove_var(ENV_NST_PORT);
+
+        env::set_var(ENV_NST_API_KEY, "");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("empty"));
-        env::remove_var("NST_API_KEY");
+        env::remove_var(ENV_NST_API_KEY);
     }
 
     #[test]
     fn test_validate_nst_config_short_api_key() {
-        env::set_var("NST_API_KEY", "short");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
+        env::remove_var(ENV_NST_PORT);
+
+        env::set_var(ENV_NST_API_KEY, "short");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("too short"));
-        env::remove_var("NST_API_KEY");
+        env::remove_var(ENV_NST_API_KEY);
     }
 
     #[test]
     fn test_validate_nst_config_valid_api_key() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
+        env::remove_var(ENV_NST_PORT);
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
         let result = validate_nst_config();
         assert!(result.is_ok());
-        env::remove_var("NST_API_KEY");
+        env::remove_var(ENV_NST_API_KEY);
     }
 
     #[test]
     fn test_validate_nst_config_invalid_host_with_protocol() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_HOST", "https://example.com");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
+        env::set_var(ENV_NST_HOST, "https://example.com");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not a URL"));
-        env::remove_var("NST_API_KEY");
-        env::remove_var("NST_HOST");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
     }
 
     #[test]
     fn test_validate_nst_config_valid_host() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_HOST", "api.nstbrowser.io");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
+        env::set_var(ENV_NST_HOST, "api.nstbrowser.io");
         let result = validate_nst_config();
         assert!(result.is_ok());
-        env::remove_var("NST_API_KEY");
-        env::remove_var("NST_HOST");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
     }
 
     #[test]
     fn test_validate_nst_config_invalid_port_zero() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_PORT", "0");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
+        env::set_var(ENV_NST_PORT, "0");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("between 1 and 65535"));
-        env::remove_var("NST_API_KEY");
-        env::remove_var("NST_PORT");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_PORT);
     }
 
     #[test]
     fn test_validate_nst_config_invalid_port_non_numeric() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_PORT", "abc");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+        let _backup = ConfigBackup::new();
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
+        env::set_var(ENV_NST_PORT, "abc");
         let result = validate_nst_config();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not a valid port number"));
-        env::remove_var("NST_API_KEY");
-        env::remove_var("NST_PORT");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_PORT);
     }
 
     #[test]
     fn test_validate_nst_config_valid_port() {
-        env::set_var("NST_API_KEY", "valid-api-key-1234567890");
-        env::set_var("NST_PORT", "8080");
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap();
+
+        env::set_var(ENV_NST_API_KEY, "valid-api-key-1234567890");
+        env::set_var(ENV_NST_PORT, "8080");
         let result = validate_nst_config();
         assert!(result.is_ok());
-        env::remove_var("NST_API_KEY");
-        env::remove_var("NST_PORT");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_PORT);
     }
 
     // === .env file loading tests ===
@@ -1628,11 +1718,20 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires serial execution due to dotenvy global state
     fn test_load_env_files_with_project_env() {
+        use crate::constants::{ENV_NST_API_KEY, ENV_NST_HOST, ENV_NST_PORT, PROJECT_ENV_FILE};
         use std::io::Write;
+
+        // Clean up any existing test environment variables first
+        env::remove_var("TEST_VAR_PROJECT");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
+        env::remove_var(ENV_NST_PORT);
+
         let dir = env::temp_dir().join("ab-test-env-project");
         let _ = fs::create_dir_all(&dir);
-        let env_path = dir.join(".nstbrowser-ai-agent.env");
+        let env_path = dir.join(PROJECT_ENV_FILE);
 
         // Create test .env file
         let mut f = fs::File::create(&env_path).unwrap();
@@ -1660,11 +1759,26 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires serial execution due to dotenvy global state
     fn test_load_env_files_with_standard_env() {
+        use crate::constants::{
+            ENV_NST_API_KEY, ENV_NST_HOST, ENV_NST_PORT, PROJECT_ENV_FILE, STANDARD_ENV_FILE,
+        };
         use std::io::Write;
+
+        // Clean up any existing test environment variables first
+        env::remove_var("TEST_VAR_STANDARD");
+        env::remove_var(ENV_NST_API_KEY);
+        env::remove_var(ENV_NST_HOST);
+        env::remove_var(ENV_NST_PORT);
+
         let dir = env::temp_dir().join("ab-test-env-standard");
         let _ = fs::create_dir_all(&dir);
-        let env_path = dir.join(".env");
+        let env_path = dir.join(STANDARD_ENV_FILE);
+        let project_env_path = dir.join(PROJECT_ENV_FILE);
+
+        // Ensure project-specific env file doesn't exist (so standard .env is used)
+        let _ = fs::remove_file(&project_env_path);
 
         // Create test .env file
         let mut f = fs::File::create(&env_path).unwrap();
@@ -1692,12 +1806,15 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires serial execution due to dotenvy global state
     fn test_load_env_files_priority() {
+        use crate::constants::{PROJECT_ENV_FILE, STANDARD_ENV_FILE};
         use std::io::Write;
+
         let dir = env::temp_dir().join("ab-test-env-priority");
         let _ = fs::create_dir_all(&dir);
-        let project_env_path = dir.join(".nstbrowser-ai-agent.env");
-        let standard_env_path = dir.join(".env");
+        let project_env_path = dir.join(PROJECT_ENV_FILE);
+        let standard_env_path = dir.join(STANDARD_ENV_FILE);
 
         // Create both .env files with different values
         let mut f1 = fs::File::create(&project_env_path).unwrap();

@@ -1,10 +1,12 @@
+use crate::constants::{
+    CONFIG_DIR, CONFIG_FILE, CONFIG_KEY_API_KEY, CONFIG_KEY_HOST, CONFIG_KEY_PORT,
+    DEFAULT_NST_HOST, DEFAULT_NST_PORT, ENV_NST_API_KEY, ENV_NST_HOST, ENV_NST_PORT,
+    ERR_CONFIG_DIR, MAX_PORT, MIN_API_KEY_LENGTH, MIN_PORT,
+};
 use crate::flags::Config;
 use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const CONFIG_DIR: &str = ".nst-ai-agent";
-const CONFIG_FILE: &str = "config.json";
 
 pub struct ConfigManager {
     config_path: PathBuf,
@@ -12,7 +14,7 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new() -> Result<Self, String> {
-        let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+        let home = dirs::home_dir().ok_or(ERR_CONFIG_DIR)?;
         let config_path = home.join(CONFIG_DIR).join(CONFIG_FILE);
         Ok(Self { config_path })
     }
@@ -42,16 +44,23 @@ impl ConfigManager {
         // So we should read env vars first, then override with config file
 
         // Read from environment variables
-        let env_api_key = std::env::var("NST_API_KEY").ok();
-        let env_host = std::env::var("NST_HOST").ok();
-        let env_port = std::env::var("NST_PORT")
+        let env_api_key = std::env::var(ENV_NST_API_KEY)
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let env_host = std::env::var(ENV_NST_HOST)
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let env_port = std::env::var(ENV_NST_PORT)
             .ok()
             .and_then(|s| s.parse::<u16>().ok());
 
         // Apply priority: config file > env var > defaults
         config.api_key = config.api_key.or(env_api_key);
-        config.host = config.host.or(env_host).or(Some("127.0.0.1".to_string()));
-        config.port = config.port.or(env_port).or(Some(8848));
+        config.host = config
+            .host
+            .or(env_host)
+            .or(Some(DEFAULT_NST_HOST.to_string()));
+        config.port = config.port.or(env_port).or(Some(DEFAULT_NST_PORT));
 
         Ok(config)
     }
@@ -81,9 +90,9 @@ impl ConfigManager {
 
         // Update the appropriate field
         match key {
-            "key" => config.nst_api_key = Some(value.to_string()),
-            "host" => config.nst_host = Some(value.to_string()),
-            "port" => config.nst_port = Some(value.parse::<u16>().unwrap()),
+            CONFIG_KEY_API_KEY => config.nst_api_key = Some(value.to_string()),
+            CONFIG_KEY_HOST => config.nst_host = Some(value.to_string()),
+            CONFIG_KEY_PORT => config.nst_port = Some(value.parse::<u16>().unwrap()),
             _ => return Err(format!("Unknown config key: {}", key)),
         }
 
@@ -100,11 +109,13 @@ impl ConfigManager {
         let nst_config = Self::read()?;
 
         match key {
-            "key" => nst_config
+            CONFIG_KEY_API_KEY => nst_config
                 .api_key
                 .ok_or_else(|| "Not configured".to_string()),
-            "host" => Ok(nst_config.host.unwrap_or_else(|| "127.0.0.1".to_string())),
-            "port" => Ok(nst_config.port.unwrap_or(8848).to_string()),
+            CONFIG_KEY_HOST => Ok(nst_config
+                .host
+                .unwrap_or_else(|| DEFAULT_NST_HOST.to_string())),
+            CONFIG_KEY_PORT => Ok(nst_config.port.unwrap_or(DEFAULT_NST_PORT).to_string()),
             _ => Err(format!("Unknown config key: {}", key)),
         }
     }
@@ -127,9 +138,9 @@ impl ConfigManager {
 
         // Remove the appropriate field
         match key {
-            "key" => config.nst_api_key = None,
-            "host" => config.nst_host = None,
-            "port" => config.nst_port = None,
+            CONFIG_KEY_API_KEY => config.nst_api_key = None,
+            CONFIG_KEY_HOST => config.nst_host = None,
+            CONFIG_KEY_PORT => config.nst_port = None,
             _ => return Err(format!("Unknown config key: {}", key)),
         }
 
@@ -160,11 +171,16 @@ impl ConfigManager {
         // Show host
         output.push_str(&format!(
             "Host: {}\n",
-            nst_config.host.unwrap_or_else(|| "127.0.0.1".to_string())
+            nst_config
+                .host
+                .unwrap_or_else(|| DEFAULT_NST_HOST.to_string())
         ));
 
         // Show port
-        output.push_str(&format!("Port: {}\n", nst_config.port.unwrap_or(8848)));
+        output.push_str(&format!(
+            "Port: {}\n",
+            nst_config.port.unwrap_or(DEFAULT_NST_PORT)
+        ));
 
         Ok(output)
     }
@@ -242,10 +258,10 @@ fn mask_api_key(key: &str) -> String {
 /// Validate configuration key
 fn validate_config_key(key: &str) -> Result<(), String> {
     match key {
-        "key" | "host" | "port" => Ok(()),
+        CONFIG_KEY_API_KEY | CONFIG_KEY_HOST | CONFIG_KEY_PORT => Ok(()),
         _ => Err(format!(
-            "Unknown config key: {}. Valid keys: key, host, port",
-            key
+            "Unknown config key: {}. Valid keys: {}, {}, {}",
+            key, CONFIG_KEY_API_KEY, CONFIG_KEY_HOST, CONFIG_KEY_PORT
         )),
     }
 }
@@ -253,24 +269,33 @@ fn validate_config_key(key: &str) -> Result<(), String> {
 /// Validate configuration value
 fn validate_config_value(key: &str, value: &str) -> Result<(), String> {
     match key {
-        "key" => {
-            if value.len() < 10 {
-                return Err("API key too short (minimum 10 characters)".to_string());
+        CONFIG_KEY_API_KEY => {
+            if value.len() < MIN_API_KEY_LENGTH {
+                return Err(format!(
+                    "API key too short (minimum {} characters)",
+                    MIN_API_KEY_LENGTH
+                ));
             }
             Ok(())
         }
-        "host" => {
+        CONFIG_KEY_HOST => {
             if value.is_empty() {
                 return Err("Host cannot be empty".to_string());
             }
             Ok(())
         }
-        "port" => {
-            let port: u16 = value
-                .parse()
-                .map_err(|_| "Port must be a number between 1 and 65535")?;
+        CONFIG_KEY_PORT => {
+            let port: u16 = value.parse().map_err(|_| {
+                format!(
+                    "Port must be a number between {} and {}",
+                    MIN_PORT, MAX_PORT
+                )
+            })?;
             if port == 0 {
-                return Err("Port must be between 1 and 65535".to_string());
+                return Err(format!(
+                    "Port must be between {} and {}",
+                    MIN_PORT, MAX_PORT
+                ));
             }
             Ok(())
         }

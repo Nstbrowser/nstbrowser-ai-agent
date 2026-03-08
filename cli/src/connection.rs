@@ -1,3 +1,4 @@
+use crate::constants::ENV_NST_API_KEY;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -295,7 +296,7 @@ fn apply_daemon_env(cmd: &mut Command, session: &str, opts: &DaemonOptions) {
     use crate::config::ConfigManager;
     if let Ok(nst_config) = ConfigManager::read() {
         if let Some(api_key) = nst_config.api_key {
-            cmd.env("NST_API_KEY", api_key);
+            cmd.env(ENV_NST_API_KEY, api_key);
         }
         if let Some(host) = nst_config.host {
             cmd.env("NST_HOST", host);

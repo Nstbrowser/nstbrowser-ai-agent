@@ -2,6 +2,7 @@ mod color;
 mod commands;
 mod config;
 mod connection;
+mod constants;
 mod flags;
 mod install;
 mod native;
