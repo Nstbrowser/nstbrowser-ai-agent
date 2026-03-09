@@ -71,7 +71,7 @@ step() {
 
 # Check if nstbrowser-ai-agent is installed
 if ! command -v nstbrowser-ai-agent &> /dev/null; then
-  error "nstbrowser-ai-agent is not installed. Run: npm install -g nstbrowser-ai-agent"
+  error "nstbrowser-ai-agent is not installed. Run: npm install -g @nstbrowser/nstbrowser-ai-agent"
 fi
 
 # Configuration
