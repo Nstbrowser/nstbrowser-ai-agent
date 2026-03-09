@@ -9,7 +9,7 @@ Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallba
 Install globally via npm to get the native Rust binary for maximum performance:
 
 ```bash
-npm install -g nstbrowser-ai-agent
+npm install -g @nstbrowser/nstbrowser-ai-agent
 ```
 
 This installs the pre-compiled native binary for your platform (Linux, macOS, Windows).

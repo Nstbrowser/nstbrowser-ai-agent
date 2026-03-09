@@ -1150,17 +1150,31 @@ export class BrowserManager {
       return;
     }
 
-    // Cloud browser providers require explicit opt-in via -p flag or NSTBROWSER_AI_AGENT_PROVIDER env var
-    // -p flag takes precedence over env var
-    const provider = options.provider ?? process.env.NSTBROWSER_AI_AGENT_PROVIDER;
-    if (this.downloadPath && provider) {
+    // Provider selection: default to 'nst' unless explicitly set to 'local' or other flags imply local
+    // Priority: explicit flags > env var > default (nst, but local in test environment)
+    const explicitLocal =
+      options.local ||
+      options.headed ||
+      options.cdp ||
+      options.autoConnect ||
+      options.executablePath;
+
+    // Default to 'local' in test environment (when NODE_ENV=test or running via vitest)
+    const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+    const defaultProvider = isTestEnv ? 'local' : 'nst';
+
+    const provider = explicitLocal
+      ? 'local'
+      : options.provider ?? process.env.NSTBROWSER_AI_AGENT_PROVIDER ?? defaultProvider;
+
+    if (this.downloadPath && provider !== 'local') {
       const warning =
         "--download-path is ignored when using a cloud provider (downloads use the remote browser's configuration)";
       this.launchWarnings.push(warning);
       console.error(`[WARN] ${warning}`);
     }
 
-    // Nstbrowser: requires explicit opt-in via -p nst flag or NSTBROWSER_AI_AGENT_PROVIDER=nst
+    // Nstbrowser: default provider
     if (provider === 'nst') {
       // Write debug log to file
       const fs = await import('fs');

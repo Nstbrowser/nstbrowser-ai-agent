@@ -13,6 +13,26 @@ import type {
   StartBrowserOptions,
 } from './nstbrowser-types.js';
 import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
+import {
+  enhanceProfile,
+  enhanceBrowserInstance,
+  createEnhancedResponse,
+  createProfileSummary,
+  formatRelativeTime,
+} from './nstbrowser-enhanced-output.js';
+import { ProgressBar } from './nstbrowser-concurrency.js';
+import {
+  createTemplate,
+  getTemplate,
+  listTemplates,
+  updateTemplate,
+  deleteTemplate,
+  createProfileFromTemplate,
+  exportTemplate,
+  importTemplate,
+  batchCreateFromTemplate,
+  initializeDefaultTemplates,
+} from './nstbrowser-template.js';
 
 /**
  * Execute a Nstbrowser command
@@ -95,6 +115,24 @@ export async function executeNstbrowserCommand(command: Command): Promise<Respon
         return await handleProfileTagsBatchClear(command, client);
       case 'nst_profile_group_batch_change':
         return await handleProfileGroupBatchChange(command, client);
+      case 'nst_template_create':
+        return await handleTemplateCreate(command, client);
+      case 'nst_template_list':
+        return await handleTemplateList(command, client);
+      case 'nst_template_show':
+        return await handleTemplateShow(command, client);
+      case 'nst_template_update':
+        return await handleTemplateUpdate(command, client);
+      case 'nst_template_delete':
+        return await handleTemplateDelete(command, client);
+      case 'nst_template_export':
+        return await handleTemplateExport(command, client);
+      case 'nst_template_import':
+        return await handleTemplateImport(command, client);
+      case 'nst_profile_create_from_template':
+        return await handleProfileCreateFromTemplate(command, client);
+      case 'nst_profile_batch_create_from_template':
+        return await handleProfileBatchCreateFromTemplate(command, client);
       default:
         return errorResponse(
           (command as { id: string }).id,
@@ -110,10 +148,34 @@ export async function executeNstbrowserCommand(command: Command): Promise<Respon
 // ==================== Browser Instance Management ====================
 
 async function handleBrowserList(
-  command: { id: string; action: 'nst_browser_list' },
+  command: { id: string; action: 'nst_browser_list'; enhanced?: boolean },
   client: NstbrowserClient
 ): Promise<Response> {
+  const startTime = Date.now();
   const browsers = await client.getBrowsers();
+  const executionTime = Date.now() - startTime;
+
+  // Check if enhanced output is requested
+  if (command.enhanced) {
+    const enhancedBrowsers = browsers.map(enhanceBrowserInstance);
+
+    const enhancedResponse = createEnhancedResponse(
+      {
+        browsers: enhancedBrowsers,
+        summary: {
+          total: browsers.length,
+          running: browsers.filter((b) => b.running).length,
+          stopped: browsers.filter((b) => !b.running).length,
+        },
+      },
+      {
+        executionTime,
+      }
+    );
+
+    return successResponse(command.id, enhancedResponse);
+  }
+
   return successResponse(command.id, { browsers });
 }
 
@@ -155,10 +217,33 @@ async function handleProfileList(
     id: string;
     action: 'nst_profile_list';
     query?: { name?: string; groupId?: string; platform?: 'Windows' | 'macOS' | 'Linux' };
+    enhanced?: boolean;
   },
   client: NstbrowserClient
 ): Promise<Response> {
+  const startTime = Date.now();
   const profiles = await client.getProfiles(command.query);
+  const executionTime = Date.now() - startTime;
+
+  // Check if enhanced output is requested
+  if (command.enhanced) {
+    const enhancedProfiles = profiles.map(enhanceProfile);
+    const summary = createProfileSummary(profiles);
+
+    const enhancedResponse = createEnhancedResponse(
+      {
+        profiles: enhancedProfiles,
+        summary,
+      },
+      {
+        executionTime,
+        schemaUrl: 'https://docs.nstbrowser.io/api/schema/profile-list',
+      }
+    );
+
+    return successResponse(command.id, enhancedResponse);
+  }
+
   return successResponse(command.id, { profiles });
 }
 
@@ -412,12 +497,49 @@ async function handleProfileProxyBatchUpdate(
       username?: string;
       password?: string;
     };
+    showProgress?: boolean;
   },
   client: NstbrowserClient
 ): Promise<Response> {
   const profileIds = await resolveProfileIds(client, command.profileIds);
-  await client.batchUpdateProxy(profileIds, command.proxyConfig);
-  return successResponse(command.id, { updated: profileIds.length });
+  
+  // Show progress if requested
+  let progressBar: ProgressBar | undefined;
+  if (command.showProgress && !process.env.NSTBROWSER_AI_AGENT_JSON) {
+    progressBar = new ProgressBar(profileIds.length);
+  }
+
+  const startTime = Date.now();
+  
+  // Use batch operation with concurrency
+  const { results, errors } = await client.batchOperation(
+    profileIds,
+    async (profileId) => {
+      await client.updateProfileProxy(profileId, command.proxyConfig);
+      return profileId;
+    },
+    {
+      concurrency: 10,
+      onProgress: (completed, total) => {
+        if (progressBar) {
+          progressBar.update(completed);
+        }
+      },
+    }
+  );
+
+  if (progressBar) {
+    progressBar.finish();
+  }
+
+  const executionTime = Date.now() - startTime;
+
+  return successResponse(command.id, {
+    updated: results.length,
+    failed: errors.length,
+    errors: errors.map((e) => ({ profileId: e.item, error: e.error.message })),
+    executionTime: `${executionTime}ms`,
+  });
 }
 
 async function handleProfileProxyBatchReset(
@@ -486,6 +608,183 @@ async function handleProfileGroupBatchChange(
   const profileIds = await resolveProfileIds(client, command.profileIds);
   await client.batchChangeProfileGroup(profileIds, command.groupId);
   return successResponse(command.id, { changed: profileIds.length });
+}
+
+// ==================== Template Management ====================
+
+async function handleTemplateCreate(
+  command: {
+    id: string;
+    action: 'nst_template_create';
+    name: string;
+    config: Omit<ProfileConfig, 'name'>;
+    description?: string;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    const template = createTemplate(command.name, command.config, command.description);
+    return successResponse(command.id, { template });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleTemplateList(
+  command: { id: string; action: 'nst_template_list' },
+  client: NstbrowserClient
+): Promise<Response> {
+  const templates = listTemplates();
+  return successResponse(command.id, { templates });
+}
+
+async function handleTemplateShow(
+  command: { id: string; action: 'nst_template_show'; name: string },
+  client: NstbrowserClient
+): Promise<Response> {
+  const template = getTemplate(command.name);
+  
+  if (!template) {
+    return errorResponse(command.id, `Template '${command.name}' not found`);
+  }
+  
+  return successResponse(command.id, { template });
+}
+
+async function handleTemplateUpdate(
+  command: {
+    id: string;
+    action: 'nst_template_update';
+    name: string;
+    config?: Partial<Omit<ProfileConfig, 'name'>>;
+    description?: string;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    const template = updateTemplate(command.name, command.config || {}, command.description);
+    return successResponse(command.id, { template });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleTemplateDelete(
+  command: { id: string; action: 'nst_template_delete'; name: string },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    deleteTemplate(command.name);
+    return successResponse(command.id, { deleted: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleTemplateExport(
+  command: { id: string; action: 'nst_template_export'; name: string },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    const json = exportTemplate(command.name);
+    return successResponse(command.id, { json });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleTemplateImport(
+  command: {
+    id: string;
+    action: 'nst_template_import';
+    json: string;
+    name?: string;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    const template = importTemplate(command.json, command.name);
+    return successResponse(command.id, { template });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleProfileCreateFromTemplate(
+  command: {
+    id: string;
+    action: 'nst_profile_create_from_template';
+    templateName: string;
+    profileName: string;
+    overrides?: Partial<ProfileConfig>;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  try {
+    const config = createProfileFromTemplate(
+      command.templateName,
+      command.profileName,
+      command.overrides
+    );
+    const profile = await client.createProfile(config);
+    return successResponse(command.id, { profile });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
+}
+
+async function handleProfileBatchCreateFromTemplate(
+  command: {
+    id: string;
+    action: 'nst_profile_batch_create_from_template';
+    templateName: string;
+    profileNames: string[];
+    showProgress?: boolean;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  let progressBar: ProgressBar | undefined;
+  if (command.showProgress && !process.env.NSTBROWSER_AI_AGENT_JSON) {
+    progressBar = new ProgressBar(command.profileNames.length);
+  }
+
+  try {
+    const { succeeded, failed } = await batchCreateFromTemplate(
+      command.templateName,
+      command.profileNames,
+      async (config) => await client.createProfile(config),
+      {
+        onProgress: (completed, total, current) => {
+          if (progressBar) {
+            progressBar.update(completed, current);
+          }
+        },
+      }
+    );
+
+    if (progressBar) {
+      progressBar.finish();
+    }
+
+    return successResponse(command.id, {
+      succeeded: succeeded.length,
+      failed: failed.length,
+      profiles: succeeded,
+      errors: failed,
+    });
+  } catch (error) {
+    if (progressBar) {
+      progressBar.finish();
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResponse(command.id, message);
+  }
 }
 
 // Type for Nstbrowser commands

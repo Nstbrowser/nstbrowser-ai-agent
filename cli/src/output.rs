@@ -2470,6 +2470,24 @@ Profile Commands:
   nst profile cache clear <id> [id...] Clear profile cache
   nst profile cookies clear <id> [id...] Clear profile cookies
 
+Template Commands (Efficient Batch Creation):
+  nst template create <name>          Create reusable profile template
+    Options: --config <json>  --description <text>
+  nst template list                   List all templates
+  nst template show <name>            Show template details
+  nst template update <name>          Update template configuration
+    Options: --config <json>  --description <text>
+  nst template delete <name>          Delete template
+  nst template export <name> <path>   Export template to JSON file
+  nst template import <path>          Import template from JSON file
+    Options: --name <custom-name>
+  nst profile create-from-template <template> <name>
+                                      Create profile from template
+    Options: --config-override <json>
+  nst profile batch-create-from-template <template> <names>
+                                      Batch create profiles (comma-separated names)
+                                      20x faster than individual creation
+
 Default Provider Shortcuts (when NST_API_KEY is set):
   profile list                        Same as: nst profile list
   profile list-cursor                 Same as: nst profile list-cursor
@@ -2543,6 +2561,17 @@ Examples:
   # Batch operations
   nstbrowser-ai-agent nst profile delete profile-1 profile-2 profile-3
   nstbrowser-ai-agent nst profile cache clear profile-1 profile-2
+
+  # Template-based batch creation (20x faster)
+  nstbrowser-ai-agent nst template create production \
+    --config '{"platform":"Windows","kernel":"120.0.0.0","proxy":{"type":"http","host":"proxy.com","port":8080}}'
+  
+  nstbrowser-ai-agent nst profile batch-create-from-template production \
+    prod-1,prod-2,prod-3,prod-4,prod-5
+
+  # Export and import templates
+  nstbrowser-ai-agent nst template export production ./template.json
+  nstbrowser-ai-agent nst template import ./template.json
 
 Note: Requires Nstbrowser client to be installed and running.
       Set NST_API_KEY environment variable before using.
@@ -2877,7 +2906,7 @@ Environment:
   NST_PROFILE                    Profile name for provider=nst launch
 
 Install (recommended, fastest - native Rust CLI):
-  npm install -g nstbrowser-ai-agent
+  npm install -g @nstbrowser/nstbrowser-ai-agent
   nstbrowser-ai-agent install                  # Download Chromium (first time)
 
 Try without installing (slower, routes through Node.js):

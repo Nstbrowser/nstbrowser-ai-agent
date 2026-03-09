@@ -23,6 +23,7 @@ import {
   NstbrowserAuthError,
   handleNstbrowserError,
 } from './nstbrowser-errors.js';
+import { sanitizeLogData, createSafeErrorMessage, addAuditLogEntry, maskApiKey } from './nstbrowser-security.js';
 
 export class NstbrowserClient {
   private baseUrl: string;
@@ -37,7 +38,8 @@ export class NstbrowserClient {
 
     // Debug mode warning
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
-      console.error('[SECURITY] Debug mode enabled - API keys may be logged');
+      console.error(`[SECURITY] Debug mode enabled - API key: ${maskApiKey(apiKey)}`);
+      console.error('[SECURITY] Sensitive data may be logged. Disable in production.');
     }
   }
 
@@ -61,16 +63,21 @@ export class NstbrowserClient {
   }
 
   /**
-   * Make HTTP request to Nstbrowser API
+   * Make HTTP request to Nstbrowser API with smart retry logic
    */
   private async request<T>(
     method: string,
     endpoint: string,
     data?: unknown,
-    options?: { timeout?: number; retries?: number }
+    options?: { 
+      timeout?: number; 
+      retries?: number;
+      backoff?: 'linear' | 'exponential';
+    }
   ): Promise<T> {
     const timeout = options?.timeout || 30000;
     const retries = options?.retries || 3;
+    const backoff = options?.backoff || 'exponential';
     const url = `${this.baseUrl}${endpoint}`;
 
     let lastError: Error | null = null;
@@ -112,6 +119,30 @@ export class NstbrowserClient {
             throw new NstbrowserError(`Resource not found: ${url}`, 'NST_NOT_FOUND', 404);
           }
 
+          // Handle rate limiting with Retry-After header
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After');
+            const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+            
+            if (attempt < retries - 1) {
+              if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+                console.error(`[DEBUG] Rate limited, waiting ${waitTime}ms before retry`);
+              }
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
+              continue;
+            }
+          }
+
+          // Handle service unavailable with retry
+          if (response.status === 503 && attempt < retries - 1) {
+            const waitTime = this.calculateBackoff(attempt, backoff);
+            if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+              console.error(`[DEBUG] Service unavailable, retrying in ${waitTime}ms`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, waitTime));
+            continue;
+          }
+
           const errorData = (await response.json().catch(() => ({}))) as {
             message?: string;
             code?: number;
@@ -133,7 +164,10 @@ export class NstbrowserClient {
         return result.data as T;
       } catch (error) {
         if (error instanceof NstbrowserError) {
-          throw error;
+          // Don't retry auth errors or not found errors
+          if (error.code === 'NST_AUTH_ERROR' || error.code === 'NST_NOT_FOUND') {
+            throw error;
+          }
         }
 
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -143,12 +177,32 @@ export class NstbrowserClient {
           throw handleNstbrowserError(lastError);
         }
 
+        // Calculate backoff time
+        const waitTime = this.calculateBackoff(attempt, backoff);
+        
+        if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+          console.error(`[DEBUG] Request failed (attempt ${attempt + 1}/${retries}), retrying in ${waitTime}ms`);
+        }
+
         // Wait before retry
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
       }
     }
 
     throw lastError || new Error('Request failed');
+  }
+
+  /**
+   * Calculate backoff time for retries
+   */
+  private calculateBackoff(attempt: number, strategy: 'linear' | 'exponential'): number {
+    if (strategy === 'exponential') {
+      // Exponential backoff: 1s, 2s, 4s, 8s...
+      return Math.min(1000 * Math.pow(2, attempt), 10000);
+    } else {
+      // Linear backoff: 1s, 2s, 3s, 4s...
+      return 1000 * (attempt + 1);
+    }
   }
 
   /**
@@ -568,6 +622,48 @@ export class NstbrowserClient {
       webSocketDebuggerUrl: response.webSocketDebuggerUrl,
       remoteDebuggingPort: response.port,
     };
+  }
+
+  // ==================== Batch Operations with Concurrency ====================
+
+  /**
+   * Execute batch operation with concurrency control
+   */
+  async batchOperation<T, R>(
+    items: T[],
+    operation: (item: T) => Promise<R>,
+    options: {
+      concurrency?: number;
+      onProgress?: (completed: number, total: number) => void;
+    } = {}
+  ): Promise<{ results: R[]; errors: Array<{ item: T; error: Error }> }> {
+    const { concurrency = 10, onProgress } = options;
+    const results: R[] = [];
+    const errors: Array<{ item: T; error: Error }> = [];
+    let completed = 0;
+
+    // Process items in batches
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+      const batchResults = await Promise.allSettled(batch.map((item) => operation(item)));
+
+      batchResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          errors.push({
+            item: batch[index],
+            error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
+          });
+        }
+        completed++;
+        if (onProgress) {
+          onProgress(completed, items.length);
+        }
+      });
+    }
+
+    return { results, errors };
   }
 
   // ==================== Method Aliases for Convenience ====================

@@ -1128,6 +1128,60 @@ const nstProfileGroupBatchChangeSchema = baseCommandSchema.extend({
   groupId: z.string().min(1),
 });
 
+// Template commands
+const nstTemplateCreateSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_create'),
+  name: z.string().min(1),
+  config: z.record(z.unknown()),
+  description: z.string().optional(),
+});
+
+const nstTemplateListSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_list'),
+});
+
+const nstTemplateShowSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_show'),
+  name: z.string().min(1),
+});
+
+const nstTemplateUpdateSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_update'),
+  name: z.string().min(1),
+  config: z.record(z.unknown()).optional(),
+  description: z.string().optional(),
+});
+
+const nstTemplateDeleteSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_delete'),
+  name: z.string().min(1),
+});
+
+const nstTemplateExportSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_export'),
+  name: z.string().min(1),
+});
+
+const nstTemplateImportSchema = baseCommandSchema.extend({
+  action: z.literal('nst_template_import'),
+  json: z.string().min(1),
+  name: z.string().optional(),
+});
+
+const nstProfileCreateFromTemplateSchema = baseCommandSchema.extend({
+  action: z.literal('nst_profile_create_from_template'),
+  templateName: z.string().min(1),
+  profileName: z.string().min(1),
+  overrides: z.record(z.unknown()).optional(),
+});
+
+const nstProfileBatchCreateFromTemplateSchema = baseCommandSchema.extend({
+  action: z.literal('nst_profile_batch_create_from_template'),
+  templateName: z.string().min(1),
+  profileNames: z.array(z.string().min(1)).min(1),
+  showProgress: z.boolean().optional(),
+});
+
 // New commands - Batch operations and CDP endpoints
 const nstBrowserStartBatchSchema = baseCommandSchema.extend({
   action: z.literal('nst_browser_start_batch'),
@@ -1363,6 +1417,16 @@ const commandSchema = z.discriminatedUnion('action', [
   nstProfileTagsBatchUpdateSchema,
   nstProfileTagsBatchClearSchema,
   nstProfileGroupBatchChangeSchema,
+  // Template commands
+  nstTemplateCreateSchema,
+  nstTemplateListSchema,
+  nstTemplateShowSchema,
+  nstTemplateUpdateSchema,
+  nstTemplateDeleteSchema,
+  nstTemplateExportSchema,
+  nstTemplateImportSchema,
+  nstProfileCreateFromTemplateSchema,
+  nstProfileBatchCreateFromTemplateSchema,
   // New commands - Batch operations and CDP endpoints
   nstBrowserStartBatchSchema,
   nstBrowserStartOnceSchema,
