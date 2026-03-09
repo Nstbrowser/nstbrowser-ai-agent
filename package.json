@@ -1,6 +1,6 @@
 {
   "name": "@nstbrowser/nstbrowser-ai-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nstbrowser AI agent for browser automation with advanced fingerprinting",
   "type": "module",
   "main": "dist/daemon.js",
@@ -33,10 +33,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e:dogfood": "vitest run test/e2e/dogfood.eval.ts",
-    "postinstall": "node scripts/postinstall.js",
-    "changeset": "changeset",
-    "ci:version": "changeset version && pnpm run version:sync && pnpm install --no-frozen-lockfile",
-    "ci:publish": "pnpm run version:sync && pnpm run build && changeset publish"
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "browser",
@@ -75,7 +72,6 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.52",
-    "@changesets/cli": "^2.29.8",
     "@types/node": "^20.10.0",
     "@types/ws": "^8.18.1",
     "husky": "^9.1.7",
