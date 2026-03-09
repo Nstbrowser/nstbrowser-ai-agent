@@ -397,28 +397,19 @@ curl -x http://proxy.example.com:8080 https://api.ipify.org
 
 **Solutions**:
 
-1. Install Chromium via nstbrowser-ai-agent:
-```bash
-# Recommended: Use nstbrowser-ai-agent's built-in Chromium
-nstbrowser-ai-agent install
-
-# With system dependencies (Linux)
-nstbrowser-ai-agent install --with-deps
-```
-
-2. Or verify Chrome is installed:
+1. Verify Chrome is installed:
 ```bash
 # Check Chrome installation
 which google-chrome || which chromium || which chrome
 
+# Install Chrome if missing (macOS)
+brew install --cask google-chrome
+
 # Install Chrome if missing (Linux)
 sudo apt-get install google-chrome-stable
-
-# Install Chrome if missing (macOS)
-# Download from https://www.google.com/chrome/
 ```
 
-3. Check system resources:
+2. Check system resources:
 ```bash
 # Check available memory
 free -h  # Linux

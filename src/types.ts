@@ -1073,16 +1073,7 @@ export type Command =
   | NstBrowserConnectCommand
   | NstBrowserConnectOnceCommand
   | NstBrowserCdpUrlCommand
-  | NstBrowserCdpUrlOnceCommand
-  | NstTemplateCreateCommand
-  | NstTemplateListCommand
-  | NstTemplateShowCommand
-  | NstTemplateUpdateCommand
-  | NstTemplateDeleteCommand
-  | NstTemplateExportCommand
-  | NstTemplateImportCommand
-  | NstProfileCreateFromTemplateCommand
-  | NstProfileBatchCreateFromTemplateCommand;
+  | NstBrowserCdpUrlOnceCommand;
 
 export interface AuthSaveCommand extends BaseCommand {
   action: 'auth_save';
@@ -1384,60 +1375,6 @@ export interface NstProfileGroupBatchChangeCommand extends BaseCommand {
   action: 'nst_profile_group_batch_change';
   profileIds: string[];
   groupId: string;
-}
-
-// Template commands
-export interface NstTemplateCreateCommand extends BaseCommand {
-  action: 'nst_template_create';
-  name: string;
-  config: Record<string, unknown>;
-  description?: string;
-}
-
-export interface NstTemplateListCommand extends BaseCommand {
-  action: 'nst_template_list';
-}
-
-export interface NstTemplateShowCommand extends BaseCommand {
-  action: 'nst_template_show';
-  name: string;
-}
-
-export interface NstTemplateUpdateCommand extends BaseCommand {
-  action: 'nst_template_update';
-  name: string;
-  config?: Record<string, unknown>;
-  description?: string;
-}
-
-export interface NstTemplateDeleteCommand extends BaseCommand {
-  action: 'nst_template_delete';
-  name: string;
-}
-
-export interface NstTemplateExportCommand extends BaseCommand {
-  action: 'nst_template_export';
-  name: string;
-}
-
-export interface NstTemplateImportCommand extends BaseCommand {
-  action: 'nst_template_import';
-  json: string;
-  name?: string;
-}
-
-export interface NstProfileCreateFromTemplateCommand extends BaseCommand {
-  action: 'nst_profile_create_from_template';
-  templateName: string;
-  profileName: string;
-  overrides?: Record<string, unknown>;
-}
-
-export interface NstProfileBatchCreateFromTemplateCommand extends BaseCommand {
-  action: 'nst_profile_batch_create_from_template';
-  templateName: string;
-  profileNames: string[];
-  showProgress?: boolean;
 }
 
 // Response types
