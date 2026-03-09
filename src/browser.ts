@@ -28,6 +28,7 @@ import {
   decryptData,
   ENCRYPTION_KEY_ENV,
 } from './state-utils.js';
+import { loadNstConfig } from './config-loader.js';
 import {
   isNstbrowserInstalled,
   isNstbrowserRunning,
@@ -938,9 +939,11 @@ export class BrowserManager {
     );
     console.error(`[DEBUG] Debug log written to: ${debugLog}`);
 
-    const nstApiKey = process.env.NST_API_KEY;
-    const nstHost = process.env.NST_HOST || '127.0.0.1';
-    const nstPort = parseInt(process.env.NST_PORT || '8848', 10);
+    // Load configuration from file (priority: config file > env var)
+    const config = loadNstConfig();
+    const nstApiKey = config?.apiKey;
+    const nstHost = config?.host || '127.0.0.1';
+    const nstPort = config?.port || 8848;
 
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[DEBUG] Nstbrowser connection parameters:', {
@@ -956,8 +959,8 @@ export class BrowserManager {
 
     if (!nstApiKey) {
       throw new Error(
-        'NST_API_KEY is required when using nst as a provider. ' +
-          'Set it via environment variable or --nst-api-key flag.'
+        'NST API key is required when using nst as a provider. ' +
+          'Configure it with: nstbrowser-ai-agent config set key <your-api-key>'
       );
     }
 

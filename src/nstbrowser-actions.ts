@@ -13,31 +13,33 @@ import type {
   StartBrowserOptions,
 } from './nstbrowser-types.js';
 import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
+import { loadNstConfig } from './config-loader.js';
 
 /**
  * Execute a Nstbrowser command
  */
 export async function executeNstbrowserCommand(command: Command): Promise<Response> {
-  // Get Nstbrowser configuration from environment
-  const host = process.env.NST_HOST || 'localhost';
-  const port = parseInt(process.env.NST_PORT || '8848', 10);
-  const apiKey = process.env.NST_API_KEY || '';
+  // Load configuration from file (priority: config file > env var > default)
+  const config = loadNstConfig();
 
-  // Debug: log environment variables
+  if (!config) {
+    return errorResponse(
+      command.id,
+      'NST API key is required. Configure it with: nstbrowser-ai-agent config set key <your-api-key>'
+    );
+  }
+
+  // Debug: log configuration source
   if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
-    console.error('[DEBUG] Nstbrowser daemon environment variables:', {
-      NST_HOST: process.env.NST_HOST,
-      NST_PORT: process.env.NST_PORT,
-      NST_API_KEY: apiKey ? `${apiKey.substring(0, 8)}...` : 'undefined',
-      NST_PROFILE: process.env.NST_PROFILE,
+    console.error('[DEBUG] Nstbrowser daemon configuration:', {
+      host: config.host,
+      port: config.port,
+      apiKey: `${config.apiKey.substring(0, 8)}...`,
+      source: 'config file or environment',
     });
   }
 
-  if (!apiKey) {
-    return errorResponse(command.id, 'NST_API_KEY environment variable is required');
-  }
-
-  const client = new NstbrowserClient(host, port, apiKey);
+  const client = new NstbrowserClient(config.host, config.port, config.apiKey);
 
   try {
     switch (command.action) {

@@ -161,9 +161,28 @@ fn handle_config_command(cmd: &serde_json::Value, flags: &flags::Flags) -> ! {
                             color::success_indicator()
                         );
 
-                        // Inform user about daemon restart if needed
+                        // Restart daemon if config affects it
                         if config_affects_daemon(key) {
-                            eprintln!("{} Configuration will take effect on next command (daemon will restart)", color::info_indicator());
+                            eprintln!(
+                                "{} Restarting daemon to apply changes...",
+                                color::info_indicator()
+                            );
+                            if let Err(e) = restart_daemon(flags) {
+                                eprintln!(
+                                    "{} Failed to restart daemon: {}",
+                                    color::warning_indicator(),
+                                    e
+                                );
+                                eprintln!(
+                                    "{} Configuration saved but will take effect on next command",
+                                    color::info_indicator()
+                                );
+                            } else {
+                                eprintln!(
+                                    "{} Daemon restarted successfully",
+                                    color::success_indicator()
+                                );
+                            }
                         }
                     }
                     exit(0);
@@ -287,6 +306,34 @@ fn handle_config_command(cmd: &serde_json::Value, flags: &flags::Flags) -> ! {
 /// Check if a config key affects the daemon
 fn config_affects_daemon(key: &str) -> bool {
     matches!(key, "key" | "host" | "port")
+}
+
+/// Restart the daemon by stopping and starting it
+fn restart_daemon(flags: &flags::Flags) -> Result<(), String> {
+    use std::fs;
+
+    // Get session directory
+    let env_session = std::env::var("NSTBROWSER_AI_AGENT_SESSION").ok();
+    let session_name = flags
+        .session_name
+        .as_deref()
+        .or(env_session.as_deref())
+        .unwrap_or("default");
+
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let session_dir = home.join(".nstbrowser-ai-agent");
+
+    // Remove socket and pid files to stop daemon
+    let socket_path = session_dir.join(format!("{}.sock", session_name));
+    let pid_path = session_dir.join(format!("{}.pid", session_name));
+
+    let _ = fs::remove_file(&socket_path);
+    let _ = fs::remove_file(&pid_path);
+
+    // Small delay to ensure cleanup
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    Ok(())
 }
 
 fn parse_proxy(proxy_str: &str) -> serde_json::Value {
