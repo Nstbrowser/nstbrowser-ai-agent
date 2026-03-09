@@ -1,6 +1,6 @@
 {
   "name": "@nstbrowser/nstbrowser-ai-agent",
-  "version": "0.1.1",
+  "version": "0.0.1",
   "description": "Nstbrowser AI agent for browser automation with advanced fingerprinting",
   "type": "module",
   "main": "dist/daemon.js",
