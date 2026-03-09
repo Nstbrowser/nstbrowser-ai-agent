@@ -4,23 +4,21 @@ Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallba
 
 ## Installation
 
-### Global Installation (recommended)
+### npm (Recommended)
 
-Installs the native Rust binary for maximum performance:
+Install globally via npm to get the native Rust binary for maximum performance:
 
 ```bash
 npm install -g nstbrowser-ai-agent
-nstbrowser-ai-agent install  # Download Chromium
 ```
 
-This is the fastest option -- commands run through the native Rust CLI directly with sub-millisecond parsing overhead.
+This installs the pre-compiled native binary for your platform (Linux, macOS, Windows).
 
 ### Quick Start (no install)
 
 Run directly with `npx` if you want to try it without installing globally:
 
 ```bash
-npx nstbrowser-ai-agent install   # Download Chromium (first time only)
 npx nstbrowser-ai-agent open example.com
 ```
 
@@ -41,12 +39,31 @@ Then use via `npx` or `package.json` scripts:
 npx nstbrowser-ai-agent open example.com
 ```
 
-### Homebrew (macOS)
+### Download from GitHub Releases
 
-```bash
-brew install nstbrowser-ai-agent
-nstbrowser-ai-agent install  # Download Chromium
-```
+You can also download pre-built binaries directly from [GitHub Releases](https://github.com/nstbrowser/nstbrowser-ai-agent/releases):
+
+1. Download the binary for your platform:
+   - `nstbrowser-ai-agent-linux-x64` (Linux x64)
+   - `nstbrowser-ai-agent-linux-arm64` (Linux ARM64)
+   - `nstbrowser-ai-agent-darwin-x64` (macOS Intel)
+   - `nstbrowser-ai-agent-darwin-arm64` (macOS Apple Silicon)
+   - `nstbrowser-ai-agent-win32-x64.exe` (Windows x64)
+
+2. Make it executable (Linux/macOS):
+   ```bash
+   chmod +x nstbrowser-ai-agent-*
+   ```
+
+3. Move to a directory in your PATH:
+   ```bash
+   sudo mv nstbrowser-ai-agent-* /usr/local/bin/nstbrowser-ai-agent
+   ```
+
+4. Download Chromium:
+   ```bash
+   nstbrowser-ai-agent install
+   ```
 
 ### From Source
 

@@ -218,8 +218,8 @@ jobs:
   # Create GitHub release with binaries after npm publish
   github-release:
     name: Create GitHub Release
-    needs: release
-    if: needs.release.outputs.published == 'true'
+    needs: [build-binaries, release]
+    if: always() && needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
@@ -262,9 +262,16 @@ jobs:
             gh release upload "$TAG" bin/nstbrowser-ai-agent-* --clobber
           else
             echo "Creating release $TAG..."
+            
+            # Get release notes from changeset if exists
+            NOTES="Release $TAG"
+            if [ -f ".changeset/improvements-batch-1-3.md" ]; then
+              NOTES=$(cat .changeset/improvements-batch-1-3.md | tail -n +4)
+            fi
+            
             gh release create "$TAG" \
               --title "$TAG" \
-              --generate-notes \
+              --notes "$NOTES" \
               bin/nstbrowser-ai-agent-*
           fi
         env:
