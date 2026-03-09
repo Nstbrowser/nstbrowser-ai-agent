@@ -1,5 +1,5 @@
 {
-  "name": "@nstbrowser/nstbrowser-ai-agent",
+  "name": "nstbrowser-ai-agent",
   "version": "0.0.1",
   "description": "Nstbrowser AI agent for browser automation with advanced fingerprinting",
   "type": "module",
@@ -53,16 +53,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nstbrowser/nstbrowser-ai-agent.git"
+    "url": "https://github.com/NSTBrowser/nstbrowser-ai-agent"
   },
   "bugs": {
     "url": "https://github.com/nstbrowser/nstbrowser-ai-agent/issues"
   },
   "homepage": "https://github.com/nstbrowser/nstbrowser-ai-agent#readme",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "dependencies": {
     "node-simctl": "^7.4.0",
     "playwright-core": "^1.57.0",

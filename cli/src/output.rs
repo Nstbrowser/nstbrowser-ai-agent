@@ -2877,7 +2877,7 @@ Environment:
   NST_PROFILE                    Profile name for provider=nst launch
 
 Install (recommended, fastest - native Rust CLI):
-  npm install -g @nstbrowser/nstbrowser-ai-agent
+  npm install -g nstbrowser-ai-agent
   nstbrowser-ai-agent install                  # Download Chromium (first time)
 
 Try without installing (slower, routes through Node.js):

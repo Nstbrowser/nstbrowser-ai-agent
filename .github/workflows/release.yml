@@ -33,7 +33,7 @@ jobs:
         id: check
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          NPM_VERSION=$(npm view @nstbrowser/nstbrowser-ai-agent version 2>/dev/null || echo "0.0.0")
+          NPM_VERSION=$(npm view nstbrowser-ai-agent version 2>/dev/null || echo "0.0.0")
           
           echo "Current version: $CURRENT_VERSION"
           echo "NPM version: $NPM_VERSION"
@@ -237,7 +237,7 @@ jobs:
         run: pnpm run build
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks
+        run: pnpm publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
