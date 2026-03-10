@@ -6,6 +6,13 @@ export interface BaseCommand {
   action: string;
 }
 
+// Profile-aware command (for browser actions that support NST profile specification)
+export interface ProfileAwareCommand {
+  // Nstbrowser profile connection options
+  nstProfileName?: string; // Connect to Nstbrowser profile by name
+  nstProfileId?: string; // Connect to Nstbrowser profile by ID
+}
+
 // Action-specific command types
 export interface LaunchCommand extends BaseCommand {
   action: 'launch';
@@ -43,14 +50,14 @@ export interface LaunchCommand extends BaseCommand {
   nstProfileId?: string; // Connect to Nstbrowser profile by ID
 }
 
-export interface NavigateCommand extends BaseCommand {
+export interface NavigateCommand extends BaseCommand, ProfileAwareCommand {
   action: 'navigate';
   url: string;
   waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
   headers?: Record<string, string>;
 }
 
-export interface ClickCommand extends BaseCommand {
+export interface ClickCommand extends BaseCommand, ProfileAwareCommand {
   action: 'click';
   selector: string;
   button?: 'left' | 'right' | 'middle';
@@ -59,7 +66,7 @@ export interface ClickCommand extends BaseCommand {
   newTab?: boolean;
 }
 
-export interface TypeCommand extends BaseCommand {
+export interface TypeCommand extends BaseCommand, ProfileAwareCommand {
   action: 'type';
   selector: string;
   text: string;
@@ -67,56 +74,56 @@ export interface TypeCommand extends BaseCommand {
   clear?: boolean;
 }
 
-export interface FillCommand extends BaseCommand {
+export interface FillCommand extends BaseCommand, ProfileAwareCommand {
   action: 'fill';
   selector: string;
   value: string;
 }
 
-export interface CheckCommand extends BaseCommand {
+export interface CheckCommand extends BaseCommand, ProfileAwareCommand {
   action: 'check';
   selector: string;
 }
 
-export interface UncheckCommand extends BaseCommand {
+export interface UncheckCommand extends BaseCommand, ProfileAwareCommand {
   action: 'uncheck';
   selector: string;
 }
 
-export interface UploadCommand extends BaseCommand {
+export interface UploadCommand extends BaseCommand, ProfileAwareCommand {
   action: 'upload';
   selector: string;
   files: string | string[];
 }
 
-export interface DoubleClickCommand extends BaseCommand {
+export interface DoubleClickCommand extends BaseCommand, ProfileAwareCommand {
   action: 'dblclick';
   selector: string;
 }
 
-export interface FocusCommand extends BaseCommand {
+export interface FocusCommand extends BaseCommand, ProfileAwareCommand {
   action: 'focus';
   selector: string;
 }
 
-export interface DragCommand extends BaseCommand {
+export interface DragCommand extends BaseCommand, ProfileAwareCommand {
   action: 'drag';
   source: string;
   target: string;
 }
 
-export interface FrameCommand extends BaseCommand {
+export interface FrameCommand extends BaseCommand, ProfileAwareCommand {
   action: 'frame';
   selector?: string;
   name?: string;
   url?: string;
 }
 
-export interface MainFrameCommand extends BaseCommand {
+export interface MainFrameCommand extends BaseCommand, ProfileAwareCommand {
   action: 'mainframe';
 }
 
-export interface GetByRoleCommand extends BaseCommand {
+export interface GetByRoleCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbyrole';
   role: string;
   name?: string;
@@ -125,14 +132,14 @@ export interface GetByRoleCommand extends BaseCommand {
   value?: string;
 }
 
-export interface GetByTextCommand extends BaseCommand {
+export interface GetByTextCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbytext';
   text: string;
   exact?: boolean;
   subaction: 'click' | 'hover';
 }
 
-export interface GetByLabelCommand extends BaseCommand {
+export interface GetByLabelCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbylabel';
   label: string;
   exact?: boolean;
@@ -140,7 +147,7 @@ export interface GetByLabelCommand extends BaseCommand {
   value?: string;
 }
 
-export interface GetByPlaceholderCommand extends BaseCommand {
+export interface GetByPlaceholderCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbyplaceholder';
   placeholder: string;
   exact?: boolean;
@@ -148,12 +155,12 @@ export interface GetByPlaceholderCommand extends BaseCommand {
   value?: string;
 }
 
-export interface CookiesGetCommand extends BaseCommand {
+export interface CookiesGetCommand extends BaseCommand, ProfileAwareCommand {
   action: 'cookies_get';
   urls?: string[];
 }
 
-export interface CookiesSetCommand extends BaseCommand {
+export interface CookiesSetCommand extends BaseCommand, ProfileAwareCommand {
   action: 'cookies_set';
   cookies: Array<{
     name: string;
@@ -168,35 +175,35 @@ export interface CookiesSetCommand extends BaseCommand {
   }>;
 }
 
-export interface CookiesClearCommand extends BaseCommand {
+export interface CookiesClearCommand extends BaseCommand, ProfileAwareCommand {
   action: 'cookies_clear';
 }
 
-export interface StorageGetCommand extends BaseCommand {
+export interface StorageGetCommand extends BaseCommand, ProfileAwareCommand {
   action: 'storage_get';
   key?: string;
   type: 'local' | 'session';
 }
 
-export interface StorageSetCommand extends BaseCommand {
+export interface StorageSetCommand extends BaseCommand, ProfileAwareCommand {
   action: 'storage_set';
   key: string;
   value: string;
   type: 'local' | 'session';
 }
 
-export interface StorageClearCommand extends BaseCommand {
+export interface StorageClearCommand extends BaseCommand, ProfileAwareCommand {
   action: 'storage_clear';
   type: 'local' | 'session';
 }
 
-export interface DialogCommand extends BaseCommand {
+export interface DialogCommand extends BaseCommand, ProfileAwareCommand {
   action: 'dialog';
   response: 'accept' | 'dismiss';
   promptText?: string;
 }
 
-export interface PdfCommand extends BaseCommand {
+export interface PdfCommand extends BaseCommand, ProfileAwareCommand {
   action: 'pdf';
   path: string;
   format?:
@@ -214,7 +221,7 @@ export interface PdfCommand extends BaseCommand {
 }
 
 // Network interception
-export interface RouteCommand extends BaseCommand {
+export interface RouteCommand extends BaseCommand, ProfileAwareCommand {
   action: 'route';
   url: string;
   response?: {
@@ -226,27 +233,27 @@ export interface RouteCommand extends BaseCommand {
   abort?: boolean;
 }
 
-export interface UnrouteCommand extends BaseCommand {
+export interface UnrouteCommand extends BaseCommand, ProfileAwareCommand {
   action: 'unroute';
   url?: string; // If not provided, remove all routes
 }
 
 // Request inspection
-export interface RequestsCommand extends BaseCommand {
+export interface RequestsCommand extends BaseCommand, ProfileAwareCommand {
   action: 'requests';
   filter?: string; // URL pattern to filter
   clear?: boolean;
 }
 
 // Download handling
-export interface DownloadCommand extends BaseCommand {
+export interface DownloadCommand extends BaseCommand, ProfileAwareCommand {
   action: 'download';
   selector: string;
   path: string;
 }
 
 // Geolocation
-export interface GeolocationCommand extends BaseCommand {
+export interface GeolocationCommand extends BaseCommand, ProfileAwareCommand {
   action: 'geolocation';
   latitude: number;
   longitude: number;
@@ -254,113 +261,113 @@ export interface GeolocationCommand extends BaseCommand {
 }
 
 // Permissions
-export interface PermissionsCommand extends BaseCommand {
+export interface PermissionsCommand extends BaseCommand, ProfileAwareCommand {
   action: 'permissions';
   permissions: string[];
   grant: boolean;
 }
 
 // Viewport
-export interface ViewportCommand extends BaseCommand {
+export interface ViewportCommand extends BaseCommand, ProfileAwareCommand {
   action: 'viewport';
   width: number;
   height: number;
 }
 
 // User agent
-export interface UserAgentCommand extends BaseCommand {
+export interface UserAgentCommand extends BaseCommand, ProfileAwareCommand {
   action: 'useragent';
   userAgent: string;
 }
 
 // Emulate device
-export interface DeviceCommand extends BaseCommand {
+export interface DeviceCommand extends BaseCommand, ProfileAwareCommand {
   action: 'device';
   device: string;
 }
 
 // Go back/forward
-export interface BackCommand extends BaseCommand {
+export interface BackCommand extends BaseCommand, ProfileAwareCommand {
   action: 'back';
 }
 
-export interface ForwardCommand extends BaseCommand {
+export interface ForwardCommand extends BaseCommand, ProfileAwareCommand {
   action: 'forward';
 }
 
-export interface ReloadCommand extends BaseCommand {
+export interface ReloadCommand extends BaseCommand, ProfileAwareCommand {
   action: 'reload';
 }
 
 // Get URL/Title
-export interface UrlCommand extends BaseCommand {
+export interface UrlCommand extends BaseCommand, ProfileAwareCommand {
   action: 'url';
 }
 
-export interface TitleCommand extends BaseCommand {
+export interface TitleCommand extends BaseCommand, ProfileAwareCommand {
   action: 'title';
 }
 
 // Attribute/Property/Text
-export interface GetAttributeCommand extends BaseCommand {
+export interface GetAttributeCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getattribute';
   selector: string;
   attribute: string;
 }
 
-export interface GetTextCommand extends BaseCommand {
+export interface GetTextCommand extends BaseCommand, ProfileAwareCommand {
   action: 'gettext';
   selector: string;
 }
 
-export interface IsVisibleCommand extends BaseCommand {
+export interface IsVisibleCommand extends BaseCommand, ProfileAwareCommand {
   action: 'isvisible';
   selector: string;
 }
 
-export interface IsEnabledCommand extends BaseCommand {
+export interface IsEnabledCommand extends BaseCommand, ProfileAwareCommand {
   action: 'isenabled';
   selector: string;
 }
 
-export interface IsCheckedCommand extends BaseCommand {
+export interface IsCheckedCommand extends BaseCommand, ProfileAwareCommand {
   action: 'ischecked';
   selector: string;
 }
 
-export interface CountCommand extends BaseCommand {
+export interface CountCommand extends BaseCommand, ProfileAwareCommand {
   action: 'count';
   selector: string;
 }
 
 // Bounding box
-export interface BoundingBoxCommand extends BaseCommand {
+export interface BoundingBoxCommand extends BaseCommand, ProfileAwareCommand {
   action: 'boundingbox';
   selector: string;
 }
 
 // Computed styles
-export interface StylesCommand extends BaseCommand {
+export interface StylesCommand extends BaseCommand, ProfileAwareCommand {
   action: 'styles';
   selector: string;
 }
 
 // More semantic locators
-export interface GetByAltTextCommand extends BaseCommand {
+export interface GetByAltTextCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbyalttext';
   text: string;
   exact?: boolean;
   subaction: 'click' | 'hover';
 }
 
-export interface GetByTitleCommand extends BaseCommand {
+export interface GetByTitleCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbytitle';
   text: string;
   exact?: boolean;
   subaction: 'click' | 'hover';
 }
 
-export interface GetByTestIdCommand extends BaseCommand {
+export interface GetByTestIdCommand extends BaseCommand, ProfileAwareCommand {
   action: 'getbytestid';
   testId: string;
   subaction: 'click' | 'fill' | 'check' | 'hover';
@@ -368,7 +375,7 @@ export interface GetByTestIdCommand extends BaseCommand {
 }
 
 // Nth element selection
-export interface NthCommand extends BaseCommand {
+export interface NthCommand extends BaseCommand, ProfileAwareCommand {
   action: 'nth';
   selector: string;
   index: number; // 0-based, or -1 for last
@@ -377,7 +384,7 @@ export interface NthCommand extends BaseCommand {
 }
 
 // Wait for URL
-export interface WaitForUrlCommand extends BaseCommand {
+export interface WaitForUrlCommand extends BaseCommand, ProfileAwareCommand {
   action: 'waitforurl';
   url: string;
   timeout?: number;
@@ -457,12 +464,12 @@ export interface AddInitScriptCommand extends BaseCommand {
 }
 
 // Keyboard down/up (hold keys)
-export interface KeyDownCommand extends BaseCommand {
+export interface KeyDownCommand extends BaseCommand, ProfileAwareCommand {
   action: 'keydown';
   key: string;
 }
 
-export interface KeyUpCommand extends BaseCommand {
+export interface KeyUpCommand extends BaseCommand, ProfileAwareCommand {
   action: 'keyup';
   key: string;
 }
@@ -675,7 +682,7 @@ export interface ErrorsCommand extends BaseCommand {
 }
 
 // Raw keyboard input (no selector needed)
-export interface KeyboardCommand extends BaseCommand {
+export interface KeyboardCommand extends BaseCommand, ProfileAwareCommand {
   action: 'keyboard';
   subaction?: 'type' | 'press' | 'insertText'; // press kept for backward compat
   keys?: string; // for legacy press path
@@ -805,13 +812,13 @@ export interface PauseCommand extends BaseCommand {
   action: 'pause';
 }
 
-export interface PressCommand extends BaseCommand {
+export interface PressCommand extends BaseCommand, ProfileAwareCommand {
   action: 'press';
   key: string;
   selector?: string;
 }
 
-export interface ScreenshotCommand extends BaseCommand {
+export interface ScreenshotCommand extends BaseCommand, ProfileAwareCommand {
   action: 'screenshot';
   path?: string;
   fullPage?: boolean;
@@ -821,24 +828,24 @@ export interface ScreenshotCommand extends BaseCommand {
   annotate?: boolean;
 }
 
-export interface SnapshotCommand extends BaseCommand {
+export interface SnapshotCommand extends BaseCommand, ProfileAwareCommand {
   action: 'snapshot';
 }
 
-export interface EvaluateCommand extends BaseCommand {
+export interface EvaluateCommand extends BaseCommand, ProfileAwareCommand {
   action: 'evaluate';
   script: string;
   args?: unknown[];
 }
 
-export interface WaitCommand extends BaseCommand {
+export interface WaitCommand extends BaseCommand, ProfileAwareCommand {
   action: 'wait';
   selector?: string;
   timeout?: number;
   state?: 'attached' | 'detached' | 'visible' | 'hidden';
 }
 
-export interface ScrollCommand extends BaseCommand {
+export interface ScrollCommand extends BaseCommand, ProfileAwareCommand {
   action: 'scroll';
   selector?: string;
   x?: number;
@@ -847,18 +854,18 @@ export interface ScrollCommand extends BaseCommand {
   amount?: number;
 }
 
-export interface SelectCommand extends BaseCommand {
+export interface SelectCommand extends BaseCommand, ProfileAwareCommand {
   action: 'select';
   selector: string;
   values: string | string[];
 }
 
-export interface HoverCommand extends BaseCommand {
+export interface HoverCommand extends BaseCommand, ProfileAwareCommand {
   action: 'hover';
   selector: string;
 }
 
-export interface ContentCommand extends BaseCommand {
+export interface ContentCommand extends BaseCommand, ProfileAwareCommand {
   action: 'content';
   selector?: string;
 }
@@ -868,7 +875,7 @@ export interface CloseCommand extends BaseCommand {
 }
 
 // Tab/Window commands
-export interface TabNewCommand extends BaseCommand {
+export interface TabNewCommand extends BaseCommand, ProfileAwareCommand {
   action: 'tab_new';
   url?: string;
 }
@@ -877,17 +884,17 @@ export interface TabListCommand extends BaseCommand {
   action: 'tab_list';
 }
 
-export interface TabSwitchCommand extends BaseCommand {
+export interface TabSwitchCommand extends BaseCommand, ProfileAwareCommand {
   action: 'tab_switch';
   index: number;
 }
 
-export interface TabCloseCommand extends BaseCommand {
+export interface TabCloseCommand extends BaseCommand, ProfileAwareCommand {
   action: 'tab_close';
   index?: number;
 }
 
-export interface WindowNewCommand extends BaseCommand {
+export interface WindowNewCommand extends BaseCommand, ProfileAwareCommand {
   action: 'window_new';
   viewport?: { width: number; height: number } | null;
 }

@@ -74,6 +74,16 @@ export async function resolveProfile(
   let profileId = options.profileId;
   let profileName = options.profileName;
 
+  // CRITICAL: If profileName is provided and it's in UUID format, treat it as profileId instead
+  // This satisfies requirement #5: all places that accept profile name must check if it's UUID format
+  if (profileName && !profileId && isUuid(profileName)) {
+    if (debug) {
+      console.error(`[DEBUG] Profile name "${profileName}" is UUID format, treating as profileId`);
+    }
+    profileId = profileName;
+    profileName = undefined;
+  }
+
   // Priority 3: Environment variables
   if (!profileId && !profileName) {
     profileId = process.env.NST_PROFILE_ID;
@@ -86,6 +96,17 @@ export async function resolveProfile(
     profileName = process.env.NST_PROFILE;
     if (profileName && debug) {
       console.error(`[DEBUG] Using profile name from NST_PROFILE env: ${profileName}`);
+    }
+
+    // Also check UUID format for environment variable
+    if (profileName && isUuid(profileName)) {
+      if (debug) {
+        console.error(
+          `[DEBUG] NST_PROFILE env "${profileName}" is UUID format, treating as profileId`
+        );
+      }
+      profileId = profileName;
+      profileName = undefined;
     }
   }
 
@@ -124,10 +145,24 @@ export async function resolveProfile(
     const profiles = await client.getProfiles({ name: profileName });
 
     if (profiles.length === 0) {
-      throw new Error(
-        `Profile "${profileName}" not found. ` +
-          `Run 'nstbrowser-ai-agent profile list' to see available profiles.`
-      );
+      // Auto-create profile if name doesn't exist
+      if (debug) {
+        console.error(`[DEBUG] Profile "${profileName}" not found, creating new profile...`);
+      }
+
+      const newProfile = await client.createProfile({ name: profileName });
+      profileId = newProfile.profileId;
+
+      if (debug) {
+        console.error(`[DEBUG] Created new profile "${profileName}" with ID: ${profileId}`);
+      }
+
+      return {
+        profileId,
+        profileName,
+        isRunning: false,
+        isOnce: false,
+      };
     }
 
     if (profiles.length > 1 && debug) {
@@ -143,10 +178,25 @@ export async function resolveProfile(
     }
   }
 
-  // If we have a profileId, check if browser is running
+  // If we have a profileId, validate it exists and check if browser is running
   if (profileId) {
     if (debug) {
-      console.error(`[DEBUG] Checking if browser is running for profileId: ${profileId}`);
+      console.error(`[DEBUG] Validating profileId: ${profileId}`);
+    }
+
+    // Validate that the profile exists
+    const profiles = await client.getProfiles();
+    const profile = profiles.find((p) => p.profileId === profileId);
+
+    if (!profile) {
+      throw new Error(
+        `Profile with ID "${profileId}" not found. ` +
+          `Run 'nstbrowser-ai-agent profile list' to see available profiles.`
+      );
+    }
+
+    if (debug) {
+      console.error(`[DEBUG] Profile ID validated, checking if browser is running...`);
     }
 
     const browsers = await client.getBrowsers();
@@ -154,7 +204,7 @@ export async function resolveProfile(
 
     return {
       profileId,
-      profileName,
+      profileName: profile.name,
       isRunning: !!runningBrowser,
       isOnce: false,
     };

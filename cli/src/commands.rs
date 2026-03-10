@@ -44,6 +44,22 @@ fn should_use_nst_provider(flags: &Flags) -> bool {
     true
 }
 
+/// Add NST profile fields to a command JSON if profiles are specified
+/// This ensures all browser action commands can specify profile name or ID
+fn add_profile_fields(mut cmd: Value, flags: &Flags) -> Value {
+    // Add profile name if specified
+    if let Some(ref profile_name) = flags.nst_profile {
+        cmd["nstProfileName"] = json!(profile_name);
+    }
+
+    // Add profile ID if specified (takes precedence over name)
+    if let Some(ref profile_id) = flags.nst_profile_id {
+        cmd["nstProfileId"] = json!(profile_id);
+    }
+
+    cmd
+}
+
 /// Error type for command parsing with contextual information
 #[derive(Debug)]
 pub enum ParseError {
@@ -161,7 +177,8 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                     })?;
                 nav_cmd["headers"] = headers;
             }
-            Ok(nav_cmd)
+            // Add profile fields for NST profile support
+            Ok(add_profile_fields(nav_cmd, flags))
         }
         "back" => Ok(json!({ "id": id, "action": "back" })),
         "forward" => Ok(json!({ "id": id, "action": "forward" })),
@@ -178,9 +195,9 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                     usage: "click <selector> [--new-tab]",
                 })?;
             if new_tab {
-                Ok(json!({ "id": id, "action": "click", "selector": sel, "newTab": true }))
+                Ok(add_profile_fields(json!({ "id": id, "action": "click", "selector": sel, "newTab": true }), flags))
             } else {
-                Ok(json!({ "id": id, "action": "click", "selector": sel }))
+                Ok(add_profile_fields(json!({ "id": id, "action": "click", "selector": sel }), flags))
             }
         }
         "dblclick" => {
@@ -188,49 +205,49 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
                 context: "dblclick".to_string(),
                 usage: "dblclick <selector>",
             })?;
-            Ok(json!({ "id": id, "action": "dblclick", "selector": sel }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "dblclick", "selector": sel }), flags))
         }
         "fill" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "fill".to_string(),
                 usage: "fill <selector> <text>",
             })?;
-            Ok(json!({ "id": id, "action": "fill", "selector": sel, "value": rest[1..].join(" ") }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "fill", "selector": sel, "value": rest[1..].join(" ") }), flags))
         }
         "type" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "type".to_string(),
                 usage: "type <selector> <text>",
             })?;
-            Ok(json!({ "id": id, "action": "type", "selector": sel, "text": rest[1..].join(" ") }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "type", "selector": sel, "text": rest[1..].join(" ") }), flags))
         }
         "hover" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "hover".to_string(),
                 usage: "hover <selector>",
             })?;
-            Ok(json!({ "id": id, "action": "hover", "selector": sel }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "hover", "selector": sel }), flags))
         }
         "focus" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "focus".to_string(),
                 usage: "focus <selector>",
             })?;
-            Ok(json!({ "id": id, "action": "focus", "selector": sel }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "focus", "selector": sel }), flags))
         }
         "check" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "check".to_string(),
                 usage: "check <selector>",
             })?;
-            Ok(json!({ "id": id, "action": "check", "selector": sel }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "check", "selector": sel }), flags))
         }
         "uncheck" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {
                 context: "uncheck".to_string(),
                 usage: "uncheck <selector>",
             })?;
-            Ok(json!({ "id": id, "action": "uncheck", "selector": sel }))
+            Ok(add_profile_fields(json!({ "id": id, "action": "uncheck", "selector": sel }), flags))
         }
         "select" => {
             let sel = rest.first().ok_or_else(|| ParseError::MissingArguments {

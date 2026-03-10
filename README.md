@@ -185,6 +185,97 @@ nstbrowser-ai-agent click @e1
 nstbrowser-ai-agent close
 ```
 
+### Profile Specification for Browser Actions
+
+**All browser actions** (open, click, fill, type, etc.) support specifying a profile name or ID. The CLI will automatically handle profile resolution and browser startup.
+
+#### Profile Resolution Priority
+
+When you specify a profile for a browser action, the system follows these rules:
+
+1. **Check running browsers** - First, it looks for a browser already running with the specified name or ID
+   - If multiple browsers match a name, the earliest started browser is used
+   - Profile IDs always uniquely match a single browser
+
+2. **Start browser if not running** - If the profile exists but isn't running, the browser is automatically started
+
+3. **Create profile if name doesn't exist** - If you specify a profile **name** that doesn't exist, a new profile is automatically created
+   - This makes it easy to create profiles on-the-fly
+
+4. **Error if ID doesn't exist** - If you specify a profile **ID** that doesn't exist, an error is thrown
+   - Profile IDs are expected to be exact matches
+
+5. **Use once browser if no profile specified** - If no profile is specified:
+   - Uses an existing "once" (temporary) browser if one is running
+   - Otherwise creates a new temporary browser
+   - Temporary browsers don't persist session data
+
+#### Specifying Profiles
+
+You can specify profiles in three ways:
+
+**1. Environment Variables (Global Default)**
+```bash
+export NST_PROFILE="my-profile"        # Use profile name
+# OR
+export NST_PROFILE_ID="abc-123-def"    # Use profile ID
+
+# All browser actions will use this profile
+nstbrowser-ai-agent open https://example.com
+nstbrowser-ai-agent click "#button"
+```
+
+**2. Command-Line Flags (Per-Action)**
+```bash
+# By profile name
+nstbrowser-ai-agent open https://example.com --nst-profile "my-profile"
+nstbrowser-ai-agent click "#button" --nst-profile "my-profile"
+
+# By profile ID
+nstbrowser-ai-agent open https://example.com --nst-profile-id "abc-123-def"
+nstbrowser-ai-agent fill "#email" "test@test.com" --nst-profile-id "abc-123-def"
+```
+
+**3. Mixed Approach**
+```bash
+# Set default profile
+export NST_PROFILE="default-profile"
+
+# Most commands use the default
+nstbrowser-ai-agent open https://example.com
+
+# Override for specific commands
+nstbrowser-ai-agent click "#button" --nst-profile "other-profile"
+```
+
+#### Examples
+
+**Auto-create profile on first use:**
+```bash
+# This will create "test-profile" if it doesn't exist
+nstbrowser-ai-agent open https://example.com --nst-profile "test-profile"
+nstbrowser-ai-agent click "#login" --nst-profile "test-profile"
+```
+
+**Use existing profile by ID:**
+```bash
+# List profiles to find ID
+nstbrowser-ai-agent profile list
+
+# Use specific profile ID
+nstbrowser-ai-agent open https://example.com --nst-profile-id "abc-123-def"
+```
+
+**Reuse running browser:**
+```bash
+# Start a browser with a profile
+nstbrowser-ai-agent open https://example.com --nst-profile "my-profile"
+
+# Later commands automatically connect to the same running browser
+nstbrowser-ai-agent click "#button" --nst-profile "my-profile"
+# No restart needed - uses existing browser!
+```
+
 ## Default Provider
 
 By default, nstbrowser-ai-agent uses **Nstbrowser** as the browser provider. This means you don't need to specify `-p nst` every time - it's automatic.

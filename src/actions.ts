@@ -4,6 +4,9 @@ import type { Page, Frame } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
 import type { BrowserManager, ScreencastFrame } from './browser.js';
 import { getAppDir } from './daemon.js';
+import { resolveBrowserProfile, extractProfileOptions } from './browser-profile-resolver.js';
+import { NstbrowserClient } from './nstbrowser-client.js';
+import { loadNstConfig } from './config-loader.js';
 import {
   type ActionPolicy,
   checkPolicy,
@@ -313,10 +316,101 @@ export async function executeCommand(command: Command, browser: BrowserManager):
       });
     }
 
+    // === Profile-Aware Browser Action Handling ===
+    // Check if this is a browser action command that needs profile resolution
+    // Skip launch command as it already handles its own profile resolution
+    if (
+      command.action !== 'launch' &&
+      command.action !== 'state_list' &&
+      command.action !== 'state_show' &&
+      command.action !== 'state_clean' &&
+      command.action !== 'state_clear' &&
+      command.action !== 'state_rename'
+    ) {
+      await ensureBrowserWithProfile(command, browser);
+    }
+
     return await dispatchAction(command, browser);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return errorResponse(command.id, message);
+  }
+}
+
+/**
+ * Ensure browser is launched with the correct profile before executing an action
+ * Implements the unified profile resolution logic for all browser actions
+ */
+async function ensureBrowserWithProfile(command: Command, browser: BrowserManager): Promise<void> {
+  const cmdWithProfile = command as { nstProfileName?: string; nstProfileId?: string };
+
+  // Check if command has profile specifications or environment variables are set
+  const hasProfileSpec =
+    !!cmdWithProfile.nstProfileName ||
+    !!cmdWithProfile.nstProfileId ||
+    !!process.env.NST_PROFILE ||
+    !!process.env.NST_PROFILE_ID;
+
+  // Only proceed with profile resolution if:
+  // 1. Profile is explicitly specified in the command OR
+  // 2. Environment variables are set OR
+  // 3. We're using NST provider (default or explicit)
+  const provider = process.env.NSTBROWSER_AI_AGENT_PROVIDER;
+  const isNstProvider = !provider || provider === 'nst'; // Default is NST
+
+  if (!hasProfileSpec && !isNstProvider) {
+    // Not NST provider and no profile specified, skip profile resolution
+    return;
+  }
+
+  // If browser is not launched or needs reconnection, launch with profile
+  if (!browser.isLaunched()) {
+    const config = loadNstConfig();
+    if (!config) {
+      // NST not configured, skip profile resolution (will use local browser)
+      if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+        console.error('[DEBUG] NST not configured, skipping profile resolution');
+      }
+      return;
+    }
+
+    // Launch browser with profile resolution
+    const client = new NstbrowserClient(config.host, config.port, config.apiKey);
+
+    try {
+      const profileOptions = extractProfileOptions(
+        cmdWithProfile,
+        config.host,
+        config.port,
+        config.apiKey
+      );
+
+      const resolved = await resolveBrowserProfile(client, profileOptions);
+
+      if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+        console.error('[DEBUG] Resolved profile for action:', {
+          action: command.action,
+          profileId: resolved.profileId,
+          profileName: resolved.profileName,
+          isOnce: resolved.isOnce,
+          wasCreated: resolved.wasCreated,
+        });
+      }
+
+      // Launch browser with the resolved profile
+      await browser.launch({
+        id: command.id,
+        action: 'launch',
+        provider: 'nst',
+        nstProfileId: resolved.profileId,
+        nstProfileName: resolved.profileName,
+      });
+    } catch (error) {
+      if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+        console.error('[DEBUG] Profile resolution failed:', error);
+      }
+      throw error;
+    }
   }
 }
 
