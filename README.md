@@ -4,6 +4,58 @@ Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallba
 
 ## Installation
 
+## Prerequisites
+
+Before using nstbrowser-ai-agent, ensure you have the following:
+
+### 1. Nstbrowser Client
+
+**Nstbrowser client must be installed and running.**
+
+- Download from: https://www.nstbrowser.io/
+- Install the client application
+- Launch the Nstbrowser client
+
+### 2. Nstbrowser Service
+
+The Nstbrowser API service must be accessible:
+
+- Default endpoint: `http://127.0.0.1:8848`
+- Verify service is running:
+  ```bash
+  curl http://127.0.0.1:8848/api/v2/profiles
+  ```
+- Expected response: JSON with profile data or empty list
+
+### 3. API Key
+
+Obtain your API key from the Nstbrowser dashboard and configure it:
+
+**Method 1: Config File (Recommended)**
+```bash
+nstbrowser-ai-agent config set key YOUR_API_KEY
+```
+
+**Method 2: Environment Variable**
+```bash
+export NST_API_KEY="YOUR_API_KEY"
+```
+
+### 4. Verify Setup
+
+Test your configuration:
+
+```bash
+# Check CLI version
+nstbrowser-ai-agent --version
+
+# List profiles (verifies API connection)
+nstbrowser-ai-agent profile list
+```
+
+If you see your profiles or an empty list, your environment is configured correctly.
+
+
 ### npm (Recommended)
 
 Install globally via npm to get the native Rust binary for maximum performance:
@@ -86,6 +138,53 @@ nstbrowser-ai-agent install --with-deps
 # or manually: npx playwright install-deps chromium
 ```
 
+## Quick Start Examples
+
+### Using Temporary Browser (Fastest)
+
+For quick tests or one-time tasks:
+
+```bash
+# Start temporary browser
+nstbrowser-ai-agent browser start-once
+
+# Open a website
+nstbrowser-ai-agent open https://example.com
+
+# Take a snapshot
+nstbrowser-ai-agent snapshot -i
+
+# Close browser (auto-cleanup)
+nstbrowser-ai-agent close
+```
+
+**Note:** Temporary browsers don't save session state.
+
+### Using Profile (Recommended)
+
+For tasks requiring persistent sessions:
+
+```bash
+# List available profiles
+nstbrowser-ai-agent profile list
+
+# Create a new profile (if needed)
+nstbrowser-ai-agent profile create my-profile
+
+# Set default profile
+export NST_PROFILE="my-profile"
+
+# Open browser (auto-starts with profile)
+nstbrowser-ai-agent open https://example.com
+
+# Interact with page
+nstbrowser-ai-agent snapshot -i
+nstbrowser-ai-agent click @e1
+
+# Close browser (session saved to profile)
+nstbrowser-ai-agent close
+```
+
 ## Default Provider
 
 By default, nstbrowser-ai-agent uses **Nstbrowser** as the browser provider. This means you don't need to specify `-p nst` every time - it's automatic.
@@ -112,29 +211,6 @@ nstbrowser-ai-agent browser list               # List running browsers
 nstbrowser-ai-agent browser start profile-id   # Start browser with profile
 ```
 
-### Using Local Browser Mode
-
-If you want to use a local browser instead of Nstbrowser, use the `--local` flag:
-
-```bash
-# Use local browser (no API key needed)
-nstbrowser-ai-agent --local open example.com
-nstbrowser-ai-agent --headed open example.com  # Visual browser (also uses local)
-```
-
-### Provider Selection Logic
-
-The provider is selected automatically based on the following priority (highest to lowest):
-
-1. Explicit `--provider` flag
-2. `--local` flag (uses local browser)
-3. `--headed` flag (implies local)
-4. `--cdp` flag (implies local)
-5. `--auto-connect` flag (implies local)
-6. `NST_API_KEY` environment variable (uses nst)
-7. **Default: nst (Nstbrowser)**
-
-This means if you have `NST_API_KEY` set, Nstbrowser will be used automatically. To override this, use `--local` or any other flag that implies local mode.
 
 ### Traditional Selectors (also supported)
 
@@ -173,7 +249,6 @@ nstbrowser-ai-agent screenshot --annotate   # Annotated screenshot with numbered
 nstbrowser-ai-agent pdf <path>              # Save as PDF
 nstbrowser-ai-agent snapshot                # Accessibility tree with refs (best for AI)
 nstbrowser-ai-agent eval <js>               # Run JavaScript (-b for base64, --stdin for piped input)
-nstbrowser-ai-agent connect <port>          # Connect to browser via CDP
 nstbrowser-ai-agent close                   # Close browser (aliases: quit, exit)
 ```
 
@@ -478,7 +553,6 @@ nstbrowser-ai-agent --session-name secure open example.com
 | `NSTBROWSER_AI_AGENT_ENCRYPTION_KEY` | 64-char hex key for AES-256-GCM encryption |
 | `NSTBROWSER_AI_AGENT_STATE_EXPIRE_DAYS` | Auto-delete states older than N days (default: 30) |
 | `NSTBROWSER_AI_AGENT_PROVIDER` | Browser provider (default: nst) |
-| `NSTBROWSER_AI_AGENT_LOCAL` | Use local browser instead of Nstbrowser |
 | `NST_API_KEY` | Nstbrowser API key (required for nst provider, default provider) |
 | `NST_HOST` | Nstbrowser API host (default: localhost) |
 | `NST_PORT` | Nstbrowser API port (default: 8848) |
@@ -503,7 +577,6 @@ nstbrowser-ai-agent includes security features for safe AI agent deployments. Al
 | `NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS` | Action categories requiring confirmation |
 | `NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE` | Enable interactive confirmation prompts |
 | `NSTBROWSER_AI_AGENT_PROVIDER` | Browser provider (default: nst) |
-| `NSTBROWSER_AI_AGENT_LOCAL` | Use local browser instead of Nstbrowser |
 | `NST_API_KEY` | Nstbrowser API key (required for nst provider, default provider) |
 | `NST_HOST` | Nstbrowser API host (default: localhost) |
 | `NST_PORT` | Nstbrowser API port (default: 8848) |
@@ -573,13 +646,9 @@ This is useful for multimodal AI models that can reason about visual layout, unl
 | `--ignore-https-errors` | Ignore HTTPS certificate errors (useful for self-signed certs)                                                   |
 | `--allow-file-access` | Allow file:// URLs to access local files (Chromium only)                                                         |
 | `-p, --provider <name>` | Browser provider: `nst` (default), `local` (or `NSTBROWSER_AI_AGENT_PROVIDER` env)   |
-| `--local` | Use local browser instead of Nstbrowser (or `NSTBROWSER_AI_AGENT_LOCAL` env)                                           |
 | `--json` | JSON output (for agents)                                                                                         |
 | `--full, -f` | Full page screenshot                                                                                             |
 | `--annotate` | Annotated screenshot with numbered element labels (or `NSTBROWSER_AI_AGENT_ANNOTATE` env)                              |
-| `--headed` | Show browser window (not headless, implies local mode)                                                           |
-| `--cdp <port\|url>` | Connect via Chrome DevTools Protocol (port or WebSocket URL, implies local mode)                                 |
-| `--auto-connect` | Auto-discover and connect to running Chrome (implies local mode) (or `NSTBROWSER_AI_AGENT_AUTO_CONNECT` env)          |
 | `--color-scheme <scheme>` | Color scheme: `dark`, `light`, `no-preference` (or `NSTBROWSER_AI_AGENT_COLOR_SCHEME` env)                             |
 | `--download-path <path>` | Default download directory (or `NSTBROWSER_AI_AGENT_DOWNLOAD_PATH` env)                                                |
 | `--content-boundaries` | Wrap page output in boundary markers for LLM safety (or `NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES` env)                  |
@@ -876,59 +945,6 @@ The `--allow-file-access` flag adds Chromium flags (`--allow-file-access-from-fi
 
 **Note:** This flag only works with Chromium. For security, it's disabled by default.
 
-## CDP Mode
-
-Connect to an existing browser via Chrome DevTools Protocol:
-
-```bash
-# Start Chrome with: google-chrome --remote-debugging-port=9222
-
-# Connect once, then run commands without --cdp
-nstbrowser-ai-agent connect 9222
-nstbrowser-ai-agent snapshot
-nstbrowser-ai-agent tab
-nstbrowser-ai-agent close
-
-# Or pass --cdp on each command
-nstbrowser-ai-agent --cdp 9222 snapshot
-
-# Connect to remote browser via WebSocket URL
-nstbrowser-ai-agent --cdp "wss://your-browser-service.com/cdp?token=..." snapshot
-```
-
-The `--cdp` flag accepts either:
-- A port number (e.g., `9222`) for local connections via `http://localhost:{port}`
-- A full WebSocket URL (e.g., `wss://...` or `ws://...`) for remote browser services
-
-This enables control of:
-- Electron apps
-- Chrome/Chromium instances with remote debugging
-- WebView2 applications
-- Any browser exposing a CDP endpoint
-
-### Auto-Connect
-
-Use `--auto-connect` to automatically discover and connect to a running Chrome instance without specifying a port:
-
-```bash
-# Auto-discover running Chrome with remote debugging
-nstbrowser-ai-agent --auto-connect open example.com
-nstbrowser-ai-agent --auto-connect snapshot
-
-# Or via environment variable
-NSTBROWSER_AI_AGENT_AUTO_CONNECT=1 nstbrowser-ai-agent snapshot
-```
-
-Auto-connect discovers Chrome by:
-1. Reading Chrome's `DevToolsActivePort` file from the default user data directory
-2. Falling back to probing common debugging ports (9222, 9229)
-
-This is useful when:
-- Chrome 144+ has remote debugging enabled via `chrome://inspect/#remote-debugging` (which uses a dynamic port)
-- You want a zero-configuration connection to your existing browser
-- You don't want to track which port Chrome is using
-
-## Streaming (Browser Preview)
 
 Stream the browser viewport via WebSocket for live preview or "pair browsing" where a human can watch and interact alongside an AI agent.
 
@@ -1137,10 +1153,11 @@ For more consistent results, add to your project or global instructions file:
 Use `nstbrowser-ai-agent` for web automation. Run `nstbrowser-ai-agent --help` for all commands.
 
 Core workflow:
-1. `nstbrowser-ai-agent open <url>` - Navigate to page
-2. `nstbrowser-ai-agent snapshot -i` - Get interactive elements with refs (@e1, @e2)
-3. `nstbrowser-ai-agent click @e1` / `fill @e2 "text"` - Interact using refs
-4. Re-snapshot after page changes
+1. Set profile: `export NST_PROFILE="my-profile"` or use `browser start-once` for temporary browser
+2. `nstbrowser-ai-agent open <url>` - Navigate to page
+3. `nstbrowser-ai-agent snapshot -i` - Get interactive elements with refs (@e1, @e2)
+4. `nstbrowser-ai-agent click @e1` / `fill @e2 "text"` - Interact using refs
+5. Re-snapshot after page changes
 ```
 
 ## Nstbrowser Integration
@@ -1245,7 +1262,6 @@ You can still use `--profile-id` for explicit ID specification if preferred, but
 # With default NST provider (NST_API_KEY set), no 'nst' prefix needed:
 nstbrowser-ai-agent browser list                    # List running instances
 nstbrowser-ai-agent browser start profile-123       # Start browser for profile
-nstbrowser-ai-agent browser start-batch p1 p2 p3    # Start multiple browsers
 nstbrowser-ai-agent browser start-once              # Start temporary browser
 nstbrowser-ai-agent browser stop profile-123        # Stop browser instance
 nstbrowser-ai-agent browser stop-all                # Stop all instances
@@ -1259,7 +1275,6 @@ nstbrowser-ai-agent browser connect-once            # Connect to temp browser
 # Traditional explicit syntax still works:
 nstbrowser-ai-agent nst browser list
 nstbrowser-ai-agent nst browser start profile-123
-nstbrowser-ai-agent nst browser start-batch p1 p2 p3
 nstbrowser-ai-agent nst browser stop profile-123
 nstbrowser-ai-agent nst browser stop-all
 ```

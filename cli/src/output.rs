@@ -1074,7 +1074,6 @@ Global Options:
   --json               Output as JSON
   --session <name>     Use specific session
   --headers <json>     Set HTTP headers (scoped to this origin)
-  --headed             Show browser window
 
 Examples:
   nstbrowser-ai-agent open example.com
@@ -2439,7 +2438,6 @@ Categories:
 Browser Commands:
   nst browser list                    List running browser instances
   nst browser start <profile-id>      Start browser for profile
-  nst browser start-batch <id> [id...] Start multiple browsers in batch
   nst browser start-once              Start temporary browser without profile
   nst browser stop <profile-id>       Stop browser instance
   nst browser stop-all                Stop all browser instances
@@ -2476,7 +2474,6 @@ Default Provider Shortcuts (when NST_API_KEY is set):
   profile create <name>               Same as: nst profile create <name>
   browser list                        Same as: nst browser list
   browser start <profile-id>          Same as: nst browser start <profile-id>
-  browser start-batch <id> [id...]    Same as: nst browser start-batch <id> [id...]
   browser start-once                  Same as: nst browser start-once
   browser cdp-url <profile-id>        Same as: nst browser cdp-url <profile-id>
   browser cdp-url-once                Same as: nst browser cdp-url-once
@@ -2742,30 +2739,21 @@ Default Provider:
   By default, nstbrowser-ai-agent uses Nstbrowser (nst) as the browser provider.
   This means you don't need to specify -p nst unless you want to be explicit.
   
-  To use a local browser instead, use --local or --headed flags.
-  
-  Provider selection priority (highest to lowest):
-    1. Explicit --provider flag
-    2. --local flag (uses local browser)
-    3. --headed flag (implies local)
-    4. --cdp flag (implies local)
-    5. --auto-connect flag (implies local)
-    6. NST_API_KEY environment variable (uses nst)
-    7. Default: nst (Nstbrowser)
+  All browser operations are performed through Nstbrowser profiles.
 
 Quick Start with Nstbrowser:
-  # Set your API key (required for nst provider)
+  # Set your API key (required)
   export NST_API_KEY="your-api-key"
   
-  # Launch browser (uses nst by default)
-  nstbrowser-ai-agent open https://example.com
+  # Launch browser with profile
+  nstbrowser-ai-agent --profile my-profile open https://example.com
   
-  # Nstbrowser management (no 'nst' prefix needed with default provider)
+  # Or use temporary browser
+  nstbrowser-ai-agent browser start-once
+  
+  # Nstbrowser management
   nstbrowser-ai-agent profile list               # List profiles
   nstbrowser-ai-agent browser list               # List running browsers
-  
-  # Or use local browser mode
-  nstbrowser-ai-agent --local open https://example.com
 
 Options:
   --session <name>           Isolated session (or NSTBROWSER_AI_AGENT_SESSION env)
@@ -2783,20 +2771,15 @@ Options:
                              e.g., --proxy-bypass "localhost,*.internal.com"
   --ignore-https-errors      Ignore HTTPS certificate errors
   --allow-file-access        Allow file:// URLs to access local files (Chromium only)
-  -p, --provider <name>      Browser provider: nst (default), local
-  --local                    Use local browser instead of Nstbrowser (or NSTBROWSER_AI_AGENT_LOCAL env)
+  -p, --provider <name>      Browser provider: nst (default)
   --profile <name|id>        Connect to Nstbrowser profile by name or ID (auto-detected)
                              Accepts profile name (e.g., "proxy_ph") or UUID
                              (e.g., "ef2b083a-8f77-4a7f-8441-a8d56bbd832b")
                              Can also be set via NST_PROFILE environment variable
   --profile-id <id>          Connect to Nstbrowser profile by ID (or NST_PROFILE_ID env)
-  --browser-profile <path>   Local browser profile path (or NSTBROWSER_AI_AGENT_PROFILE env)
   --json                     JSON output
   --full, -f                 Full page screenshot
   --annotate                 Annotated screenshot with numbered labels and legend
-  --headed                   Show browser window (not headless)
-  --cdp <port>               Connect via CDP (Chrome DevTools Protocol)
-  --auto-connect             Auto-discover and connect to running Chrome
   --color-scheme <scheme>    Color scheme: dark, light, no-preference (or NSTBROWSER_AI_AGENT_COLOR_SCHEME)
   --download-path <path>     Default download directory (or NSTBROWSER_AI_AGENT_DOWNLOAD_PATH)
   --session-name <name>      Auto-save/restore session state (cookies, localStorage)
@@ -2821,9 +2804,7 @@ Configuration:
   Use --config <path> to load a specific config file instead of the defaults.
   If --config points to a missing or invalid file, nstbrowser-ai-agent exits with an error.
 
-  Boolean flags accept an optional true/false value to override config:
-    --headed           (same as --headed true)
-    --headed false     (disables "headed": true from config)
+  Boolean flags accept an optional true/false value to override config settings.
 
   Extensions from user and project configs are merged (not replaced).
 
@@ -2857,8 +2838,6 @@ Environment:
   NSTBROWSER_AI_AGENT_DEBUG            Debug output
   NSTBROWSER_AI_AGENT_IGNORE_HTTPS_ERRORS Ignore HTTPS certificate errors
   NSTBROWSER_AI_AGENT_PROVIDER         Browser provider (default: nst)
-  NSTBROWSER_AI_AGENT_LOCAL            Use local browser instead of Nstbrowser
-  NSTBROWSER_AI_AGENT_AUTO_CONNECT     Auto-discover and connect to running Chrome
   NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS Allow file:// URLs to access local files
   NSTBROWSER_AI_AGENT_COLOR_SCHEME     Color scheme preference (dark, light, no-preference)
   NSTBROWSER_AI_AGENT_DOWNLOAD_PATH    Default download directory for browser downloads
@@ -2891,9 +2870,9 @@ Examples:
   nstbrowser-ai-agent click @e2                # Click by ref from snapshot
   nstbrowser-ai-agent fill @e3 "test@example.com"
   
-  # Using local browser mode
-  nstbrowser-ai-agent --local open example.com
-  nstbrowser-ai-agent --headed open example.com  # Visual browser (also uses local)
+  # Using Nstbrowser profiles
+  nstbrowser-ai-agent --profile my-profile open example.com
+  nstbrowser-ai-agent browser start-once       # Temporary browser
   
   # Other examples
   nstbrowser-ai-agent find role button click --name Submit
@@ -2901,8 +2880,6 @@ Examples:
   nstbrowser-ai-agent screenshot --full
   nstbrowser-ai-agent screenshot --annotate    # Labeled screenshot for vision models
   nstbrowser-ai-agent wait --load networkidle  # Wait for slow pages to load
-  nstbrowser-ai-agent --cdp 9222 snapshot      # Connect via CDP port
-  nstbrowser-ai-agent --auto-connect snapshot  # Auto-discover running Chrome
   nstbrowser-ai-agent --color-scheme dark open example.com  # Dark mode
   nstbrowser-ai-agent --profile ~/.myapp open example.com    # Persistent profile
   nstbrowser-ai-agent --session-name myapp open example.com  # Auto-save/restore state
@@ -3064,14 +3041,11 @@ pub fn show_nst_not_configured_error_for_nst_command(validation_error: &str, com
     eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
 }
 
-/// Print error message when Nstbrowser is not configured (with local mode alternative)
+/// Print error message when Nstbrowser is not configured
 pub fn show_nst_not_configured_error_with_local_alternative(validation_error: &str) {
     eprintln!("{} {}", color::error_indicator(), validation_error);
     eprintln!();
-    eprintln!(
-        "{} Option 1: Use Nstbrowser (default)",
-        color::info_indicator()
-    );
+    eprintln!("{} Setup Nstbrowser:", color::info_indicator());
     eprintln!();
     eprintln!("  1. Download and install Nstbrowser client from:");
     eprintln!("     {}", color::dim("https://www.nstbrowser.io"));
@@ -3090,17 +3064,6 @@ pub fn show_nst_not_configured_error_with_local_alternative(validation_error: &s
     eprintln!(
         "       {}",
         color::dim("export NST_API_KEY=your-api-key-here")
-    );
-    eprintln!();
-    eprintln!(
-        "{} Option 2: Use Local Browser Mode",
-        color::info_indicator()
-    );
-    eprintln!();
-    eprintln!("  Use the --local flag to run with your local browser:");
-    eprintln!(
-        "    {}",
-        color::dim("nstbrowser-ai-agent --local open example.com")
     );
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());

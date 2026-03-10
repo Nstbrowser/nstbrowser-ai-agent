@@ -1,53 +1,181 @@
 ---
 name: nstbrowser-ai-agent
-description: Browser automation CLI with Nstbrowser integration for AI agents. Use when the user needs advanced browser fingerprinting, profile management, proxy configuration, batch operations on multiple browser profiles, CDP connections, or cursor-based pagination for large datasets. Triggers include requests to "use NST profile", "configure proxy for profile", "manage browser profiles", "batch update profiles", "start multiple browsers", "connect to CDP", "list profiles with pagination", or any task requiring Nstbrowser's anti-detection features.
+description: Browser automation CLI with Nstbrowser integration for AI agents. Use when the user needs advanced browser fingerprinting, profile management, proxy configuration, batch operations on multiple browser profiles, or cursor-based pagination for large datasets. Triggers include requests to "use NST profile", "configure proxy for profile", "manage browser profiles", "batch update profiles", "start multiple browsers", "list profiles with pagination", or any task requiring Nstbrowser's anti-detection features.
 allowed-tools: Bash(npx nstbrowser-ai-agent:*), Bash(nstbrowser-ai-agent:*)
 ---
 
-# Browser Automation with nstbrowser-ai-agent (Nstbrowser Integration)
+# Browser Automation with nstbrowser-ai-agent
 
 ## Overview
 
 This skill enables AI agents to control browsers using nstbrowser-ai-agent CLI with Nstbrowser integration. Nstbrowser provides advanced browser fingerprinting, profile management, and anti-detection capabilities for professional browser automation.
 
-**Key Features:**
+**This tool requires Nstbrowser service to function.** All browser operations are performed through Nstbrowser profiles, which provide:
 - Advanced browser fingerprinting and anti-detection
 - Profile management with persistent sessions
 - Proxy configuration per profile
 - Batch operations on multiple profiles
-- Tag and group organization
-- Local and cloud browser support
+- Tag and group organization for profile management
+
+## Prerequisites
+
+Before using this tool, ensure you have the following:
+
+### 1. Nstbrowser Client Installation
+
+Nstbrowser client must be installed and running on your system.
+
+- Download from: https://www.nstbrowser.io/
+- Install the client application
+- Launch the Nstbrowser client
+
+### 2. Nstbrowser Service Running
+
+The Nstbrowser API service must be accessible:
+
+- Default endpoint: `http://127.0.0.1:8848`
+- Verify service is running:
+  ```bash
+  curl http://127.0.0.1:8848/api/v2/profiles
+  ```
+- Expected response: JSON with profile data or empty list
+
+### 3. API Key Configuration
+
+Obtain your API key from the Nstbrowser dashboard and configure it:
+
+**Method 1: Config File (Recommended)**
+```bash
+nstbrowser-ai-agent config set key YOUR_API_KEY
+```
+
+**Method 2: Environment Variable**
+```bash
+export NST_API_KEY="YOUR_API_KEY"
+```
+
+### 4. CLI Tool Installation
+
+Install the nstbrowser-ai-agent CLI:
+
+```bash
+# Using npx (no installation required)
+npx nstbrowser-ai-agent --help
+
+# Or install globally
+npm install -g nstbrowser-ai-agent
+```
+
+### 5. Verify Installation
+
+Test your setup:
+
+```bash
+# Check CLI version
+nstbrowser-ai-agent --version
+
+# List profiles (verifies API connection)
+nstbrowser-ai-agent profile list
+```
+
+If you see your profiles or an empty list, your environment is configured correctly.
+
+## Quick Start
+
+Get started in 5 minutes with these examples:
+
+### Option 1: Using Temporary Browser (Fastest)
+
+For quick tests or one-time tasks:
+
+```bash
+# 1. Start temporary browser
+nstbrowser-ai-agent browser start-once
+
+# 2. Open a website
+nstbrowser-ai-agent open https://example.com
+
+# 3. Take a snapshot
+nstbrowser-ai-agent snapshot -i
+
+# 4. Close browser (auto-cleanup)
+nstbrowser-ai-agent close
+```
+
+**Note:** Temporary browsers don't save session state and are cleaned up after use.
+
+
+### Option 2: Using Profile (Recommended for Persistent Sessions)
+
+For tasks that require saved sessions, cookies, or login state:
+
+```bash
+# 1. List available profiles
+nstbrowser-ai-agent profile list
+
+# 2. Create a new profile (if needed)
+nstbrowser-ai-agent profile create my-profile
+
+# 3. Set default profile
+export NST_PROFILE="my-profile"
+
+# 4. Open browser (auto-starts with profile)
+nstbrowser-ai-agent open https://example.com
+
+# 5. Interact with page
+nstbrowser-ai-agent snapshot -i
+nstbrowser-ai-agent click @e1
+
+# 6. Close browser (session saved to profile)
+nstbrowser-ai-agent close
+```
+
+**Expected Output:**
+- Profile list shows your profiles with IDs and names
+- Browser opens in headless mode
+- Snapshot shows page structure with element refs (@e1, @e2, etc.)
+- Session state persists across browser restarts
 
 ## Core Concepts
 
-### Providers
-
-- **nst (default)**: Uses Nstbrowser with profiles and fingerprinting
-- **local**: Uses local Chromium browser (for testing without Nstbrowser)
-
 ### Profiles
 
-Nstbrowser profiles store:
-- Browser fingerprints (canvas, WebGL, fonts, etc.)
-- Cookies and localStorage
-- Login sessions
-- Proxy settings
-- Browser configuration
+**Profiles are the foundation of Nstbrowser automation.** Each profile is an isolated browser environment that stores:
+
+- **Browser Fingerprints**: Canvas, WebGL, fonts, screen resolution, timezone
+- **Session Data**: Cookies, localStorage, sessionStorage
+- **Login State**: Persistent authentication across sessions
+- **Proxy Settings**: Per-profile proxy configuration
+- **Browser Configuration**: User agent, platform, language settings
+
+**Why use profiles?**
+- Maintain separate identities for different tasks
+- Preserve login sessions between automation runs
+- Isolate cookies and data between different websites
+- Configure different proxies for different regions
 
 ### Profile Name vs ID
 
 All profile commands support both profile NAME and profile ID:
 
+**Profile Name:**
+- User-friendly, easier to remember
+- Example: `my-profile`, `test-account`, `production-bot`
+- Use when: Working interactively or in scripts with descriptive names
+
+**Profile ID:**
+- UUID format, guaranteed uniqueness
+- Example: `86581051-fb0d-4c4a-b1e3-ebc1abd17174`
+- Use when: Scripting with multiple profiles or ensuring exact profile match
+
 **Resolution Priority:**
-1. Explicit `--profile-id` flag (highest priority)
-2. Explicit `--profile` flag (profile name)
+1. `--profile-id` flag (highest priority)
+2. `--profile` flag (profile name)
 3. `NST_PROFILE_ID` environment variable
 4. `NST_PROFILE` environment variable
-5. Temporary browser (if no profile specified)
+5. Prompt user to specify profile
 
-**When to use:**
-- **Profile Name**: More user-friendly, easier to remember
-- **Profile ID**: Guaranteed uniqueness, better for scripts
+**Important:** If multiple profiles have the same name, the first one returned by the API will be used.
 
 ### Sticky Sessions
 
@@ -60,29 +188,49 @@ nstbrowser-ai-agent --profile my-profile open https://example.com
 # Subsequent commands: Stays in 'my-profile' automatically
 nstbrowser-ai-agent snapshot -i
 nstbrowser-ai-agent click @e1
+nstbrowser-ai-agent fill @e2 "data"
 ```
+
+This makes automation scripts cleaner and reduces the need to specify the profile repeatedly.
 
 ### Refs
 
 Elements are identified by refs (e.g., @e1, @e2) from snapshots, making automation more reliable than CSS selectors.
 
-## Environment Setup
+```bash
+# Get snapshot with refs
+nstbrowser-ai-agent snapshot -i
 
-### Configuration (Recommended)
+# Output shows elements with refs:
+# @e1 button "Submit"
+# @e2 textbox "Email"
+# @e3 textbox "Password"
 
-Configure NST API credentials once using config commands:
+# Use refs to interact
+nstbrowser-ai-agent fill @e2 "user@example.com"
+nstbrowser-ai-agent fill @e3 "password"
+nstbrowser-ai-agent click @e1
+```
+
+**Note:** For modern web frameworks (React, Vue, Angular), CSS selectors may be more reliable than refs.
+
+## Configuration
+
+### Config File (Recommended)
+
+Store configuration persistently in `~/.nst-ai-agent/config.json`:
 
 ```bash
-# Set API key (required) - stored in ~/.nst-ai-agent/config.json
-nstbrowser-ai-agent config set key <your-api-key>
+# Set API key (required)
+nstbrowser-ai-agent config set key YOUR_API_KEY
 
-# Optional: Set custom host (default: 127.0.0.1)
+# Optional: Set custom host
 nstbrowser-ai-agent config set host api.example.com
 
-# Optional: Set custom port (default: 8848)
+# Optional: Set custom port
 nstbrowser-ai-agent config set port 9000
 
-# View configuration
+# View all configuration
 nstbrowser-ai-agent config show
 
 # Get specific value
@@ -91,14 +239,16 @@ nstbrowser-ai-agent config get key
 
 Configuration persists across sessions and takes priority over environment variables.
 
-### Environment Variables (Alternative)
+### Environment Variables
+
+Alternative to config file:
 
 ```bash
 # Nstbrowser API credentials (required if not using config)
 export NST_API_KEY="your-api-key"
 
 # Optional: Nstbrowser API endpoint
-export NST_HOST="localhost"  # Default: 127.0.0.1
+export NST_HOST="127.0.0.1"  # Default: 127.0.0.1
 export NST_PORT="8848"       # Default: 8848
 
 # Optional: Default profile
@@ -109,305 +259,88 @@ export NST_PROFILE_ID="profile-uuid"
 
 **Priority:** Config file > Environment variables > Defaults
 
-### Local Mode (No Nstbrowser)
+## Common Commands
 
-```bash
-# Use local browser instead of Nstbrowser
-export NSTBROWSER_AI_AGENT_LOCAL=1
-# Or use --local flag
-nstbrowser-ai-agent --local open https://example.com
-```
+### Profile Management
 
-## Profile Management Commands
-
-### List Profiles
-
+**List Profiles**
 ```bash
 # List all profiles
 nstbrowser-ai-agent profile list
 
 # List with JSON output
 nstbrowser-ai-agent profile list --json
-```
 
-
-### List Profiles with Cursor Pagination
-
-```bash
-# List profiles with cursor-based pagination (for large datasets)
+# List with pagination (for large datasets)
 nstbrowser-ai-agent profile list-cursor --page-size 50
-
-# Navigate to next page using cursor from previous response
-nstbrowser-ai-agent profile list-cursor --cursor "next-page-token" --page-size 50
-
-# More efficient than 'profile list' for large datasets (1000+ profiles)
 ```
-### Show Profile Details
 
+**Show Profile Details**
 ```bash
-# Show by profile name (recommended)
+# Show by name or ID
 nstbrowser-ai-agent profile show my-profile --json
-
-# Show by profile ID
 nstbrowser-ai-agent profile show 86581051-fb0d-4c4a-b1e3-ebc1abd17174 --json
 ```
 
-Returns complete profile information including fingerprint, proxy, tags, groups, and launch history.
-
-### Create Profile
-
+**Create Profile**
 ```bash
-nstbrowser-ai-agent profile create <name> \
-  --proxy-host <host> \
-  --proxy-port <port> \
-  --proxy-type <http|https|socks5> \
-  --proxy-username <user> \
-  --proxy-password <pass> \
-  --platform <Windows|macOS|Linux> \
-  --kernel <version> \
-  --group-id <group-id>
+nstbrowser-ai-agent profile create my-profile \
+  --proxy-host proxy.example.com \
+  --proxy-port 8080 \
+  --proxy-type http \
+  --platform Windows
 ```
 
-### Delete Profile
-
+**Delete Profile**
 ```bash
 # Delete single profile
-nstbrowser-ai-agent profile delete <profile-id>
+nstbrowser-ai-agent profile delete profile-id
 
-# Delete multiple profiles (batch)
-nstbrowser-ai-agent profile delete <id-1> <id-2> <id-3>
+# Delete multiple profiles
+nstbrowser-ai-agent profile delete id-1 id-2 id-3
 ```
 
-### Profile Groups
+### Browser Control
 
+**Start Browser**
 ```bash
-# List all groups
-nstbrowser-ai-agent profile groups list
-
-# Move profile(s) to group
-nstbrowser-ai-agent profile groups change <group-id> <profile-id> [profile-id...]
-
-# Batch move profiles to group
-nstbrowser-ai-agent profile groups batch-change <group-id> <id-1> <id-2> <id-3>
-```
-
-## Proxy Management Commands
-
-### Show Proxy Configuration
-
-```bash
-# Show by profile name or ID
-nstbrowser-ai-agent profile proxy show <name-or-id> --json
-```
-
-Returns proxy configuration and check result (IP, location, timezone).
-
-### Update Proxy
-
-```bash
-# Update proxy for single profile (supports name or ID)
-nstbrowser-ai-agent profile proxy update <name-or-id> \
-  --host proxy.example.com \
-  --port 8080 \
-  --type http \
-  --username user \
-  --password pass
-```
-
-### Reset Proxy
-
-```bash
-# Reset single profile
-nstbrowser-ai-agent profile proxy reset <profile-id>
-
-# Reset multiple profiles (batch)
-nstbrowser-ai-agent profile proxy reset <id-1> <id-2> <id-3>
-```
-
-### Batch Proxy Operations
-
-```bash
-# Batch update proxy for multiple profiles
-nstbrowser-ai-agent profile proxy batch-update \
-  <id-1> <id-2> <id-3> \
-  --host proxy.example.com \
-  --port 8080 \
-  --type http \
-  --username user \
-  --password pass
-
-# Batch reset proxy for multiple profiles
-nstbrowser-ai-agent profile proxy batch-reset <id-1> <id-2> <id-3>
-```
-
-## Tag Management Commands
-
-### List Tags
-
-```bash
-nstbrowser-ai-agent profile tags list
-```
-
-### Create Tags
-
-```bash
-# Add single tag to profile
-nstbrowser-ai-agent profile tags create <profile-id> <tag-name>
-```
-
-### Update Tags
-
-```bash
-# Update tags with colors (replaces existing tags)
-nstbrowser-ai-agent profile tags update <profile-id> \
-  production:blue testing:green staging:yellow
-
-# Update tags without colors
-nstbrowser-ai-agent profile tags update <profile-id> \
-  production testing staging
-```
-
-Tag format: `tag-name:color` or just `tag-name`
-
-### Clear Tags
-
-```bash
-# Clear single profile
-nstbrowser-ai-agent profile tags clear <profile-id>
-
-# Clear multiple profiles (batch)
-nstbrowser-ai-agent profile tags clear <id-1> <id-2> <id-3>
-```
-
-### Batch Tag Operations
-
-```bash
-# Batch create tags for multiple profiles
-nstbrowser-ai-agent profile tags batch-create \
-  <id-1> <id-2> \
-  production:blue automated:green
-
-# Batch update tags (replaces existing)
-nstbrowser-ai-agent profile tags batch-update \
-  <id-1> <id-2> \
-  updated:red verified:green
-
-# Batch clear tags
-nstbrowser-ai-agent profile tags batch-clear <id-1> <id-2> <id-3>
-```
-
-## Browser Instance Management
-
-### List Running Browsers
-
-```bash
-nstbrowser-ai-agent browser list
-```
-
-### Start Browser
-
-Profiles can be referenced by name or ID. The system automatically detects UUID patterns:
-
-```bash
-# Start by profile name
+# Start with profile name
 nstbrowser-ai-agent browser start my-profile
-nstbrowser-ai-agent browser start proxy_ph
 
-# Start by profile ID (UUID format auto-detected)
+# Start with profile ID
 nstbrowser-ai-agent browser start 86581051-fb0d-4c4a-b1e3-ebc1abd17174
-nstbrowser-ai-agent browser start ef2b083a-8f77-4a7f-8441-a8d56bbd832b
 
-# Both work the same way - the --profile flag automatically detects the format
-# No need to use --profile-id explicitly (though it still works for backward compatibility)
-
-# Start with options
-nstbrowser-ai-agent browser start <name-or-id> \
-  --headless \
-  --auto-close \
-  --disable-gpu
-```
-
-
-### Start Multiple Browsers (Batch)
-
-```bash
-# Start multiple browsers simultaneously (by name or ID)
-nstbrowser-ai-agent browser start-batch profile-1 profile-2 profile-3
-nstbrowser-ai-agent browser start-batch proxy_ph ef2b083a-8f77-4a7f-8441-a8d56bbd832b
-
-# Each browser runs independently with its own profile and fingerprint
-# Useful for parallel scraping, testing, or automation tasks
-```
-
-### Start Temporary Browser
-
-```bash
-# Start temporary browser without profile (for one-time use)
+# Start temporary browser
 nstbrowser-ai-agent browser start-once
 
-# Use for quick tests or disposable sessions
-# Browser is automatically cleaned up after use
+# Start temporary browser
+nstbrowser-ai-agent browser start-once
 ```
 
-### Stop Browser
-
+**Stop Browser**
 ```bash
-# Stop by profile name or ID
-nstbrowser-ai-agent browser stop <name-or-id>
+# Stop specific browser
+nstbrowser-ai-agent browser stop my-profile
 
 # Stop all browsers
 nstbrowser-ai-agent browser stop-all
 ```
 
-### Get Browser Pages
-
+**List Running Browsers**
 ```bash
-# Get list of pages/tabs in running browser
-nstbrowser-ai-agent browser pages <name-or-id> --json
+nstbrowser-ai-agent browser list
 ```
 
-Returns list of all pages/tabs with URLs and titles.
+### Page Navigation
 
-### Get Debugger URL
-
+**Open URL**
 ```bash
-# Get Chrome DevTools debugger URL
-nstbrowser-ai-agent browser debugger <name-or-id> --json
+# Auto-launches browser if not running
+nstbrowser-ai-agent open https://example.com
 ```
 
-Returns WebSocket URL for connecting Chrome DevTools.
-
-## Local Data Management
-
-### Clear Cache
-
+**Navigate**
 ```bash
-# Clear cache for single profile
-nstbrowser-ai-agent profile cache clear <profile-id>
-
-# Clear cache for multiple profiles (batch)
-nstbrowser-ai-agent profile cache clear <id-1> <id-2> <id-3>
-```
-
-### Clear Cookies
-
-```bash
-# Clear cookies for single profile
-nstbrowser-ai-agent profile cookies clear <profile-id>
-
-# Clear cookies for multiple profiles (batch)
-nstbrowser-ai-agent profile cookies clear <id-1> <id-2> <id-3>
-```
-
-## Browser Automation Commands
-
-### Navigation
-
-```bash
-# Open URL (auto-launches browser if not running)
-nstbrowser-ai-agent open <url>
-
-# Navigate back/forward
 nstbrowser-ai-agent back
 nstbrowser-ai-agent forward
 nstbrowser-ai-agent reload
@@ -415,100 +348,162 @@ nstbrowser-ai-agent reload
 
 ### Page Inspection
 
+**Get Snapshot**
 ```bash
-# Get accessibility snapshot with refs (best for AI)
+# Accessibility snapshot with refs (best for AI)
 nstbrowser-ai-agent snapshot -i
 
-# Get page title
+# Compact snapshot
+nstbrowser-ai-agent snapshot -c
+
+# Custom depth
+nstbrowser-ai-agent snapshot -d 3
+```
+
+**Get Page Info**
+```bash
 nstbrowser-ai-agent get title
-
-# Get current URL
 nstbrowser-ai-agent get url
+```
 
-# Take screenshot
-nstbrowser-ai-agent screenshot <path>
+**Take Screenshot**
+```bash
+nstbrowser-ai-agent screenshot output.png
 
 # Annotated screenshot with element labels
-nstbrowser-ai-agent screenshot --annotate <path>
+nstbrowser-ai-agent screenshot --annotate output.png
 ```
 
 ### Element Interaction
 
+**Click**
 ```bash
-# Click element by ref
+# Click by ref
 nstbrowser-ai-agent click @e1
 
-# Fill input by ref
-nstbrowser-ai-agent fill @e2 "text"
-
-# Type into element
-nstbrowser-ai-agent type @e3 "text"
-
-# Get element text
-nstbrowser-ai-agent get text @e4
-
-# Check if element is visible
-nstbrowser-ai-agent is visible @e5
+# Click by CSS selector
+nstbrowser-ai-agent click 'button[type="submit"]'
 ```
 
-### JavaScript Execution
-
+**Fill Input**
 ```bash
-# Execute JavaScript
-nstbrowser-ai-agent eval "document.title"
+# Fill by ref
+nstbrowser-ai-agent fill @e2 "text"
 
-# Execute with stdin
-echo "document.querySelectorAll('a').length" | nstbrowser-ai-agent eval --stdin
+# Fill by CSS selector
+nstbrowser-ai-agent fill 'input[name="email"]' "user@example.com"
+```
+
+**Type Text**
+```bash
+nstbrowser-ai-agent type @e3 "text"
+```
+
+**Get Element Text**
+```bash
+nstbrowser-ai-agent get text @e4
+nstbrowser-ai-agent get text '.product-price'
 ```
 
 ### Wait Commands
 
+**Wait for Element**
 ```bash
-# Wait for element
-nstbrowser-ai-agent wait <selector>
+nstbrowser-ai-agent wait 'button.submit'
+```
 
-# Wait for time (milliseconds)
+**Wait for Time**
+```bash
+# Wait 3 seconds
 nstbrowser-ai-agent wait 3000
+```
 
-# Wait for page load
+**Wait for Page Load**
+```bash
 nstbrowser-ai-agent wait --load networkidle
 ```
 
-### Close Browser
+### JavaScript Execution
 
+**Execute JavaScript**
 ```bash
-nstbrowser-ai-agent close
+nstbrowser-ai-agent eval "document.title"
+nstbrowser-ai-agent eval "document.querySelectorAll('a').length"
+
+# Execute from stdin
+echo "document.body.innerHTML" | nstbrowser-ai-agent eval --stdin
 ```
 
-## Workflow Patterns
+### Proxy Management
 
-### Pattern 1: Profile-based Automation (Using Profile Name)
+**Show Proxy**
+```bash
+nstbrowser-ai-agent profile proxy show my-profile --json
+```
+
+**Update Proxy**
+```bash
+nstbrowser-ai-agent profile proxy update my-profile \
+  --host proxy.example.com \
+  --port 8080 \
+  --type http \
+  --username user \
+  --password pass
+```
+
+**Reset Proxy**
+```bash
+nstbrowser-ai-agent profile proxy reset profile-id
+```
+
+**Batch Proxy Operations**
+```bash
+# Batch update
+nstbrowser-ai-agent profile proxy batch-update id-1 id-2 id-3 \
+  --host proxy.example.com \
+  --port 8080 \
+  --type http
+
+# Batch reset
+nstbrowser-ai-agent profile proxy batch-reset id-1 id-2 id-3
+```
+
+## Workflow Examples
+
+### Pattern 1: Profile-based Automation
+
+**Use Case:** Automate tasks that require persistent login sessions or cookies.
 
 ```bash
-# 1. Set API key
+# 1. Verify Nstbrowser connection
+curl http://127.0.0.1:8848/api/v2/profiles
+
+# 2. Set API key
 export NST_API_KEY="your-key"
 
-# 2. List profiles to find target
+# 3. List profiles to find target
 nstbrowser-ai-agent profile list
 
-# 3. Set profile by name (RECOMMENDED)
+# 4. Set profile by name
 export NST_PROFILE="my-profile"
 
-# 4. Open browser (auto-uses profile, auto-starts if not running)
+# 5. Open browser (auto-uses profile, auto-starts if not running)
 nstbrowser-ai-agent open https://example.com
 
-# 5. Get snapshot
+# 6. Get snapshot
 nstbrowser-ai-agent snapshot -i
 
-# 6. Interact with page
+# 7. Interact with page
 nstbrowser-ai-agent click @e1
 nstbrowser-ai-agent fill @e2 "data"
 
-# 7. Close (session saved to profile)
+# 8. Close (session saved to profile)
 nstbrowser-ai-agent close
 ```
 
 ### Pattern 2: Batch Profile Management
+
+**Use Case:** Manage multiple profiles efficiently (update proxies, add tags, organize).
 
 ```bash
 # Get multiple profile IDs
@@ -529,92 +524,135 @@ GROUP_ID=$(nstbrowser-ai-agent profile groups list --json | jq -r '.data.groups[
 nstbrowser-ai-agent profile groups batch-change $GROUP_ID $PROFILE_IDS
 ```
 
-### Pattern 3: Parallel Tasks (Isolation)
+### Pattern 3: Login and Scrape
+
+**Use Case:** Log in to a website, navigate to data pages, and extract information.
 
 ```bash
-# Task 1 in browser A
-nstbrowser-ai-agent --session task-a --profile profile-1 open site1.com
+# 1. Verify Nstbrowser connection
+curl http://127.0.0.1:8848/api/v2/profiles
 
-# Task 2 in browser B (Parallel)
-nstbrowser-ai-agent --session task-b --profile profile-2 open site2.com
+# 2. Open login page
+nstbrowser-ai-agent --profile my-profile open https://site.com/login
 
-# Interact with Task A without affecting Task B
-nstbrowser-ai-agent --session task-a click @e1
-```
-
-### Pattern 4: Login and Scrape
-
-```bash
-# 1. Open login page
-nstbrowser-ai-agent open https://site.com/login
-
-# 2. Wait for page to load
+# 3. Wait for page to load
 nstbrowser-ai-agent wait --load networkidle
 
-# 3. Fill and submit using CSS selectors
+# 4. Fill and submit using CSS selectors
 nstbrowser-ai-agent fill 'input[placeholder="Email"]' "username"
 nstbrowser-ai-agent fill 'input[type="password"]' "password"
 nstbrowser-ai-agent click 'button[type="submit"]'
 
-# 4. Wait for navigation
+# 5. Wait for navigation
 nstbrowser-ai-agent wait --load networkidle
 
-# 5. Navigate to target page
+# 6. Navigate to target page
 nstbrowser-ai-agent open https://site.com/data
 
-# 6. Extract data
+# 7. Extract data
 nstbrowser-ai-agent snapshot -i > data.txt
 nstbrowser-ai-agent eval "document.querySelector('.info')?.textContent"
 
-# 7. Close (session saved to profile)
+# 8. Close (session saved to profile)
 nstbrowser-ai-agent close
-```
-
-## Best Practices
-
-1. **Use Profile Names**: More readable than IDs for most use cases
-2. **Set Environment Variables**: Use `NST_PROFILE` for consistent profile usage
-3. **Leverage Sticky Sessions**: No need to repeat `--profile` flag
-4. **Use Batch Operations**: More efficient for multiple profiles
-5. **Organize with Groups and Tags**: Keep profiles organized
-6. **Prefer CSS Selectors for Modern Apps**: Refs may not work with Vue/React/Angular
-7. **Wait Appropriately**: Use `wait --load networkidle` after navigation
-8. **Close Cleanly**: Always close browser to save session state
-9. **Handle Errors**: Check command output and retry if needed
-10. **Use Proxies Per Profile**: Configure proxies for geo-targeting or privacy
-
-## JSON Output
-
-All commands support `--json` flag for machine-readable output:
-
-```bash
-nstbrowser-ai-agent profile list --json
-nstbrowser-ai-agent snapshot -i --json
-nstbrowser-ai-agent get text @e1 --json
 ```
 
 ## Error Handling
 
-### Common Issues
+### Common Errors (by frequency)
 
-**"NST_API_KEY is required"**
-- Solution: Set `export NST_API_KEY="your-key"`
+#### 1. "NST_API_KEY is required"
 
-**"Failed to connect to Nstbrowser"**
-- Solution: Ensure Nstbrowser client is running
-- Check: `curl http://localhost:8848/api/v2/profiles`
+**Cause:** API key not configured.
 
-**"Profile not found"**
-- Solution: List profiles with `nstbrowser-ai-agent profile list`
-- Verify profile name/ID
+**Solution:**
+```bash
+# Method 1: Config file (recommended)
+nstbrowser-ai-agent config set key YOUR_API_KEY
 
-**"Element not found" or "Action timed out"**
-- Solution: Get fresh snapshot with `nstbrowser-ai-agent snapshot -i`
-- Try using CSS selectors instead of refs
+# Method 2: Environment variable
+export NST_API_KEY="YOUR_API_KEY"
+```
+
+**Verify:**
+```bash
+nstbrowser-ai-agent config get key
+```
+
+#### 2. "Failed to connect to Nstbrowser"
+
+**Cause:** Nstbrowser service not running or wrong endpoint.
+
+**Solution:**
+1. Ensure Nstbrowser client is running
+2. Check API endpoint:
+   ```bash
+   curl http://127.0.0.1:8848/api/v2/profiles
+   ```
+3. If using custom host/port, configure:
+   ```bash
+   nstbrowser-ai-agent config set host YOUR_HOST
+   nstbrowser-ai-agent config set port YOUR_PORT
+   ```
+
+**Verify:**
+```bash
+# Should return JSON with profiles
+nstbrowser-ai-agent profile list
+```
+
+#### 3. "Profile not found"
+
+**Cause:** Specified profile doesn't exist.
+
+**Solution:**
+1. List available profiles:
+   ```bash
+   nstbrowser-ai-agent profile list
+   ```
+2. Create a new profile:
+   ```bash
+   nstbrowser-ai-agent profile create my-profile
+   ```
+3. Or use temporary browser:
+   ```bash
+   nstbrowser-ai-agent browser start-once
+   ```
+
+**Verify:**
+```bash
+# Should show your profile
+nstbrowser-ai-agent profile show my-profile
+```
+
+#### 4. "Element not found" or "Action timed out"
+
+**Cause:** Element ref is stale or page structure changed.
+
+**Solution:**
+1. Get fresh snapshot:
+   ```bash
+   nstbrowser-ai-agent snapshot -i
+   ```
+2. Use CSS selectors instead of refs:
+   ```bash
+   # Instead of: nstbrowser-ai-agent click @e1
+   # Use: nstbrowser-ai-agent click 'button[type="submit"]'
+   ```
+3. Inspect page elements:
+   ```bash
+   nstbrowser-ai-agent eval "Array.from(document.querySelectorAll('input')).map(el => ({type: el.type, placeholder: el.placeholder}))"
+   ```
+
+**Verify:**
+```bash
+# Element should be visible
+nstbrowser-ai-agent is visible 'button[type="submit"]'
+```
 
 ### Ref System Limitations
 
-The ref system (`@e1`, `@e2`, etc.) may not work reliably with modern web frameworks (Vue.js, React, Angular).
+The ref system (`@e1`, `@e2`, etc.) may not work reliably with modern web frameworks (Vue.js, React, Angular) due to dynamic DOM updates.
 
 **Workaround - Use CSS Selectors:**
 
@@ -632,24 +670,27 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 
 ### Profile Commands
 - `profile list` - List all profiles
+- `profile list-cursor` - List profiles with cursor pagination
 - `profile show <name-or-id>` - Show profile details
 - `profile create <name>` - Create new profile
 - `profile delete <id> [id...]` - Delete profile(s)
 - `profile groups list` - List all groups
-- `profile groups change <group-id> <profile-id> [profile-id...]` - Move profile(s) to group
-- `profile groups batch-change <group-id> <id> [id...]` - Batch change group
+- `profile groups change <group-id> <profile-id> [...]` - Move profile(s) to group
+- `profile groups batch-change <group-id> <id> [...]` - Batch change group
+- `profile cache clear <id> [id...]` - Clear profile cache
+- `profile cookies clear <id> [id...]` - Clear profile cookies
 
 ### Proxy Commands
 - `profile proxy show <name-or-id>` - Show proxy configuration
 - `profile proxy update <name-or-id>` - Update proxy settings
 - `profile proxy reset <id> [id...]` - Reset proxy settings
-- `profile proxy batch-update <id> [id...] --host --port` - Batch update proxy
+- `profile proxy batch-update <id> [id...]` - Batch update proxy
 - `profile proxy batch-reset <id> [id...]` - Batch reset proxy
 
 ### Tag Commands
 - `profile tags list` - List all tags
 - `profile tags create <id> <tag>` - Add tag to profile
-- `profile tags update <id> <tag:color> [tag:color...]` - Update profile tags
+- `profile tags update <id> <tag:color> [...]` - Update profile tags
 - `profile tags clear <id> [id...]` - Clear profile tags
 - `profile tags batch-create <id> [id...] <tag:color>` - Batch create tags
 - `profile tags batch-update <id> [id...] <tag:color>` - Batch update tags
@@ -657,15 +698,16 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 
 ### Browser Commands
 - `browser list` - List running browsers
-- `browser start <name-or-id>` - Start browser
+- `browser start <name-or-id>` - Start browser with profile
+- `browser start-once` - Start temporary browser
 - `browser stop <name-or-id>` - Stop browser
 - `browser stop-all` - Stop all browsers
 - `browser pages <name-or-id>` - Get browser pages list
 - `browser debugger <name-or-id>` - Get debugger URL
-
-### Local Data Commands
-- `profile cache clear <id> [id...]` - Clear profile cache
-- `profile cookies clear <id> [id...]` - Clear profile cookies
+- `browser cdp-url <name-or-id>` - Get CDP WebSocket URL
+- `browser cdp-url-once` - Get CDP URL for temporary browser
+- `browser connect <name-or-id>` - Connect and get CDP URL
+- `browser connect-once` - Connect to temporary browser and get CDP URL
 
 ### Navigation Commands
 - `open <url>` - Navigate to URL
@@ -679,6 +721,7 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 - `get url` - Get current URL
 - `get text <sel>` - Get element text
 - `screenshot [path]` - Take screenshot
+- `is visible <sel>` - Check if element is visible
 
 ### Interaction Commands
 - `click <sel>` - Click element
@@ -691,8 +734,36 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 - `eval <js>` - Execute JavaScript
 - `close` - Close browser
 - `session list` - List active sessions
+- `config set <key> <value>` - Set configuration
+- `config get <key>` - Get configuration value
+- `config show` - Show all configuration
+
+## JSON Output
+
+All commands support `--json` flag for machine-readable output:
+
+```bash
+nstbrowser-ai-agent profile list --json
+nstbrowser-ai-agent snapshot -i --json
+nstbrowser-ai-agent get text @e1 --json
+```
+
+## Best Practices
+
+1. **Use Profile Names**: More readable than IDs for most use cases
+2. **Set Environment Variables**: Use `NST_PROFILE` for consistent profile usage
+3. **Leverage Sticky Sessions**: No need to repeat `--profile` flag
+4. **Use Batch Operations**: More efficient for multiple profiles
+5. **Organize with Groups and Tags**: Keep profiles organized
+6. **Prefer CSS Selectors for Modern Apps**: Refs may not work with Vue/React/Angular
+7. **Wait Appropriately**: Use `wait --load networkidle` after navigation
+8. **Close Cleanly**: Always close browser to save session state
+9. **Handle Errors**: Check command output and retry if needed
+10. **Use Proxies Per Profile**: Configure proxies for geo-targeting or privacy
 
 ## Deep-Dive Documentation
+
+For more detailed information, see:
 
 | Reference | When to Use |
 |-----------|-------------|
@@ -718,39 +789,33 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 
 ## Notes
 
-- Nstbrowser is the **default provider** (no `-p nst` flag needed)
+- **Nstbrowser is required**: This tool only works with Nstbrowser service
 - **Profile name/ID support**: All commands accept both names and IDs
-- **Auto-start**: Browser automatically starts when using profile name if not running
+- **Auto-start**: Browser automatically starts when using profile if not running
 - **Name resolution**: Profile names are resolved to IDs automatically via API
 - **Sticky sessions**: Profile persists across commands in the same session
-- Profiles are managed by Nstbrowser client, not the CLI
-- Daemon auto-starts on first command and persists between commands
-- Use `--local` flag for local browser mode (no Nstbrowser required)
-- Session state is automatically saved to profiles when browser closes
+- **Profiles managed by Nstbrowser**: Profiles are created and stored by Nstbrowser client
+- **Daemon auto-starts**: Daemon starts on first command and persists between commands
+- **Session persistence**: Session state is automatically saved to profiles when browser closes
+- **Temporary browsers**: Use `browser start-once` for disposable sessions that don't save state
 
-### Get CDP WebSocket URL
+## CDP Integration
+
+Get Chrome DevTools Protocol (CDP) WebSocket URLs to connect external tools:
 
 ```bash
-# Get CDP URL for existing browser instance
-nstbrowser-ai-agent browser cdp-url <name-or-id>
+# Get CDP URL for existing browser
+nstbrowser-ai-agent browser cdp-url my-profile
 
 # Get CDP URL for temporary browser
 nstbrowser-ai-agent browser cdp-url-once
-```
 
-Returns WebSocket URL that can be used to connect Chrome DevTools, Puppeteer, Playwright, or other CDP-compatible tools.
-
-### Connect to Browser and Get CDP URL
-
-```bash
-# Connect to browser (starts if not running) and get CDP URL
-nstbrowser-ai-agent browser connect <name-or-id>
+# Connect to browser and get CDP URL (starts if not running)
+nstbrowser-ai-agent browser connect my-profile
 
 # Connect to temporary browser and get CDP URL
 nstbrowser-ai-agent browser connect-once
 ```
-
-These commands start the browser if it's not already running, then return the CDP WebSocket URL.
 
 **Use cases:**
 - Connect Puppeteer/Playwright to Nstbrowser-managed browsers

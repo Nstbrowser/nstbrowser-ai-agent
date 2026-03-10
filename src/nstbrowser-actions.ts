@@ -97,6 +97,18 @@ export async function executeNstbrowserCommand(command: Command): Promise<Respon
         return await handleProfileTagsBatchClear(command, client);
       case 'nst_profile_group_batch_change':
         return await handleProfileGroupBatchChange(command, client);
+      case 'nst_browser_start_once':
+        return await handleBrowserStartOnce(command, client);
+      case 'nst_browser_cdp_url':
+        return await handleBrowserCdpUrl(command, client);
+      case 'nst_browser_cdp_url_once':
+        return await handleBrowserCdpUrlOnce(command, client);
+      case 'nst_browser_connect':
+        return await handleBrowserConnect(command, client);
+      case 'nst_browser_connect_once':
+        return await handleBrowserConnectOnce(command, client);
+      case 'nst_profile_list_cursor':
+        return await handleProfileListCursor(command, client);
       default:
         return errorResponse(
           (command as { id: string }).id,
@@ -488,6 +500,100 @@ async function handleProfileGroupBatchChange(
   const profileIds = await resolveProfileIds(client, command.profileIds);
   await client.batchChangeProfileGroup(profileIds, command.groupId);
   return successResponse(command.id, { changed: profileIds.length });
+}
+
+// ==================== New Commands - Batch and CDP ====================
+
+async function handleBrowserStartOnce(
+  command: {
+    id: string;
+    action: 'nst_browser_start_once';
+    config?: {
+      platform?: 'Windows' | 'macOS' | 'Linux';
+      kernel?: string;
+      fingerprint?: Record<string, unknown>;
+      remoteDebuggingPort?: number;
+      headless?: boolean;
+      disableGpu?: boolean;
+      proxyEnabled?: boolean;
+      autoClose?: boolean;
+    };
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const result = await client.startOnceBrowser(command.config || {});
+  return successResponse(command.id, result);
+}
+
+async function handleBrowserCdpUrl(
+  command: {
+    id: string;
+    action: 'nst_browser_cdp_url';
+    profileId: string;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const profileId = await resolveProfileId(client, command.profileId);
+  const result = await client.getCdpUrl(profileId);
+  return successResponse(command.id, result);
+}
+
+async function handleBrowserCdpUrlOnce(
+  command: {
+    id: string;
+    action: 'nst_browser_cdp_url_once';
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const result = await client.getCdpUrlOnce();
+  return successResponse(command.id, result);
+}
+
+async function handleBrowserConnect(
+  command: {
+    id: string;
+    action: 'nst_browser_connect';
+    profileId: string;
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const profileId = await resolveProfileId(client, command.profileId);
+  const result = await client.connectBrowser(profileId);
+  return successResponse(command.id, result);
+}
+
+async function handleBrowserConnectOnce(
+  command: {
+    id: string;
+    action: 'nst_browser_connect_once';
+    config?: {
+      platform?: 'Windows' | 'macOS' | 'Linux';
+      kernel?: string;
+      fingerprint?: Record<string, unknown>;
+    };
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const result = await client.connectOnceBrowser(command.config || {});
+  return successResponse(command.id, result);
+}
+
+async function handleProfileListCursor(
+  command: {
+    id: string;
+    action: 'nst_profile_list_cursor';
+    cursor?: string;
+    pageSize?: number;
+    direction?: 'next' | 'prev';
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const result = await client.getProfilesByCursor(
+    command.cursor,
+    command.pageSize,
+    command.direction
+  );
+  return successResponse(command.id, result);
 }
 
 // Type for Nstbrowser commands

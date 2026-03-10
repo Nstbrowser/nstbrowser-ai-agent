@@ -1067,7 +1067,6 @@ export type Command =
   | NstProfileGroupChangeCommand
   | NstProfileCacheClearCommand
   | NstProfileCookiesClearCommand
-  | NstBrowserStartBatchCommand
   | NstBrowserStartOnceCommand
   | NstProfileListCursorCommand
   | NstBrowserConnectCommand
@@ -1279,18 +1278,6 @@ export interface NstProfileTagsUpdateCommand extends BaseCommand {
 }
 
 // Missing commands - Browser Management
-export interface NstBrowserStartBatchCommand extends BaseCommand {
-  action: 'nst_browser_start_batch';
-  profileIds: string[];
-  config?: {
-    remoteDebuggingPort?: number;
-    headless?: boolean;
-    disableGpu?: boolean;
-    proxyEnabled?: boolean;
-    autoClose?: boolean;
-  };
-}
-
 export interface NstBrowserStartOnceCommand extends BaseCommand {
   action: 'nst_browser_start_once';
   config?: {

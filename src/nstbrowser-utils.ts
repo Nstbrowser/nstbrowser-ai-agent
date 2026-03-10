@@ -6,12 +6,47 @@
 import { NstbrowserError } from './nstbrowser-errors.js';
 import type { NstbrowserClient } from './nstbrowser-client.js';
 
+// Simple in-memory cache for profile lookups
+const profileCache = new Map<string, { profiles: any[]; timestamp: number }>();
+const CACHE_TTL_MS = 30000; // 30 seconds
+
+/**
+ * Check if a string is a valid UUID format
+ */
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+/**
+ * Get profiles with caching
+ */
+async function getCachedProfiles(client: NstbrowserClient): Promise<any[]> {
+  const cacheKey = 'profiles';
+  const cached = profileCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.profiles;
+  }
+
+  const profiles = await client.getProfiles();
+  profileCache.set(cacheKey, { profiles, timestamp: now });
+  return profiles;
+}
+
 /**
  * Resolve a profile identifier (name or ID) to a profile ID
  *
  * This function attempts to resolve a profile by:
- * 1. First trying to use the input as a profile ID directly
- * 2. If that fails, searching for a profile with matching name
+ * 1. Detecting if input is UUID format (profile ID)
+ * 2. If UUID, looking up by ID directly
+ * 3. If not UUID, searching by name
+ * 4. If multiple profiles with same name, returning first one
+ *
+ * Priority order for profile resolution:
+ * - Direct UUID match (profile ID)
+ * - Name match (first match if multiple)
  *
  * @param client - NSTBrowser API client instance
  * @param nameOrId - Profile name or profile ID
@@ -28,39 +63,41 @@ export async function resolveProfileId(
 
   const trimmedInput = nameOrId.trim();
 
-  // Step 1: Try to use as ID directly by querying all profiles
-  // Note: We need to query profiles to check if this ID exists
   try {
-    const profiles = await client.getProfiles();
+    const profiles = await getCachedProfiles(client);
 
-    // Check if input matches a profile ID
-    const profileById = profiles.find((p) => p.profileId === trimmedInput);
-    if (profileById) {
-      return profileById.profileId;
-    }
-
-    // Step 2: Search by name
-    const profilesByName = profiles.filter((p) => p.name === trimmedInput);
-
-    if (profilesByName.length === 0) {
+    // Step 1: Check if input is UUID format
+    if (isUUID(trimmedInput)) {
+      // Try to find by ID
+      const profileById = profiles.find((p) => p.profileId === trimmedInput);
+      if (profileById) {
+        return profileById.profileId;
+      }
+      // UUID format but not found
       throw new NstbrowserError(
-        `Profile not found: "${trimmedInput}". Please check the profile name or ID.`,
+        `Profile ID not found: "${trimmedInput}"`,
         'PROFILE_NOT_FOUND',
         404
       );
     }
 
+    // Step 2: Search by name (not UUID format)
+    const profilesByName = profiles.filter((p) => p.name === trimmedInput);
+
+    if (profilesByName.length === 0) {
+      throw new NstbrowserError(`Profile not found: "${trimmedInput}"`, 'PROFILE_NOT_FOUND', 404);
+    }
+
     if (profilesByName.length > 1) {
-      // Multiple profiles with same name - return first one but warn
+      // Multiple profiles with same name - return first one and log warning
       if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
         console.warn(
           `[WARNING] Multiple profiles found with name "${trimmedInput}". Using first match: ${profilesByName[0].profileId}`
         );
       }
-      return profilesByName[0].profileId;
     }
 
-    // Exactly one profile found by name
+    // Return first match (whether single or multiple)
     return profilesByName[0].profileId;
   } catch (error) {
     // If it's already a NstbrowserError, re-throw it

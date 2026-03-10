@@ -1129,20 +1129,6 @@ const nstProfileGroupBatchChangeSchema = baseCommandSchema.extend({
 });
 
 // New commands - Batch operations and CDP endpoints
-const nstBrowserStartBatchSchema = baseCommandSchema.extend({
-  action: z.literal('nst_browser_start_batch'),
-  profileIds: z.array(z.string().min(1)).min(1),
-  config: z
-    .object({
-      remoteDebuggingPort: z.number().optional(),
-      headless: z.boolean().optional(),
-      disableGpu: z.boolean().optional(),
-      proxyEnabled: z.boolean().optional(),
-      autoClose: z.boolean().optional(),
-    })
-    .optional(),
-});
-
 const nstBrowserStartOnceSchema = baseCommandSchema.extend({
   action: z.literal('nst_browser_start_once'),
   config: z
@@ -1364,7 +1350,6 @@ const commandSchema = z.discriminatedUnion('action', [
   nstProfileTagsBatchClearSchema,
   nstProfileGroupBatchChangeSchema,
   // New commands - Batch operations and CDP endpoints
-  nstBrowserStartBatchSchema,
   nstBrowserStartOnceSchema,
   nstProfileListCursorSchema,
   nstBrowserConnectSchema,

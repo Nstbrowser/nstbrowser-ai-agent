@@ -27,19 +27,70 @@ export class NstbrowserNotRunningError extends NstbrowserError {
 
 export class NstbrowserAuthError extends NstbrowserError {
   constructor() {
-    super('Invalid Nstbrowser API key', 'NST_AUTH_ERROR', 401);
+    const message = `Invalid Nstbrowser API key
+
+Setup:
+1. Get your API key from Nstbrowser dashboard
+2. Configure using one of these methods:
+
+   Method 1 (Recommended - Config file):
+   nstbrowser-ai-agent config set key YOUR_API_KEY
+
+   Method 2 (Environment variable):
+   export NST_API_KEY="YOUR_API_KEY"`;
+    super(message, 'NST_AUTH_ERROR', 401);
   }
 }
 
 export class NstbrowserProfileNotFoundError extends NstbrowserError {
   constructor(profileName: string) {
-    super(`Profile "${profileName}" not found`, 'NST_PROFILE_NOT_FOUND', 404);
+    const message = `Profile '${profileName}' not found
+
+Suggestions:
+1. List available profiles:
+   nstbrowser-ai-agent nst profile list
+
+2. Create a new profile:
+   nstbrowser-ai-agent nst profile create ${profileName}
+
+3. Use temporary browser:
+   nstbrowser-ai-agent nst browser start-once`;
+    super(message, 'NST_PROFILE_NOT_FOUND', 404);
+  }
+}
+
+export class NoProfileSpecifiedError extends NstbrowserError {
+  constructor() {
+    const message = `No profile specified
+
+Options:
+1. Specify profile by name:
+   nstbrowser-ai-agent --profile my-profile open https://example.com
+
+2. Specify profile by ID:
+   nstbrowser-ai-agent --profile-id <UUID> open https://example.com
+
+3. Set default profile (environment variable):
+   export NST_PROFILE="my-profile"
+
+4. Use temporary browser:
+   nstbrowser-ai-agent nst browser start-once`;
+    super(message, 'NO_PROFILE_SPECIFIED');
   }
 }
 
 export class NstbrowserConnectionError extends NstbrowserError {
   constructor(message: string) {
-    super(`Failed to connect to Nstbrowser: ${message}`, 'NST_CONNECTION_ERROR');
+    const fullMessage = `Failed to connect to Nstbrowser: ${message}
+
+Troubleshooting:
+1. Verify Nstbrowser client is running
+2. Check API endpoint: http://127.0.0.1:8848
+3. Test connection:
+   curl http://127.0.0.1:8848/api/v2/profiles
+4. Check API key is configured:
+   echo $NST_API_KEY`;
+    super(fullMessage, 'NST_CONNECTION_ERROR');
   }
 }
 

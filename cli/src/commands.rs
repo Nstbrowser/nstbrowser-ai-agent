@@ -2145,7 +2145,19 @@ fn parse_nst(rest: &[&str], id: &str) -> Result<Value, ParseError> {
 }
 
 fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
-    const VALID: &[&str] = &["list", "start", "stop", "stop-all", "pages", "debugger"];
+    const VALID: &[&str] = &[
+        "list",
+        "start",
+        "start-once",
+        "stop",
+        "stop-all",
+        "pages",
+        "debugger",
+        "cdp-url",
+        "cdp-url-once",
+        "connect",
+        "connect-once",
+    ];
 
     match rest.first().copied() {
         Some("list") | None => Ok(json!({ "id": id, "action": "nst_browser_list" })),
@@ -2230,6 +2242,124 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
             }))
         }
         Some("stop-all") => Ok(json!({ "id": id, "action": "nst_browser_stop_all" })),
+        Some("start-once") => {
+            let mut config = json!({});
+            let mut i = 1;
+            while i < rest.len() {
+                match rest[i] {
+                    "--platform" => {
+                        if let Some(platform) = rest.get(i + 1) {
+                            config["platform"] = json!(platform);
+                            i += 1;
+                        }
+                    }
+                    "--kernel" => {
+                        if let Some(kernel) = rest.get(i + 1) {
+                            config["kernel"] = json!(kernel);
+                            i += 1;
+                        }
+                    }
+                    "--headless" => {
+                        config["headless"] = json!(true);
+                    }
+                    "--auto-close" => {
+                        config["autoClose"] = json!(true);
+                    }
+                    "--disable-gpu" => {
+                        config["disableGpu"] = json!(true);
+                    }
+                    "--proxy-enabled" => {
+                        config["proxyEnabled"] = json!(true);
+                    }
+                    other => {
+                        if other.starts_with("--") {
+                            return Err(ParseError::InvalidValue {
+                                message: format!("unknown flag '{}' for nst browser start-once", other),
+                                usage: "nst browser start-once [--platform <platform>] [--kernel <kernel>] [--headless] [--auto-close]",
+                            });
+                        }
+                    }
+                }
+                i += 1;
+            }
+
+            let mut cmd = json!({
+                "id": id,
+                "action": "nst_browser_start_once"
+            });
+
+            if !config.as_object().unwrap().is_empty() {
+                cmd["config"] = config;
+            }
+
+            Ok(cmd)
+        }
+        Some("cdp-url") => {
+            let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "nst browser cdp-url".to_string(),
+                usage: "nst browser cdp-url <profile-id>",
+            })?;
+            Ok(json!({
+                "id": id,
+                "action": "nst_browser_cdp_url",
+                "profileId": profile_id
+            }))
+        }
+        Some("cdp-url-once") => Ok(json!({
+            "id": id,
+            "action": "nst_browser_cdp_url_once"
+        })),
+        Some("connect") => {
+            let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+                context: "nst browser connect".to_string(),
+                usage: "nst browser connect <profile-id>",
+            })?;
+            Ok(json!({
+                "id": id,
+                "action": "nst_browser_connect",
+                "profileId": profile_id
+            }))
+        }
+        Some("connect-once") => {
+            let mut config = json!({});
+            let mut i = 1;
+            while i < rest.len() {
+                match rest[i] {
+                    "--platform" => {
+                        if let Some(platform) = rest.get(i + 1) {
+                            config["platform"] = json!(platform);
+                            i += 1;
+                        }
+                    }
+                    "--kernel" => {
+                        if let Some(kernel) = rest.get(i + 1) {
+                            config["kernel"] = json!(kernel);
+                            i += 1;
+                        }
+                    }
+                    other => {
+                        if other.starts_with("--") {
+                            return Err(ParseError::InvalidValue {
+                                message: format!("unknown flag '{}' for nst browser connect-once", other),
+                                usage: "nst browser connect-once [--platform <platform>] [--kernel <kernel>]",
+                            });
+                        }
+                    }
+                }
+                i += 1;
+            }
+
+            let mut cmd = json!({
+                "id": id,
+                "action": "nst_browser_connect_once"
+            });
+
+            if !config.as_object().unwrap().is_empty() {
+                cmd["config"] = config;
+            }
+
+            Ok(cmd)
+        }
         Some(sub) => Err(ParseError::UnknownSubcommand {
             subcommand: sub.to_string(),
             valid_options: VALID,
@@ -2239,11 +2369,65 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
 
 fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
     const VALID: &[&str] = &[
-        "list", "create", "delete", "show", "proxy", "tags", "groups", "cache", "cookies",
+        "list",
+        "list-cursor",
+        "create",
+        "delete",
+        "show",
+        "proxy",
+        "tags",
+        "groups",
+        "cache",
+        "cookies",
     ];
 
     match rest.first().copied() {
         Some("list") | None => Ok(json!({ "id": id, "action": "nst_profile_list" })),
+        Some("list-cursor") => {
+            let mut cmd = json!({
+                "id": id,
+                "action": "nst_profile_list_cursor"
+            });
+
+            let mut i = 1;
+            while i < rest.len() {
+                match rest[i] {
+                    "--cursor" => {
+                        if let Some(cursor) = rest.get(i + 1) {
+                            cmd["cursor"] = json!(cursor);
+                            i += 1;
+                        }
+                    }
+                    "--page-size" => {
+                        if let Some(size) = rest.get(i + 1) {
+                            if let Ok(size_num) = size.parse::<u32>() {
+                                cmd["pageSize"] = json!(size_num);
+                                i += 1;
+                            }
+                        }
+                    }
+                    "--direction" => {
+                        if let Some(dir) = rest.get(i + 1) {
+                            if *dir == "next" || *dir == "prev" {
+                                cmd["direction"] = json!(dir);
+                                i += 1;
+                            }
+                        }
+                    }
+                    other => {
+                        if other.starts_with("--") {
+                            return Err(ParseError::InvalidValue {
+                                message: format!("unknown flag '{}' for nst profile list-cursor", other),
+                                usage: "nst profile list-cursor [--cursor <cursor>] [--page-size <size>] [--direction next|prev]",
+                            });
+                        }
+                    }
+                }
+                i += 1;
+            }
+
+            Ok(cmd)
+        }
         Some("show") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile show".to_string(),

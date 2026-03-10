@@ -713,9 +713,6 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "mousedown" => handle_mousedown(cmd, state).await,
         "mouseup" => handle_mouseup(cmd, state).await,
         // NSTBrowser commands (not yet implemented in native daemon)
-        "nst_browser_start_batch" => {
-            Err("Not yet implemented: nst_browser_start_batch".to_string())
-        }
         "nst_browser_start_once" => Err("Not yet implemented: nst_browser_start_once".to_string()),
         "nst_profile_list_cursor" => {
             Err("Not yet implemented: nst_profile_list_cursor".to_string())
