@@ -328,30 +328,40 @@ pub async fn resolve_browser_profile(
     }
 
     // Rule 5.1: Check if there's already a running once browser
-    // Once browsers have profileId === "once" in the running browsers list
+    // Once browsers have profile name matching pattern: nst_<timestamp>
     let running_once_browsers: Vec<&RunningBrowser> = running_browsers
         .iter()
-        .filter(|b| b.profile_id.as_deref() == Some("once"))
+        .filter(|b| {
+            if let Some(name) = &b.name {
+                // Check if name matches pattern: nst_<digits>
+                name.starts_with("nst_") && name[4..].chars().all(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        })
         .copied()
         .collect();
 
     if !running_once_browsers.is_empty() {
         // Use the earliest started once browser (first in list)
+        let once_browser = running_once_browsers[0];
         if debug {
             eprintln!(
-                "[DEBUG] Found {} running once browser(s), using earliest",
-                running_once_browsers.len()
+                "[DEBUG] Found {} running once browser(s), using earliest: {}",
+                running_once_browsers.len(),
+                once_browser.profile_id.as_deref().unwrap_or("unknown")
             );
         }
 
+        let profile_id = once_browser.profile_id.as_deref().unwrap_or("");
         let ws_url = format!(
-            "ws://{}:{}/api/v2/connect?x-api-key={}",
-            options.nst_host, options.nst_port, options.nst_api_key
+            "ws://{}:{}/api/v2/connect/{}?x-api-key={}",
+            options.nst_host, options.nst_port, profile_id, options.nst_api_key
         );
 
         return Ok(ResolvedProfile {
-            profile_id: None,
-            profile_name: None,
+            profile_id: once_browser.profile_id.clone(),
+            profile_name: once_browser.name.clone(),
             is_running: true,
             is_once: true,
             ws_url,
@@ -365,9 +375,10 @@ pub async fn resolve_browser_profile(
     }
 
     // Build once browser WebSocket URL with config
+    // Note: autoClose should be false to prevent immediate browser closure
     let config = json!({
         "platform": "Windows",
-        "autoClose": true,
+        "autoClose": false,
         "clearCacheOnClose": true,
     });
     let config_str = config.to_string();
@@ -394,15 +405,23 @@ pub fn extract_profile_options(
     nst_port: u16,
     nst_api_key: &str,
 ) -> ProfileResolutionOptions {
+    // Use the unified profile field which can be either name or ID
+    let profile = cmd.get("profile").and_then(|v| v.as_str()).map(String::from);
+    
+    // Auto-detect if profile is UUID format
+    let (profile_id, profile_name) = if let Some(ref p) = profile {
+        if is_uuid(p) {
+            (Some(p.clone()), None)
+        } else {
+            (None, Some(p.clone()))
+        }
+    } else {
+        (None, None)
+    };
+
     ProfileResolutionOptions {
-        profile_id: cmd
-            .get("nstProfileId")
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        profile_name: cmd
-            .get("nstProfileName")
-            .and_then(|v| v.as_str())
-            .map(String::from),
+        profile_id,
+        profile_name,
         nst_host: nst_host.to_string(),
         nst_port,
         nst_api_key: nst_api_key.to_string(),
@@ -431,14 +450,28 @@ mod tests {
     #[test]
     fn test_extract_profile_options() {
         let cmd = json!({
-            "nstProfileId": "test-id",
-            "nstProfileName": "test-name"
+            "profile": "test-name"
         });
 
         let options = extract_profile_options(&cmd, "localhost", 8848, "test-key");
 
-        assert_eq!(options.profile_id, Some("test-id".to_string()));
+        assert_eq!(options.profile_id, None);
         assert_eq!(options.profile_name, Some("test-name".to_string()));
+        assert_eq!(options.nst_host, "localhost");
+        assert_eq!(options.nst_port, 8848);
+        assert_eq!(options.nst_api_key, "test-key");
+    }
+
+    #[test]
+    fn test_extract_profile_options_with_uuid() {
+        let cmd = json!({
+            "profile": "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
+        });
+
+        let options = extract_profile_options(&cmd, "localhost", 8848, "test-key");
+
+        assert_eq!(options.profile_id, Some("ef2b083a-8f77-4a7f-8441-a8d56bbd832b".to_string()));
+        assert_eq!(options.profile_name, None);
         assert_eq!(options.nst_host, "localhost");
         assert_eq!(options.nst_port, 8848);
         assert_eq!(options.nst_api_key, "test-key");

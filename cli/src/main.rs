@@ -1014,6 +1014,7 @@ fn main() {
             if let Some(ref profile) = flags.nst_profile {
                 launch_cmd["profile"] = json!(profile);
             }
+            // Note: If no profile is specified, the Node.js daemon will use once/temporary browser
 
             if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
                 eprintln!("[CLI DEBUG] Sending launch command: {}", launch_cmd);

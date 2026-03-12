@@ -366,6 +366,10 @@ export class BrowserManager {
     if (this.pages.length === 0) {
       throw new Error('Browser not launched. Call launch first.');
     }
+    // Handle case where activePageIndex is -1 (no pages initially)
+    if (this.activePageIndex < 0) {
+      this.activePageIndex = 0;
+    }
     return this.pages[this.activePageIndex];
   }
 
@@ -1186,8 +1190,7 @@ export class BrowserManager {
         debugLog,
         `launch() calling connectToNstbrowser\noptions: ${JSON.stringify(
           {
-            nstProfileId: options.nstProfileId,
-            nstProfileName: options.nstProfileName,
+            profile: options.profile,
             provider: options.provider,
           },
           null,
@@ -1203,7 +1206,6 @@ export class BrowserManager {
             : 'undefined',
           NST_HOST: process.env.NST_HOST,
           NST_PORT: process.env.NST_PORT,
-          NST_PROFILE: process.env.NST_PROFILE,
         });
         console.error(`[DEBUG] Launch debug log written to: ${debugLog}`);
       }
@@ -1501,7 +1503,8 @@ export class BrowserManager {
         this.setupPageTracking(page);
       }
 
-      this.activePageIndex = 0;
+      // Set active page index only if we have pages
+      this.activePageIndex = allPages.length > 0 ? 0 : -1;
     } catch (error) {
       // Clean up browser connection if validation or setup failed
       await browser.close().catch(() => {});

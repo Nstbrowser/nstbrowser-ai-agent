@@ -14,8 +14,6 @@ use super::diff;
 use super::element::RefMap;
 use super::interaction;
 use super::network::{self, DomainFilter, EventTracker};
-use super::nst_client::NstClient;
-use super::nst_profile_resolver::{extract_profile_options, resolve_browser_profile};
 use super::policy::{ActionPolicy, ConfirmActions, PolicyResult};
 use super::providers;
 use super::recording::{self, RecordingState};
@@ -776,7 +774,7 @@ fn launch_options_from_env() -> LaunchOptions {
         executable_path: env::var("NSTBROWSER_AI_AGENT_EXECUTABLE_PATH").ok(),
         proxy: env::var("NSTBROWSER_AI_AGENT_PROXY").ok(),
         proxy_bypass: env::var("NSTBROWSER_AI_AGENT_PROXY_BYPASS").ok(),
-        profile: env::var("NSTBROWSER_AI_AGENT_PROFILE").ok(),
+        profile: None, // Profile is handled separately for NST provider
         allow_file_access: env::var("NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS")
             .map(|v| v == "1" || v == "true")
             .unwrap_or(false),

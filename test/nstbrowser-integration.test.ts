@@ -283,7 +283,7 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
     it('should connect to once browser via CDP', async () => {
       const config = {
         platform: 'Windows' as const,
-        autoClose: true,
+        autoClose: false,
         clearCacheOnClose: true,
       };
 
@@ -341,7 +341,7 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
       // Start browsers in batch
       const results = await client.startBrowsersBatch(profileIds, {
         headless: true,
-        autoClose: true,
+        autoClose: false,
       });
 
       expect(Array.isArray(results)).toBe(true);
@@ -365,7 +365,7 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Nstbrowser Integration Tests', () => {
       const config = {
         platform: 'Windows' as const,
         headless: true,
-        autoClose: true,
+        autoClose: false,
       };
 
       const result = await client.startOnceBrowser(config);

@@ -166,19 +166,14 @@ nstbrowser-ai-agent profile list --json | jq '.[] | select(.name | contains("par
 
 **Cause**: Multiple profiles with similar names or confusion between name and ID.
 
-**Solution**: Understand the resolution priority:
-
-1. `--profile-id` flag (highest priority)
-2. `--profile` flag
-3. `NST_PROFILE_ID` environment variable
-4. `NST_PROFILE` environment variable (lowest priority)
+**Solution**: Use the `--profile` flag with either profile name or UUID:
 
 ```bash
-# Use explicit profile ID to avoid ambiguity
-nstbrowser-ai-agent --profile-id af2f775b-0d6a-4d09-9544-aacfec118364 browser start
-
-# Or use profile name with --profile flag
+# Use profile name
 nstbrowser-ai-agent --profile "MyProfile" browser start
+
+# Use profile UUID directly (auto-detected)
+nstbrowser-ai-agent --profile af2f775b-0d6a-4d09-9544-aacfec118364 browser start
 ```
 
 **Diagnostic Commands**:
@@ -233,7 +228,7 @@ nstbrowser-ai-agent profile create "test-$(date +%s)"
 nstbrowser-ai-agent profile list | grep "test-"
 
 # Clean up test profile
-nstbrowser-ai-agent profile delete <profile-id>
+nstbrowser-ai-agent profile delete <profile-name-or-id>
 ```
 
 ## Proxy Issues
@@ -464,10 +459,10 @@ NSTBROWSER_AI_AGENT_DEBUG=1 nstbrowser-ai-agent browser start <profile-name>
 1. Clear profile cache and cookies:
 ```bash
 # Clear cache
-nstbrowser-ai-agent profile cache clear <profile-id>
+nstbrowser-ai-agent profile cache clear <profile-name-or-id>
 
 # Clear cookies
-nstbrowser-ai-agent profile cookies clear <profile-id>
+nstbrowser-ai-agent profile cookies clear <profile-name-or-id>
 ```
 
 2. Update Chrome to latest version:

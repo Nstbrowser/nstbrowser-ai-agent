@@ -5,10 +5,10 @@
 # This script updates proxy configuration for multiple NST profiles at once.
 #
 # Usage:
-#   ./batch-proxy-update.sh <profile-ids> [options]
+#   ./batch-proxy-update.sh <profile-names-or-ids> [options]
 #
 # Arguments:
-#   <profile-ids>             Space or comma-separated profile IDs or names
+#   <profile-names-or-ids>    Space or comma-separated profile names or IDs
 #
 # Options:
 #   --proxy-host <host>       Proxy server host (required)
@@ -91,7 +91,7 @@ PROXY_PASSWORD=""
 RESET_MODE=false
 
 if [ $# -eq 0 ]; then
-  error "Profile IDs are required. Usage: $0 <profile-ids> [options]"
+  error "Profile names or IDs are required. Usage: $0 <profile-names-or-ids> [options]"
 fi
 
 PROFILE_IDS="$1"

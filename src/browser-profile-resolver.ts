@@ -260,20 +260,23 @@ export async function resolveBrowserProfile(
   }
 
   // Rule 4.1: Check if there's already a running once browser
-  // Once browsers have profileId === 'once' in the running browsers list
-  const runningOnceBrowsers = runningBrowsers.filter((b) => b.profileId === 'once');
+  // Once browsers have profile name matching pattern: nst_<timestamp>
+  const runningOnceBrowsers = runningBrowsers.filter((b) => b.name && b.name.match(/^nst_\d+$/));
 
   if (runningOnceBrowsers.length > 0) {
     // Use the earliest started once browser (first in list)
+    const onceBrowser = runningOnceBrowsers[0];
     if (debug) {
       console.error(
-        `[DEBUG] Found ${runningOnceBrowsers.length} running once browser(s), using earliest`
+        `[DEBUG] Found ${runningOnceBrowsers.length} running once browser(s), using earliest: ${onceBrowser.profileId}`
       );
     }
 
-    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect?x-api-key=${options.nstApiKey}`;
+    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${onceBrowser.profileId}?x-api-key=${options.nstApiKey}`;
 
     return {
+      profileId: onceBrowser.profileId,
+      profileName: onceBrowser.name,
       isRunning: true,
       isOnce: true,
       wsUrl,
@@ -286,9 +289,10 @@ export async function resolveBrowserProfile(
   }
 
   // Build once browser WebSocket URL with config
+  // Note: autoClose should be false to prevent immediate browser closure
   const config = {
     platform: 'Windows',
-    autoClose: true,
+    autoClose: false, // Keep browser open for commands
     clearCacheOnClose: true,
   };
   const configParam = encodeURIComponent(JSON.stringify(config));

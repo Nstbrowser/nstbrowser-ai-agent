@@ -2701,11 +2701,11 @@ Configuration:
 
 Nstbrowser Integration:
   nst browser list           List running browser instances
-  nst browser start <id>     Start browser for profile
-  nst browser stop <id>      Stop browser instance
+  nst browser start <name-or-id> Start browser for profile
+  nst browser stop <name-or-id>  Stop browser instance
   nst profile list           List all profiles
   nst profile create <name>  Create new profile
-  nst profile delete <id>    Delete profile(s)
+  nst profile delete <name-or-id> Delete profile(s)
   nst profile proxy update   Update proxy settings
   nst profile tags list      List all tags
   nst profile groups list    List all groups
@@ -2752,7 +2752,6 @@ Quick Start with Nstbrowser:
 
 Options:
   --session <name>           Isolated session (or NSTBROWSER_AI_AGENT_SESSION env)
-  --profile <path>           Persistent browser profile (or NSTBROWSER_AI_AGENT_PROFILE env)
   --state <path>             Load storage state from JSON file (or NSTBROWSER_AI_AGENT_STATE env)
   --headers <json>           HTTP headers scoped to URL's origin (for auth)
   --executable-path <path>   Custom browser executable (or NSTBROWSER_AI_AGENT_EXECUTABLE_PATH)
@@ -2767,10 +2766,9 @@ Options:
   --ignore-https-errors      Ignore HTTPS certificate errors
   --allow-file-access        Allow file:// URLs to access local files (Chromium only)
   -p, --provider <name>      Browser provider: nst (default)
-  --profile <name|id>        Connect to Nstbrowser profile by name or ID (auto-detected)
+  --profile <name-or-id>     Connect to Nstbrowser profile by name or ID (auto-detected)
                              Accepts profile name (e.g., "proxy_ph") or UUID
                              (e.g., "ef2b083a-8f77-4a7f-8441-a8d56bbd832b")
-                             Can also be set via NST_PROFILE environment variable
   --json                     JSON output
   --full, -f                 Full page screenshot
   --annotate                 Annotated screenshot with numbered labels and legend

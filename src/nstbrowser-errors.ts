@@ -68,12 +68,9 @@ Options:
    nstbrowser-ai-agent --profile my-profile open https://example.com
 
 2. Specify profile by ID:
-   nstbrowser-ai-agent --profile-id <UUID> open https://example.com
+   nstbrowser-ai-agent --profile <UUID> open https://example.com
 
-3. Set default profile (environment variable):
-   export NST_PROFILE="my-profile"
-
-4. Use temporary browser:
+3. Use temporary browser:
    nstbrowser-ai-agent nst browser start-once`;
     super(message, 'NO_PROFILE_SPECIFIED');
   }

@@ -7,13 +7,7 @@
 pub const ENV_NST_API_KEY: &str = "NST_API_KEY";
 pub const ENV_NST_HOST: &str = "NST_HOST";
 pub const ENV_NST_PORT: &str = "NST_PORT";
-pub const ENV_NST_PROFILE: &str = "NST_PROFILE";
-pub const ENV_NST_PROFILE_NAME: &str = "NST_PROFILE_NAME";
-pub const ENV_NST_PROFILE_ID: &str = "NST_PROFILE_ID";
 pub const ENV_NSTBROWSER_AI_AGENT_DEBUG: &str = "NSTBROWSER_AI_AGENT_DEBUG";
-pub const ENV_NSTBROWSER_AI_AGENT_NATIVE: &str = "NSTBROWSER_AI_AGENT_NATIVE";
-pub const ENV_NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE: &str =
-    "NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE";
 
 // Configuration file names
 pub const CONFIG_DIR: &str = ".nst-ai-agent";

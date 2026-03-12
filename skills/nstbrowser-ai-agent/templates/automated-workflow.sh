@@ -10,28 +10,21 @@
 #   ./automated-workflow.sh [profile-name]
 #
 # Arguments:
-#   profile-name    Optional profile name (defaults to NST_PROFILE env var)
+#   profile-name    Profile name (required)
 #
 # Environment Variables:
 #   NST_API_KEY     NST API key (required)
 #   NST_HOST        NST host (default: 127.0.0.1)
 #   NST_PORT        NST port (default: 8848)
-#   NST_PROFILE     Default profile name
 #
 # Example:
-#   # Use default profile from environment
-#   export NST_PROFILE="my-profile"
-#   ./automated-workflow.sh
-#
-#   # Use specific profile
-#   ./automated-workflow.sh "production-profile"
+#   ./automated-workflow.sh "my-profile"
 #
 #   # Complete example with environment setup
 #   export NST_API_KEY="your-api-key"
 #   export NST_HOST="127.0.0.1"
 #   export NST_PORT="8848"
-#   export NST_PROFILE="automation-profile"
-#   ./automated-workflow.sh
+#   ./automated-workflow.sh "production-profile"
 
 set -e  # Exit on error
 
@@ -75,7 +68,7 @@ if ! command -v nstbrowser-ai-agent &> /dev/null; then
 fi
 
 # Configuration
-PROFILE_NAME="${1:-$NST_PROFILE}"
+PROFILE_NAME="$1"
 TARGET_URL="https://example.com"
 SCREENSHOT_PATH="./workflow-screenshot.png"
 SNAPSHOT_PATH="./workflow-snapshot.json"
@@ -88,7 +81,7 @@ if [ -z "$NST_API_KEY" ]; then
 fi
 
 if [ -z "$PROFILE_NAME" ]; then
-  error "Profile name is required (provide as argument or set NST_PROFILE)"
+  error "Profile name is required. Usage: $0 <profile-name>"
 fi
 
 success "Environment validated"

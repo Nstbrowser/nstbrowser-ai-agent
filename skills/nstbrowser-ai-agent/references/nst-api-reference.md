@@ -166,11 +166,11 @@ Delete one or more profiles.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile delete <profile-id> [profile-id...]
+nstbrowser-ai-agent profile delete <profile-name-or-id> [profile-name-or-id...]
 ```
 
 **Parameters:**
-- `<profile-id>`: One or more profile IDs (space-separated)
+- `<profile-name-or-id>`: One or more profile names or IDs (space-separated)
 
 **Example:**
 ```bash
@@ -437,11 +437,11 @@ Reset proxy configuration for one or more profiles.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile proxy reset <profile-id> [profile-id...]
+nstbrowser-ai-agent profile proxy reset <profile-name-or-id> [profile-name-or-id...]
 ```
 
 **Parameters:**
-- `<profile-id>`: One or more profile IDs (space-separated)
+- `<profile-name-or-id>`: One or more profile names or IDs (space-separated)
 
 **Example:**
 ```bash
@@ -463,11 +463,11 @@ Update proxy configuration for multiple profiles at once.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile proxy batch-update <profile-id> [profile-id...] [options]
+nstbrowser-ai-agent profile proxy batch-update <profile-name-or-id> [profile-name-or-id...] [options]
 ```
 
 **Parameters:**
-- `<profile-id>`: One or more profile IDs (space-separated)
+- `<profile-name-or-id>`: One or more profile names or IDs (space-separated)
 
 **Options:**
 - `--host <host>`: Proxy server host
@@ -497,11 +497,11 @@ Reset proxy configuration for multiple profiles at once.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile proxy batch-reset <profile-id> [profile-id...]
+nstbrowser-ai-agent profile proxy batch-reset <profile-name-or-id> [profile-name-or-id...]
 ```
 
 **Parameters:**
-- `<profile-id>`: One or more profile IDs (space-separated)
+- `<profile-name-or-id>`: One or more profile names or IDs (space-separated)
 
 **Example:**
 ```bash
@@ -544,11 +544,11 @@ Add a tag to a profile.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile tags create <profile-id> <tag-name>
+nstbrowser-ai-agent profile tags create <profile-name-or-id> <tag-name>
 ```
 
 **Parameters:**
-- `<profile-id>`: Profile ID
+- `<profile-name-or-id>`: Profile name or ID
 - `<tag-name>`: Tag name
 
 **Example:**
@@ -567,11 +567,11 @@ Update tags for a profile (replaces existing tags).
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile tags update <profile-id> <tag:color> [tag:color...]
+nstbrowser-ai-agent profile tags update <profile-name-or-id> <tag:color> [tag:color...]
 ```
 
 **Parameters:**
-- `<profile-id>`: Profile ID
+- `<profile-name-or-id>`: Profile name or ID
 - `<tag:color>`: Tag name with optional color (format: `tag-name:color` or just `tag-name`)
 
 **Example:**
@@ -596,11 +596,11 @@ Clear all tags from one or more profiles.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile tags clear <profile-id> [profile-id...]
+nstbrowser-ai-agent profile tags clear <profile-name-or-id> [profile-name-or-id...]
 ```
 
 **Parameters:**
-- `<profile-id>`: One or more profile IDs (space-separated)
+- `<profile-name-or-id>`: One or more profile names or IDs (space-separated)
 
 **Example:**
 ```bash
@@ -622,7 +622,7 @@ Add tags to multiple profiles at once.
 
 **Command:**
 ```bash
-nstbrowser-ai-agent profile tags batch-create <profile-id> [profile-id...] <tag:color> [tag:color...]
+nstbrowser-ai-agent profile tags batch-create <profile-name-or-id> [profile-name-or-id...] <tag:color> [tag:color...]
 ```
 
 **Parameters:**

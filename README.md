@@ -23,9 +23,9 @@ The Nstbrowser API service must be accessible:
 - Default endpoint: `http://127.0.0.1:8848`
 - Verify service is running:
   ```bash
-  curl http://127.0.0.1:8848/api/v2/profiles
+  nstbrowser-ai-agent nst status
   ```
-- Expected response: JSON with profile data or empty list
+- Expected output: "NST agent is running and responsive"
 
 ### 3. API Key
 
@@ -319,7 +319,7 @@ nstbrowser-ai-agent close
 nstbrowser-ai-agent profile list               # List profiles
 nstbrowser-ai-agent profile create my-profile  # Create profile
 nstbrowser-ai-agent browser list               # List running browsers
-nstbrowser-ai-agent browser start profile-id   # Start browser with profile
+nstbrowser-ai-agent browser start my-profile   # Start browser with profile
 ```
 
 
@@ -1371,8 +1371,6 @@ nstbrowser-ai-agent browser start ef2b083a-8f77-4a7f-8441-a8d56bbd832b
 # Both work the same way - no need to remember which flag to use
 # The system automatically detects if you're using a UUID or a name
 ```
-
-You can still use `--profile-id` for explicit ID specification if preferred, but `--profile` now handles both formats automatically.
 
 **Browser Instance Management:**
 

@@ -7,9 +7,7 @@
  * Resolution Priority:
  * 1. Explicit profileId parameter
  * 2. Explicit profileName parameter
- * 3. NST_PROFILE_ID environment variable
- * 4. NST_PROFILE environment variable
- * 5. No profile (use once/temporary browser)
+ * 3. No profile (use once/temporary browser)
  *
  * Name Resolution Logic:
  * When a profile name is provided:
@@ -84,31 +82,8 @@ export async function resolveProfile(
     profileName = undefined;
   }
 
-  // Priority 3: Environment variables
-  if (!profileId && !profileName) {
-    profileId = process.env.NST_PROFILE_ID;
-    if (profileId && debug) {
-      console.error(`[DEBUG] Using profile ID from NST_PROFILE_ID env: ${profileId}`);
-    }
-  }
-
-  if (!profileId && !profileName) {
-    profileName = process.env.NST_PROFILE;
-    if (profileName && debug) {
-      console.error(`[DEBUG] Using profile name from NST_PROFILE env: ${profileName}`);
-    }
-
-    // Also check UUID format for environment variable
-    if (profileName && isUuid(profileName)) {
-      if (debug) {
-        console.error(
-          `[DEBUG] NST_PROFILE env "${profileName}" is UUID format, treating as profileId`
-        );
-      }
-      profileId = profileName;
-      profileName = undefined;
-    }
-  }
+  // No environment variable fallback - profile must be explicitly specified
+  // If no profile specified, use once browser (handled later)
 
   // If we have a profile name, resolve it to profileId
   if (profileName && !profileId) {
@@ -210,12 +185,9 @@ export async function resolveProfile(
     };
   }
 
-  // No profile specified
+  // No profile specified - use once/temporary browser
   if (options.allowOnce === false) {
-    throw new Error(
-      'No profile specified. Use --profile <name> or --profile-id <id>, ' +
-        'or set NST_PROFILE or NST_PROFILE_ID environment variable.'
-    );
+    throw new Error('No profile specified. Use --profile <name-or-uuid> to specify a profile.');
   }
 
   if (debug) {
@@ -248,7 +220,7 @@ export async function ensureBrowserRunning(
     // Once browser - build WebSocket URL with config
     const config = {
       platform: 'Windows',
-      autoClose: true,
+      autoClose: false,
       clearCacheOnClose: true,
     };
     const configParam = encodeURIComponent(JSON.stringify(config));

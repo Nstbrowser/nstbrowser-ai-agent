@@ -455,13 +455,14 @@ export async function startDaemon(options?: {
                 ? colorSchemeEnv
                 : undefined;
 
-            // Extract NST profile fields from command if present
+            // Extract profile field from command if present
             const cmd = parseResult.command as Command & {
-              nstProfileName?: string;
-              nstProfileId?: string;
+              profile?: string;
             };
-            const nstProfileName = cmd.nstProfileName;
-            const nstProfileId = cmd.nstProfileId;
+            const profile = cmd.profile;
+
+            // Check if we should use NST provider
+            const provider = process.env.NSTBROWSER_AI_AGENT_PROVIDER;
 
             await manager.launch({
               id: 'auto',
@@ -469,7 +470,8 @@ export async function startDaemon(options?: {
               headless: process.env.NSTBROWSER_AI_AGENT_HEADED !== '1',
               executablePath: process.env.NSTBROWSER_AI_AGENT_EXECUTABLE_PATH,
               extensions: extensions,
-              profile: process.env.NSTBROWSER_AI_AGENT_PROFILE,
+              profile: profile,
+              provider: provider,
               storageState: process.env.NSTBROWSER_AI_AGENT_STATE,
               args,
               userAgent: process.env.NSTBROWSER_AI_AGENT_USER_AGENT,
@@ -478,8 +480,6 @@ export async function startDaemon(options?: {
               allowFileAccess: allowFileAccess,
               colorScheme,
               autoStateFilePath: getSessionAutoStatePath(),
-              nstProfileName,
-              nstProfileId,
             });
           }
 

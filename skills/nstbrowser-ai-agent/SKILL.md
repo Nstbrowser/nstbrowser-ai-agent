@@ -298,7 +298,7 @@ nstbrowser-ai-agent profile create my-profile \
 **Delete Profile**
 ```bash
 # Delete single profile
-nstbrowser-ai-agent profile delete profile-id
+nstbrowser-ai-agent profile delete <profile-name-or-id>
 
 # Delete multiple profiles
 nstbrowser-ai-agent profile delete id-1 id-2 id-3
@@ -457,7 +457,7 @@ nstbrowser-ai-agent profile proxy update my-profile \
 
 **Reset Proxy**
 ```bash
-nstbrowser-ai-agent profile proxy reset profile-id
+nstbrowser-ai-agent profile proxy reset <profile-name-or-id>
 ```
 
 **Batch Proxy Operations**
@@ -674,9 +674,9 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 - `profile list-cursor` - List profiles with cursor pagination
 - `profile show <name-or-id>` - Show profile details
 - `profile create <name>` - Create new profile
-- `profile delete <id> [id...]` - Delete profile(s)
+- `profile delete <name-or-id> [name-or-id...]` - Delete profile(s)
 - `profile groups list` - List all groups
-- `profile groups change <group-id> <profile-id> [...]` - Move profile(s) to group
+- `profile groups change <group-id> <profile-name-or-id> [...]` - Move profile(s) to group
 - `profile groups batch-change <group-id> <id> [...]` - Batch change group
 - `profile cache clear <id> [id...]` - Clear profile cache
 - `profile cookies clear <id> [id...]` - Clear profile cookies

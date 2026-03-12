@@ -209,12 +209,15 @@ nstbrowser-ai-agent profile create production-profile \
 
 ### Resolution Priority
 
-When you specify a profile, nstbrowser-ai-agent resolves it in this order:
+When you specify a profile, nstbrowser-ai-agent uses the `--profile` flag which automatically detects whether you're providing a profile name or UUID:
 
-1. **Explicit `--profile-id` flag** (highest priority)
-   ```bash
-   nstbrowser-ai-agent --profile-id 86581051-fb0d-4c4a-b1e3-ebc1abd17174 open example.com
-   ```
+```bash
+# Use profile name
+nstbrowser-ai-agent --profile my-profile open example.com
+
+# Use profile UUID (auto-detected)
+nstbrowser-ai-agent --profile 86581051-fb0d-4c4a-b1e3-ebc1abd17174 open example.com
+```
 
 2. **Explicit `--profile` flag** (profile name)
    ```bash
@@ -300,8 +303,8 @@ nstbrowser-ai-agent close
 # Use name for main profile
 export NST_PROFILE="main-profile"
 
-# Override with ID for specific command
-nstbrowser-ai-agent --profile-id 86581051-fb0d-4c4a-b1e3-ebc1abd17174 open example.com
+# Use profile name or UUID with --profile flag
+nstbrowser-ai-agent --profile 86581051-fb0d-4c4a-b1e3-ebc1abd17174 open example.com
 ```
 
 ## Profile Organization
@@ -332,7 +335,7 @@ Groups are created in the Nstbrowser dashboard, not via CLI.
 
 ```bash
 # Move single profile
-nstbrowser-ai-agent profile groups change group-123 profile-id-1
+nstbrowser-ai-agent profile groups change group-123 <profile-name-or-id>
 
 # Move multiple profiles
 nstbrowser-ai-agent profile groups change group-123 id-1 id-2 id-3
@@ -378,7 +381,7 @@ Available tags:
 
 ```bash
 # Add single tag
-nstbrowser-ai-agent profile tags create profile-id production
+nstbrowser-ai-agent profile tags create <profile-name-or-id> production
 
 # Add multiple tags (batch)
 nstbrowser-ai-agent profile tags batch-create id-1 id-2 id-3 \
@@ -389,7 +392,7 @@ nstbrowser-ai-agent profile tags batch-create id-1 id-2 id-3 \
 
 ```bash
 # Replace all tags for a profile
-nstbrowser-ai-agent profile tags update profile-id \
+nstbrowser-ai-agent profile tags update <profile-name-or-id> \
   production:blue verified:green active:yellow
 
 # Batch update
@@ -401,7 +404,7 @@ nstbrowser-ai-agent profile tags batch-update id-1 id-2 id-3 \
 
 ```bash
 # Clear single profile
-nstbrowser-ai-agent profile tags clear profile-id
+nstbrowser-ai-agent profile tags clear <profile-name-or-id>
 
 # Clear multiple profiles (batch)
 nstbrowser-ai-agent profile tags batch-clear id-1 id-2 id-3
@@ -489,20 +492,20 @@ nstbrowser-ai-agent profile proxy update my-profile \
 
 **Update Tags:**
 ```bash
-nstbrowser-ai-agent profile tags update profile-id \
+nstbrowser-ai-agent profile tags update <profile-name-or-id> \
   new-tag-1:blue new-tag-2:green
 ```
 
 **Update Group:**
 ```bash
-nstbrowser-ai-agent profile groups change new-group-id profile-id
+nstbrowser-ai-agent profile groups change new-group-id <profile-name-or-id>
 ```
 
 ### Deleting Profiles
 
 ```bash
 # Delete single profile
-nstbrowser-ai-agent profile delete profile-id
+nstbrowser-ai-agent profile delete <profile-name-or-id>
 
 # Delete multiple profiles
 nstbrowser-ai-agent profile delete id-1 id-2 id-3
@@ -517,7 +520,7 @@ Clear cached data without deleting the profile:
 **Clear Cache:**
 ```bash
 # Clear single profile
-nstbrowser-ai-agent profile cache clear profile-id
+nstbrowser-ai-agent profile cache clear <profile-name-or-id>
 
 # Clear multiple profiles
 nstbrowser-ai-agent profile cache clear id-1 id-2 id-3
@@ -526,7 +529,7 @@ nstbrowser-ai-agent profile cache clear id-1 id-2 id-3
 **Clear Cookies:**
 ```bash
 # Clear single profile
-nstbrowser-ai-agent profile cookies clear profile-id
+nstbrowser-ai-agent profile cookies clear <profile-name-or-id>
 
 # Clear multiple profiles
 nstbrowser-ai-agent profile cookies clear id-1 id-2 id-3

@@ -161,7 +161,7 @@ Remove proxy configuration from profiles:
 
 ```bash
 # Reset single profile
-nstbrowser-ai-agent profile proxy reset profile-id
+nstbrowser-ai-agent profile proxy reset <profile-name-or-id>
 
 # Reset multiple profiles (batch)
 nstbrowser-ai-agent profile proxy batch-reset id-1 id-2 id-3
@@ -293,9 +293,9 @@ PROXIES=(
 )
 
 PROFILES=(
-  "profile-id-1"
-  "profile-id-2"
-  "profile-id-3"
+  "profile-name-1"
+  "profile-name-2"  
+  "profile-name-3"
 )
 
 # Assign proxies to profiles in round-robin

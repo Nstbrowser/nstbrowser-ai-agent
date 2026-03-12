@@ -2,8 +2,6 @@
 /// This is a simplified MVP implementation for immediate testing
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_json::{json, Value};
-use std::env;
 
 /// UUID v4 pattern for profile ID detection (case-insensitive)
 /// Matches format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx

@@ -463,7 +463,7 @@ describe('Nstbrowser command validation', () => {
           config: {
             platform: 'Windows',
             headless: true,
-            autoClose: true
+            autoClose: false
           }
         })
       );
