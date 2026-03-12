@@ -149,6 +149,31 @@ async function handleBrowserStop(
   command: { id: string; action: 'nst_browser_stop'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
+  // Check if this is a temporary browser name (nst_<number> pattern)
+  const isOnceBrowserName = /^nst_\d+$/.test(command.profileId);
+
+  if (isOnceBrowserName) {
+    // Temporary browser: look up by name in running browsers list
+    const browsers = await client.getBrowsers();
+    const onceBrowser = browsers.find((b) => b.name === command.profileId && b.running);
+
+    if (!onceBrowser) {
+      return errorResponse(
+        command.id,
+        `Temporary browser "${command.profileId}" not found. ` +
+          `Use "browser list" to see running browsers, or "browser stop-all" to stop all browsers.`
+      );
+    }
+
+    await client.stopBrowser(onceBrowser.profileId);
+    return successResponse(command.id, {
+      stopped: true,
+      profileId: onceBrowser.profileId,
+      message: `Stopped temporary browser ${command.profileId}`,
+    });
+  }
+
+  // Regular profile: use resolveProfileId
   const profileId = await resolveProfileId(client, command.profileId);
   await client.stopBrowser(profileId);
   return successResponse(command.id, { stopped: true });

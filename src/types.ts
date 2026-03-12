@@ -839,6 +839,7 @@ export interface WaitCommand extends BaseCommand, ProfileAwareCommand {
   selector?: string;
   timeout?: number;
   state?: 'attached' | 'detached' | 'visible' | 'hidden';
+  load?: 'load' | 'domcontentloaded' | 'networkidle';
 }
 
 export interface ScrollCommand extends BaseCommand, ProfileAwareCommand {

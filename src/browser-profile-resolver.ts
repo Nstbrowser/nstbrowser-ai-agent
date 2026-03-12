@@ -173,6 +173,24 @@ export async function resolveBrowserProfile(
 
     await client.startBrowser(profileId);
 
+    // Wait for browser to fully initialize
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Verify browser is actually running
+    const browsersAfterStart = await client.getBrowsers();
+    const runningBrowser = browsersAfterStart.find((b) => b.profileId === profileId && b.running);
+
+    if (!runningBrowser) {
+      throw new NstbrowserError(
+        `Browser started but not found in running list. This may be a timing issue.\n\n` +
+          `Troubleshooting:\n` +
+          `1. Try using Profile ID directly: nstbrowser-ai-agent --profile ${profileId} open <url>\n` +
+          `2. Check browser status: nstbrowser-ai-agent browser list\n` +
+          `3. Stop all and retry: nstbrowser-ai-agent browser stop-all`,
+        'BROWSER_START_VERIFICATION_FAILED'
+      );
+    }
+
     const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
 
     return {

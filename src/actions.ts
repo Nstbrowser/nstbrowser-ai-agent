@@ -709,6 +709,9 @@ async function handleNavigate(
 ): Promise<Response<NavigateData>> {
   browser.checkDomainAllowed(command.url);
 
+  // Ensure at least one page exists before navigating
+  await browser.ensurePage();
+
   const page = browser.getPage();
 
   // If headers are provided, set up scoped headers for this origin
@@ -1058,6 +1061,37 @@ async function handleWait(command: WaitCommand, browser: BrowserManager): Promis
     });
   } else if (command.timeout) {
     await page.waitForTimeout(command.timeout);
+  } else if (command.load) {
+    // Improved wait for load state with retry logic
+    const maxAttempts = 2;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await page.waitForLoadState(command.load as any, {
+          timeout: attempt === 1 ? 15000 : 30000, // First attempt: 15s, second: 30s
+        });
+        return successResponse(command.id, { waited: true });
+      } catch (error) {
+        lastError = error as Error;
+
+        if (attempt < maxAttempts && command.load === 'networkidle') {
+          // Log warning for first failure
+          if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+            console.error(
+              `[DEBUG] networkidle timeout on attempt ${attempt}, retrying with longer timeout`
+            );
+          }
+        }
+      }
+    }
+
+    // All attempts failed
+    throw new Error(
+      `Wait for load state "${command.load}" failed after ${maxAttempts} attempts. ` +
+        `The page may still be loading background resources. ` +
+        `Try using a fixed delay instead: "wait 5000"`
+    );
   } else {
     // Default: wait for load state
     await page.waitForLoadState('load');
@@ -1190,9 +1224,12 @@ async function handleTabSwitch(
 ): Promise<Response<TabSwitchData>> {
   const result = await browser.switchTo(command.index);
   const page = browser.getPage();
+
+  // Return with a message reminding users to refresh refs
   return successResponse(command.id, {
     ...result,
     title: await page.title(),
+    message: 'Tab switched. Run "snapshot -i" to get updated refs for this tab.',
   });
 }
 

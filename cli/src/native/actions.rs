@@ -2290,7 +2290,17 @@ async fn handle_tab_switch(cmd: &Value, state: &mut DaemonState) -> Result<Value
         .and_then(|v| v.as_u64())
         .ok_or("Missing 'index' parameter")? as usize;
     state.ref_map.clear();
-    mgr.tab_switch(index).await
+    let mut result = mgr.tab_switch(index).await?;
+    
+    // Add reminder message about refs
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert(
+            "message".to_string(),
+            json!("Tab switched. Run \"snapshot -i\" to get updated refs for this tab.")
+        );
+    }
+    
+    Ok(result)
 }
 
 async fn handle_tab_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {

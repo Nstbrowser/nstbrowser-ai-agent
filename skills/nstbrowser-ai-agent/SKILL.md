@@ -753,16 +753,90 @@ nstbrowser-ai-agent get text @e1 --json
 
 ## Best Practices
 
-1. **Use Profile Names**: More readable than IDs for most use cases
+1. **Use Profile IDs**: More reliable than names for browser operations
 2. **Leverage Sticky Sessions**: No need to repeat `--profile` flag once browser is running
 3. **Use Batch Operations**: More efficient for multiple profiles
-5. **Organize with Groups and Tags**: Keep profiles organized
-6. **Prefer CSS Selectors for Modern Apps**: Refs may not work with Vue/React/Angular
-7. **Wait Appropriately**: Use `wait --load networkidle` after navigation
-8. **Close Cleanly**: Always close browser to save session state
-9. **Handle Errors**: Check command output and retry if needed
-10. **Use Proxies Per Profile**: Configure proxies for geo-targeting or privacy
-11. **Keep Updated**: Run `nstbrowser-ai-agent update check` periodically
+4. **Organize with Groups and Tags**: Keep profiles organized
+5. **Prefer CSS Selectors for Modern Apps**: Refs may not work with Vue/React/Angular
+6. **Wait Appropriately**: Use `wait 3000` instead of `wait --load networkidle` for reliability
+7. **Close Cleanly**: Always close browser to save session state
+8. **Handle Errors**: Check command output and retry if needed
+9. **Use Proxies Per Profile**: Configure proxies for geo-targeting or privacy
+10. **Keep Updated**: Run `nstbrowser-ai-agent update check` periodically
+11. **Refresh Refs After Tab Switch**: Always run `snapshot -i` after switching tabs
+
+## Known Limitations
+
+### Profile Name vs Profile ID
+
+While the tool supports both Profile Names and Profile IDs, **Profile IDs are more reliable** for browser operations.
+
+**Issue**: Using Profile Name may result in "browserContext.newPage: Target page, context or browser has been closed" error.
+
+**Recommended approach**:
+```bash
+# Store Profile ID in variable
+PROFILE_ID=$(nstbrowser-ai-agent profile create my-test --json | jq -r '.data.profileId')
+
+# Use Profile ID for all operations
+nstbrowser-ai-agent --profile $PROFILE_ID open https://example.com
+```
+
+**Why Profile ID is better**:
+- Faster resolution (no API lookup)
+- More reliable (no timing issues)
+- Guaranteed uniqueness
+- Better for scripting
+
+### Refs and Tab Management
+
+Refs are tab-specific and become invalid after switching tabs. Always run `snapshot -i` after:
+- Switching tabs with `tab <n>`
+- Opening new tabs with `tab new`
+- Closing tabs with `tab close`
+
+**Example**:
+```bash
+# Get refs for tab 0
+nstbrowser-ai-agent tab 0
+nstbrowser-ai-agent snapshot -i
+nstbrowser-ai-agent click @e1  # Works
+
+# Switch to tab 1
+nstbrowser-ai-agent tab 1
+
+# Switch back to tab 0
+nstbrowser-ai-agent tab 0
+nstbrowser-ai-agent click @e1  # FAILS - refs are stale
+
+# Solution: Get fresh snapshot
+nstbrowser-ai-agent snapshot -i
+nstbrowser-ai-agent click @e1  # Works
+```
+
+### Wait Strategies
+
+The `wait --load networkidle` command may timeout on modern websites with continuous background requests. Use fixed delays for more reliable automation:
+
+```bash
+# Reliable
+nstbrowser-ai-agent wait 3000
+
+# May timeout
+nstbrowser-ai-agent wait --load networkidle
+```
+
+### Temporary Browser Limitations
+
+Temporary browsers (created with `browser start-once`) cannot be stopped individually by name. Use `browser stop-all` instead:
+
+```bash
+# This will NOT work
+nstbrowser-ai-agent browser stop nst_1773312093
+
+# Use this instead
+nstbrowser-ai-agent browser stop-all
+```
 
 ## Updates
 

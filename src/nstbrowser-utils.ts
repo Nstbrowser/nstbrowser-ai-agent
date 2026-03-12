@@ -20,19 +20,29 @@ function isUUID(str: string): boolean {
 
 /**
  * Get profiles with caching
+ * @param bypassCache - If true, bypass cache and fetch fresh data
  */
-async function getCachedProfiles(client: NstbrowserClient): Promise<any[]> {
+async function getCachedProfiles(client: NstbrowserClient, bypassCache = false): Promise<any[]> {
   const cacheKey = 'profiles';
   const cached = profileCache.get(cacheKey);
   const now = Date.now();
 
-  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
-    return cached.profiles;
+  // Bypass cache if requested or cache is expired
+  if (bypassCache || !cached || now - cached.timestamp >= CACHE_TTL_MS) {
+    const profiles = await client.getProfiles();
+    profileCache.set(cacheKey, { profiles, timestamp: now });
+    return profiles;
   }
 
-  const profiles = await client.getProfiles();
-  profileCache.set(cacheKey, { profiles, timestamp: now });
-  return profiles;
+  return cached.profiles;
+}
+
+/**
+ * Clear the profile cache
+ * Useful after creating or deleting profiles
+ */
+export function clearProfileCache(): void {
+  profileCache.clear();
 }
 
 /**
@@ -64,7 +74,9 @@ export async function resolveProfileId(
   const trimmedInput = nameOrId.trim();
 
   try {
-    const profiles = await getCachedProfiles(client);
+    // Always bypass cache for Profile Name lookups to avoid stale data
+    // Profile Names may have just been created and not yet in cache
+    const profiles = await getCachedProfiles(client, true);
 
     // Step 1: Check if input is UUID format
     if (isUUID(trimmedInput)) {
@@ -75,7 +87,11 @@ export async function resolveProfileId(
       }
       // UUID format but not found
       throw new NstbrowserError(
-        `Profile ID not found: "${trimmedInput}"`,
+        `Profile ID not found: "${trimmedInput}"\n\n` +
+          `Troubleshooting:\n` +
+          `1. List available profiles: nstbrowser-ai-agent profile list\n` +
+          `2. Verify the profile exists: nstbrowser-ai-agent profile show ${trimmedInput}\n` +
+          `3. Create a new profile: nstbrowser-ai-agent profile create <name>`,
         'PROFILE_NOT_FOUND',
         404
       );
@@ -85,7 +101,15 @@ export async function resolveProfileId(
     const profilesByName = profiles.filter((p) => p.name === trimmedInput);
 
     if (profilesByName.length === 0) {
-      throw new NstbrowserError(`Profile not found: "${trimmedInput}"`, 'PROFILE_NOT_FOUND', 404);
+      throw new NstbrowserError(
+        `Profile not found: "${trimmedInput}"\n\n` +
+          `Troubleshooting:\n` +
+          `1. List available profiles: nstbrowser-ai-agent profile list\n` +
+          `2. Create the profile: nstbrowser-ai-agent profile create ${trimmedInput}\n` +
+          `3. Use a temporary browser: nstbrowser-ai-agent browser start-once`,
+        'PROFILE_NOT_FOUND',
+        404
+      );
     }
 
     if (profilesByName.length > 1) {
