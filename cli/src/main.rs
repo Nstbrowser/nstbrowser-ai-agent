@@ -1010,12 +1010,9 @@ fn main() {
                 launch_cmd["colorScheme"] = json!(cs);
             }
 
-            // Add Nstbrowser profile connection options
-            if let Some(ref profile_name) = flags.nst_profile {
-                launch_cmd["nstProfileName"] = json!(profile_name);
-            }
-            if let Some(ref profile_id) = flags.nst_profile_id {
-                launch_cmd["nstProfileId"] = json!(profile_id);
+            // Add Nstbrowser profile connection option
+            if let Some(ref profile) = flags.nst_profile {
+                launch_cmd["profile"] = json!(profile);
             }
 
             if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
@@ -1177,22 +1174,12 @@ fn main() {
 
         // Only enrich browser commands (not NST management commands)
         if nst_profile::is_browser_action(action) {
-            // Resolve profile from flags or environment
-            if let Some((profile_id, profile_name)) = nst_profile::resolve_nst_profile(
-                flags.nst_profile.as_deref(),
-                flags.nst_profile_id.as_deref(),
-            ) {
-                nst_profile::enrich_command_with_profile(
-                    &mut cmd,
-                    profile_id.as_deref(),
-                    profile_name.as_deref(),
-                );
+            // Add profile to command if specified
+            if let Some(ref profile) = flags.nst_profile {
+                cmd["profile"] = json!(profile);
 
                 if env::var("NSTBROWSER_AI_AGENT_DEBUG").unwrap_or_default() == "1" {
-                    eprintln!(
-                        "[CLI DEBUG] Enriched command with profile: id={:?}, name={:?}",
-                        profile_id, profile_name
-                    );
+                    eprintln!("[CLI DEBUG] Enriched command with profile: {}", profile);
                 }
             }
         }

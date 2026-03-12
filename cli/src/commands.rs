@@ -4,6 +4,7 @@ use std::io::{self, BufRead};
 
 use crate::color;
 use crate::flags::Flags;
+use crate::nst_profile::is_uuid;
 use crate::validation::{is_valid_session_name, session_name_error};
 
 /// Check if NST provider should be used based on flags and environment
@@ -15,46 +16,41 @@ fn should_use_nst_provider(flags: &Flags) -> bool {
         return provider == "nst";
     }
 
-    // Priority 2: --local flag overrides default
-    if flags.local {
-        return false;
-    }
-
-    // Priority 3: --headed implies local
+    // Priority 2: --headed implies local
     if flags.headed {
         return false;
     }
 
-    // Priority 4: --cdp implies local
+    // Priority 3: --cdp implies local
     if flags.cdp.is_some() {
         return false;
     }
 
-    // Priority 5: --auto-connect implies local
+    // Priority 4: --auto-connect implies local
     if flags.auto_connect {
         return false;
     }
 
-    // Priority 6: NST_API_KEY environment variable present (default to nst)
+    // Priority 5: NST_API_KEY environment variable present (default to nst)
     if std::env::var("NST_API_KEY").is_ok() {
         return true;
     }
 
-    // Priority 7: Default to nst
+    // Priority 6: Default to nst
     true
 }
 
 /// Add NST profile fields to a command JSON if profiles are specified
 /// This ensures all browser action commands can specify profile name or ID
 fn add_profile_fields(mut cmd: Value, flags: &Flags) -> Value {
-    // Add profile name if specified
-    if let Some(ref profile_name) = flags.nst_profile {
-        cmd["nstProfileName"] = json!(profile_name);
-    }
-
-    // Add profile ID if specified (takes precedence over name)
-    if let Some(ref profile_id) = flags.nst_profile_id {
-        cmd["nstProfileId"] = json!(profile_id);
+    // Add profile name or ID if specified (auto-detects UUID format)
+    if let Some(ref profile) = flags.nst_profile {
+        // Auto-detect if it's a UUID or profile name
+        if is_uuid(profile) {
+            cmd["nstProfileId"] = json!(profile);
+        } else {
+            cmd["nstProfileName"] = json!(profile);
+        }
     }
 
     cmd
@@ -3129,9 +3125,7 @@ mod tests {
             confirm_actions: None,
             confirm_interactive: false,
             native: false,
-            local: false,
             nst_profile: None,
-            nst_profile_id: None,
             cli_provider: false,
         }
     }

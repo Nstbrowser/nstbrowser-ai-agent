@@ -2363,24 +2363,6 @@ Examples:
 "##
         }
 
-        // === Install ===
-        "install" => {
-            r##"
-nstbrowser-ai-agent install - Install browser binaries
-
-Usage: nstbrowser-ai-agent install [--with-deps]
-
-Downloads and installs browser binaries required for automation.
-
-Options:
-  -d, --with-deps      Also install system dependencies (Linux only)
-
-Examples:
-  nstbrowser-ai-agent install
-  nstbrowser-ai-agent install --with-deps
-"##
-        }
-
         // === Connect ===
         "connect" => {
             r##"
@@ -2486,8 +2468,6 @@ Environment Variables:
   NST_PORT                 Nstbrowser API port (default: 8848)
   NST_API_KEY              Nstbrowser API key (required)
   NST_PROFILE              Profile name or ID (UUID format auto-detected)
-  NST_PROFILE_NAME         Profile name for provider=nst launch
-  NST_PROFILE_ID           Profile ID for provider=nst launch
 
 Profile Resolution:
   When specifying a profile, the system automatically detects UUID format:
@@ -2744,10 +2724,6 @@ Updates:
 NST Agent:
   nst status                 Check if NST agent is running
 
-Setup:
-  install                    Install browser binaries
-  install --with-deps        Also install system dependencies (Linux)
-
 Snapshot Options:
   -i, --interactive          Only interactive elements
   -c, --compact              Remove empty structural elements
@@ -2795,7 +2771,6 @@ Options:
                              Accepts profile name (e.g., "proxy_ph") or UUID
                              (e.g., "ef2b083a-8f77-4a7f-8441-a8d56bbd832b")
                              Can also be set via NST_PROFILE environment variable
-  --profile-id <id>          Connect to Nstbrowser profile by ID (or NST_PROFILE_ID env)
   --json                     JSON output
   --full, -f                 Full page screenshot
   --annotate                 Annotated screenshot with numbered labels and legend
@@ -2875,12 +2850,9 @@ Environment:
   NST_PORT                       Nstbrowser API port (default: 8848)
   NST_PROFILE                    Profile name for provider=nst launch
 
-Install (recommended, fastest - native Rust CLI):
-  npm install -g nstbrowser-ai-agent
-  nstbrowser-ai-agent install                  # Download Chromium (first time)
-
-Try without installing (slower, routes through Node.js):
-  npx nstbrowser-ai-agent open example.com
+Installation:
+  npm install -g nstbrowser-ai-agent           # Install globally (recommended)
+  npx nstbrowser-ai-agent open example.com     # Or run without installing
 
 Examples:
   # Using Nstbrowser (default provider)

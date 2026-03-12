@@ -168,14 +168,11 @@ All profile commands support both profile NAME and profile ID:
 - The system automatically detects UUID format in profile names
 - If you provide a UUID-formatted string to `--profile`, it's treated as a profile ID
 - This prevents accidental profile creation when you meant to use an ID
-- Example: `--profile "86581051-fb0d-4c4a-b1e3-ebc1abd17174"` is treated as `--profile-id`
+- Example: `--profile "86581051-fb0d-4c4a-b1e3-ebc1abd17174"` is treated as profile ID
 
 **Resolution Priority:**
-1. `--profile-id` flag (highest priority)
-2. `--profile` flag (profile name or UUID auto-detected as ID)
-3. `NST_PROFILE_ID` environment variable
-4. `NST_PROFILE` environment variable (UUID format auto-detected as ID)
-5. Use once browser if no profile specified
+1. `--profile` flag (profile name or UUID auto-detected as ID)
+2. Use once browser if no profile specified
 
 **Profile Resolution Logic:**
 When you specify a profile for a browser action:
@@ -260,8 +257,8 @@ Alternative to config file:
 # Optional: Nstbrowser API endpoint
 # Set NST_HOST and NST_PORT if using custom endpoint
 
-# Optional: Default profile
-# Set NST_PROFILE or NST_PROFILE_ID for default profile
+# Optional: Specify profile for each command
+# nstbrowser-ai-agent open https://example.com --profile "my-profile"
 ```
 
 **Priority:** Config file > Environment variables > Defaults
@@ -491,10 +488,8 @@ nstbrowser-ai-agent config set profile my-profile
 # 3. List profiles to find target
 nstbrowser-ai-agent profile list
 
-# 4. Set profile by name
-export NST_PROFILE="my-profile"
-
-# 5. Open browser (auto-uses profile, auto-starts if not running)
+# 4. Open browser with profile (auto-starts if not running)
+nstbrowser-ai-agent open https://example.com --profile "my-profile"
 nstbrowser-ai-agent open https://example.com
 
 # 6. Get snapshot
@@ -759,9 +754,8 @@ nstbrowser-ai-agent get text @e1 --json
 ## Best Practices
 
 1. **Use Profile Names**: More readable than IDs for most use cases
-2. **Set Environment Variables**: Use `NST_PROFILE` for consistent profile usage
-3. **Leverage Sticky Sessions**: No need to repeat `--profile` flag
-4. **Use Batch Operations**: More efficient for multiple profiles
+2. **Leverage Sticky Sessions**: No need to repeat `--profile` flag once browser is running
+3. **Use Batch Operations**: More efficient for multiple profiles
 5. **Organize with Groups and Tags**: Keep profiles organized
 6. **Prefer CSS Selectors for Modern Apps**: Refs may not work with Vue/React/Angular
 7. **Wait Appropriately**: Use `wait --load networkidle` after navigation

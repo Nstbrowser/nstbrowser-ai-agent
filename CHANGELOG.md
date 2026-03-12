@@ -84,7 +84,7 @@ nstbrowser-ai-agent -p ios --device "iPhone 16" open example.com
 
 # Now (recommended)
 nstbrowser-ai-agent open example.com  # Uses Nstbrowser (default)
-nstbrowser-ai-agent --local open example.com  # Uses local browser
+nstbrowser-ai-agent --headed open example.com  # Uses local browser (for debugging)
 nstbrowser-ai-agent --cdp 9222 open example.com  # Uses CDP connection
 ```
 
@@ -100,10 +100,10 @@ nstbrowser-ai-agent -p nst open example.com
 nstbrowser-ai-agent open example.com
 ```
 
-To use local browser, use `--local` flag:
+To use local browser for debugging, use `--headed` flag:
 
 ```bash
-nstbrowser-ai-agent --local open example.com
+nstbrowser-ai-agent --headed open example.com
 ```
 
 ---

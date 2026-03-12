@@ -31,39 +31,9 @@ pub fn is_uuid(value: &str) -> bool {
     UUID_REGEX.is_match(value)
 }
 
-/// Resolve NST profile based on flags and environment
-/// Returns (profile_id, profile_name) if a profile should be used
-pub fn resolve_nst_profile(
-    nst_profile: Option<&str>,
-    nst_profile_id: Option<&str>,
-) -> Option<(Option<String>, Option<String>)> {
-    // Priority 1: Explicit --profile-id
-    if let Some(id) = nst_profile_id {
-        return Some((Some(id.to_string()), None));
-    }
-
-    // Priority 2: Explicit --profile
-    if let Some(name) = nst_profile {
-        return Some((None, Some(name.to_string())));
-    }
-
-    // Priority 3: NST_PROFILE_ID environment variable
-    if let Ok(id) = env::var("NST_PROFILE_ID") {
-        if !id.trim().is_empty() {
-            return Some((Some(id), None));
-        }
-    }
-
-    // Priority 4: NST_PROFILE environment variable
-    if let Ok(name) = env::var("NST_PROFILE") {
-        if !name.trim().is_empty() {
-            return Some((None, Some(name)));
-        }
-    }
-
-    // No profile specified - will use earliest browser or start once browser
-    None
-}
+// Note: This function is no longer used after simplification.
+// Profile resolution is now handled directly in browser-profile-resolver.ts (Node.js)
+// and will be handled in nst_profile_resolver.rs (Rust) when integrated.
 
 /// Check if an action requires a browser
 pub fn is_browser_action(action: &str) -> bool {
@@ -99,19 +69,8 @@ pub fn is_browser_action(action: &str) -> bool {
     )
 }
 
-/// Enrich command with NST profile context
-pub fn enrich_command_with_profile(
-    cmd: &mut Value,
-    profile_id: Option<&str>,
-    profile_name: Option<&str>,
-) {
-    if let Some(id) = profile_id {
-        cmd["nstProfileId"] = json!(id);
-    }
-    if let Some(name) = profile_name {
-        cmd["nstProfileName"] = json!(name);
-    }
-}
+// Note: This function is no longer used after simplification.
+// Commands now use a single "profile" field that auto-detects UUID format.
 
 #[cfg(test)]
 mod tests {

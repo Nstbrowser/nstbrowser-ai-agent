@@ -8,9 +8,8 @@ export interface BaseCommand {
 
 // Profile-aware command (for browser actions that support NST profile specification)
 export interface ProfileAwareCommand {
-  // Nstbrowser profile connection options
-  nstProfileName?: string; // Connect to Nstbrowser profile by name
-  nstProfileId?: string; // Connect to Nstbrowser profile by ID
+  // Nstbrowser profile connection option
+  profile?: string; // Connect to Nstbrowser profile by name or ID (UUID format auto-detected)
 }
 
 // Action-specific command types
@@ -25,7 +24,7 @@ export interface LaunchCommand extends BaseCommand {
   cdpUrl?: string;
   autoConnect?: boolean; // Auto-discover and connect to running Chrome via DevToolsActivePort
   extensions?: string[];
-  profile?: string; // Path to persistent browser profile directory
+  profile?: string; // Path to persistent browser profile directory (local provider)
   storageState?: string; // Path to storage state JSON file
   proxy?: {
     server: string;
@@ -45,9 +44,9 @@ export interface LaunchCommand extends BaseCommand {
   confirmActions?: string[];
   // Auto-load state file for session persistence
   autoStateFilePath?: string;
-  // Nstbrowser profile connection options
-  nstProfileName?: string; // Connect to Nstbrowser profile by name (uses first if multiple matches)
-  nstProfileId?: string; // Connect to Nstbrowser profile by ID
+  // Nstbrowser profile connection options (NST provider)
+  nstProfileName?: string; // Profile name for NST provider
+  nstProfileId?: string; // Profile ID for NST provider (takes precedence over name)
 }
 
 export interface NavigateCommand extends BaseCommand, ProfileAwareCommand {

@@ -342,19 +342,14 @@ export async function executeCommand(command: Command, browser: BrowserManager):
  * Implements the unified profile resolution logic for all browser actions
  */
 async function ensureBrowserWithProfile(command: Command, browser: BrowserManager): Promise<void> {
-  const cmdWithProfile = command as { nstProfileName?: string; nstProfileId?: string };
+  const cmdWithProfile = command as { profile?: string };
 
-  // Check if command has profile specifications or environment variables are set
-  const hasProfileSpec =
-    !!cmdWithProfile.nstProfileName ||
-    !!cmdWithProfile.nstProfileId ||
-    !!process.env.NST_PROFILE ||
-    !!process.env.NST_PROFILE_ID;
+  // Check if command has profile specification
+  const hasProfileSpec = !!cmdWithProfile.profile;
 
   // Only proceed with profile resolution if:
   // 1. Profile is explicitly specified in the command OR
-  // 2. Environment variables are set OR
-  // 3. We're using NST provider (default or explicit)
+  // 2. We're using NST provider (default or explicit)
   const provider = process.env.NSTBROWSER_AI_AGENT_PROVIDER;
   const isNstProvider = !provider || provider === 'nst'; // Default is NST
 
@@ -402,8 +397,7 @@ async function ensureBrowserWithProfile(command: Command, browser: BrowserManage
         id: command.id,
         action: 'launch',
         provider: 'nst',
-        nstProfileId: resolved.profileId,
-        nstProfileName: resolved.profileName,
+        profile: cmdWithProfile.profile,
       });
     } catch (error) {
       if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
@@ -411,6 +405,12 @@ async function ensureBrowserWithProfile(command: Command, browser: BrowserManage
       }
       throw error;
     }
+  }
+
+  // CRITICAL FIX: After launching NST browser, ensure at least one page exists
+  // NST browsers may connect with 0 pages initially, so we need to create one
+  if (!browser.hasPages()) {
+    await browser.ensurePage();
   }
 }
 

@@ -5,11 +5,13 @@
  * all browser action commands can seamlessly work with Nstbrowser profiles.
  *
  * Resolution Priority:
- * 1. Check running browsers for matching name/ID (prefer earliest if multiple)
- * 2. If not running, start browser with profileId
- * 3. If name specified and profile doesn't exist → create new profile
- * 4. If ID specified and doesn't exist → error
- * 5. If no profile specified → use existing once browser or create new once browser
+ * 1. If --profile is UUID format → treat as profile ID
+ * 2. If --profile is not UUID → treat as profile name
+ * 3. Check running browsers for matching name/ID (prefer earliest if multiple)
+ * 4. If not running, start browser with profileId
+ * 5. If name specified and profile doesn't exist → create new profile
+ * 6. If ID specified and doesn't exist → error
+ * 7. If no profile specified → use existing once browser or create new once browser
  */
 
 import type { NstbrowserClient } from './nstbrowser-client.js';
@@ -25,10 +27,8 @@ export function isUuid(input: string): boolean {
 }
 
 export interface BrowserProfileResolutionOptions {
-  /** Explicit profile ID (highest priority) */
-  profileId?: string;
-  /** Explicit profile name */
-  profileName?: string;
+  /** Profile name or ID (auto-detected by UUID format) */
+  profile?: string;
   /** NST API configuration */
   nstHost: string;
   nstPort: number;
@@ -54,11 +54,12 @@ export interface ResolvedBrowserProfile {
  * Resolve and ensure browser profile is ready for actions
  *
  * Implements the complete resolution logic:
- * 1. Check running browsers for matching name/ID
- * 2. Start browser if not running
- * 3. Create profile if name specified and doesn't exist
- * 4. Error if ID specified and doesn't exist
- * 5. Use once browser if no profile specified
+ * 1. Auto-detect UUID format in profile parameter
+ * 2. Check running browsers for matching name/ID
+ * 3. Start browser if not running
+ * 4. Create profile if name specified and doesn't exist
+ * 5. Error if ID specified and doesn't exist
+ * 6. Use once browser if no profile specified
  *
  * @param client - Nstbrowser API client
  * @param options - Resolution options
@@ -71,43 +72,21 @@ export async function resolveBrowserProfile(
 ): Promise<ResolvedBrowserProfile> {
   const debug = process.env.NSTBROWSER_AI_AGENT_DEBUG === '1';
 
-  // Determine profile from options or environment
-  let profileId = options.profileId;
-  let profileName = options.profileName;
+  // Auto-detect UUID format: if profile is UUID, treat as ID; otherwise treat as name
+  let profileId: string | undefined;
+  let profileName: string | undefined;
 
-  // CRITICAL: If profileName is provided and it's in UUID format, treat it as profileId instead
-  // This satisfies requirement #5: all places that accept profile name must check if it's UUID format
-  if (profileName && !profileId && isUuid(profileName)) {
-    if (debug) {
-      console.error(`[DEBUG] Profile name "${profileName}" is UUID format, treating as profileId`);
-    }
-    profileId = profileName;
-    profileName = undefined;
-  }
-
-  // Check environment variables if not specified
-  if (!profileId && !profileName) {
-    profileId = process.env.NST_PROFILE_ID;
-    if (profileId && debug) {
-      console.error(`[DEBUG] Using profile ID from NST_PROFILE_ID env: ${profileId}`);
-    }
-  }
-
-  if (!profileId && !profileName) {
-    profileName = process.env.NST_PROFILE;
-    if (profileName && debug) {
-      console.error(`[DEBUG] Using profile name from NST_PROFILE env: ${profileName}`);
-    }
-
-    // Also check UUID format for environment variable
-    if (profileName && isUuid(profileName)) {
+  if (options.profile) {
+    if (isUuid(options.profile)) {
+      profileId = options.profile;
       if (debug) {
-        console.error(
-          `[DEBUG] NST_PROFILE env "${profileName}" is UUID format, treating as profileId`
-        );
+        console.error(`[DEBUG] Profile "${options.profile}" is UUID format, treating as profileId`);
       }
-      profileId = profileName;
-      profileName = undefined;
+    } else {
+      profileName = options.profile;
+      if (debug) {
+        console.error(`[DEBUG] Profile "${options.profile}" is not UUID, treating as profile name`);
+      }
     }
   }
 
@@ -319,6 +298,7 @@ export async function resolveBrowserProfile(
     isRunning: false, // Will be started when connecting
     isOnce: true,
     wsUrl,
+    wasCreated: true, // Once browser will be created on connection
   };
 }
 
@@ -326,14 +306,13 @@ export async function resolveBrowserProfile(
  * Helper to extract profile resolution options from command
  */
 export function extractProfileOptions(
-  command: { nstProfileName?: string; nstProfileId?: string },
+  command: { profile?: string },
   nstHost: string,
   nstPort: number,
   nstApiKey: string
 ): BrowserProfileResolutionOptions {
   return {
-    profileId: command.nstProfileId,
-    profileName: command.nstProfileName,
+    profile: command.profile,
     nstHost,
     nstPort,
     nstApiKey,

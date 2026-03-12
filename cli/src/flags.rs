@@ -72,7 +72,6 @@ pub struct Config {
     pub confirm_actions: Option<String>,
     pub confirm_interactive: Option<bool>,
     pub native: Option<bool>,
-    pub local: Option<bool>,
     // NST configuration
     pub nst_api_key: Option<String>,
     pub nst_host: Option<String>,
@@ -118,7 +117,6 @@ impl Config {
             confirm_actions: other.confirm_actions.or(self.confirm_actions),
             confirm_interactive: other.confirm_interactive.or(self.confirm_interactive),
             native: other.native.or(self.native),
-            local: other.local.or(self.local),
             nst_api_key: other.nst_api_key.or(self.nst_api_key),
             nst_host: other.nst_host.or(self.nst_host),
             nst_port: other.nst_port.or(self.nst_port),
@@ -180,8 +178,7 @@ fn extract_config_path(args: &[String]) -> Option<Option<String>> {
         "--executable-path",
         "--cdp",
         "--extension",
-        "--profile",         // NST profile name
-        "--profile-id",      // NST profile ID
+        "--profile",         // NST profile name or ID (auto-detects UUID)
         "--browser-profile", // Local browser profile path
         "--state",
         "--proxy",
@@ -198,8 +195,6 @@ fn extract_config_path(args: &[String]) -> Option<Option<String>> {
         "--allowed-domains",
         "--action-policy",
         "--confirm-actions",
-        "--nst-profile-name", // Deprecated
-        "--nst-profile-id",   // Deprecated
     ];
     let mut i = 0;
     while i < args.len() {
@@ -277,9 +272,7 @@ pub struct Flags {
     pub confirm_actions: Option<String>,
     pub confirm_interactive: bool,
     pub native: bool,
-    pub local: bool,
-    pub nst_profile: Option<String>, // NST profile name (--profile)
-    pub nst_profile_id: Option<String>, // NST profile ID (--profile-id)
+    pub nst_profile: Option<String>, // NST profile name or ID (--profile, auto-detects UUID)
 
     // Track which launch-time options were explicitly passed via CLI
     // (as opposed to being set only via environment variables)
@@ -390,9 +383,7 @@ pub fn parse_flags(args: &[String]) -> Flags {
         confirm_interactive: env_var_is_truthy("NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE")
             || config.confirm_interactive.unwrap_or(false),
         native: env_var_is_truthy("NSTBROWSER_AI_AGENT_NATIVE") || config.native.unwrap_or(false),
-        local: env_var_is_truthy("NSTBROWSER_AI_AGENT_LOCAL") || config.local.unwrap_or(false),
-        nst_profile: env::var("NST_PROFILE").ok(),
-        nst_profile_id: env::var("NST_PROFILE_ID").ok(),
+        nst_profile: None, // Will be set from CLI args only
         cli_executable_path: false,
         cli_extensions: false,
         cli_profile: false,
@@ -471,16 +462,9 @@ pub fn parse_flags(args: &[String]) -> Flags {
                 }
             }
             "--profile" => {
-                // NST profile name (when using NST provider)
+                // NST profile name or ID (auto-detects UUID format)
                 if let Some(s) = args.get(i + 1) {
                     flags.nst_profile = Some(s.clone());
-                    i += 1;
-                }
-            }
-            "--profile-id" => {
-                // NST profile ID (when using NST provider)
-                if let Some(s) = args.get(i + 1) {
-                    flags.nst_profile_id = Some(s.clone());
                     i += 1;
                 }
             }
@@ -609,28 +593,7 @@ pub fn parse_flags(args: &[String]) -> Flags {
                     i += 1;
                 }
             }
-            "--nst-profile-name" => {
-                // Deprecated: use --profile instead
-                if let Some(s) = args.get(i + 1) {
-                    eprintln!(
-                        "{} --nst-profile-name is deprecated, use --profile instead",
-                        color::warning_indicator()
-                    );
-                    flags.nst_profile = Some(s.clone());
-                    i += 1;
-                }
-            }
-            "--nst-profile-id" => {
-                // Deprecated: use --profile-id instead
-                if let Some(s) = args.get(i + 1) {
-                    eprintln!(
-                        "{} --nst-profile-id is deprecated, use --profile-id instead",
-                        color::warning_indicator()
-                    );
-                    flags.nst_profile_id = Some(s.clone());
-                    i += 1;
-                }
-            }
+
             "--action-policy" => {
                 if let Some(s) = args.get(i + 1) {
                     flags.action_policy = Some(s.clone());
@@ -653,13 +616,6 @@ pub fn parse_flags(args: &[String]) -> Flags {
             "--native" => {
                 let (val, consumed) = parse_bool_arg(args, i);
                 flags.native = val;
-                if consumed {
-                    i += 1;
-                }
-            }
-            "--local" => {
-                let (val, consumed) = parse_bool_arg(args, i);
-                flags.local = val;
                 if consumed {
                     i += 1;
                 }
@@ -699,34 +655,28 @@ pub fn parse_flags(args: &[String]) -> Flags {
 /// Returns (provider, reason) tuple for debugging purposes.
 /// Priority order:
 /// 1. Explicit --provider flag (passed as explicit_provider parameter)
-/// 2. --local flag (returns "local")
-/// 3. --headed without --provider (returns "local")
-/// 4. --cdp (returns "local")
-/// 5. --auto-connect (returns "local")
-/// 6. NST_API_KEY environment variable present (returns "nst")
-/// 7. Default (returns "nst")
+/// 2. --headed without --provider (returns "local")
+/// 3. --cdp (returns "local")
+/// 4. --auto-connect (returns "local")
+/// 5. NST_API_KEY environment variable present (returns "nst")
+/// 6. Default (returns "nst")
 fn determine_provider(flags: &Flags, explicit_provider: Option<&str>) -> (String, &'static str) {
     // Priority 1: Explicit --provider flag (from command line, not env/config)
     if let Some(provider) = explicit_provider {
         return (provider.to_string(), "explicit --provider flag");
     }
 
-    // Priority 2: --local flag
-    if flags.local {
-        return (PROVIDER_LOCAL.to_string(), "--local flag");
-    }
-
-    // Priority 3: --headed without --provider
+    // Priority 2: --headed without --provider
     if flags.headed {
         return (PROVIDER_LOCAL.to_string(), "--headed flag (implies local)");
     }
 
-    // Priority 4: --cdp
+    // Priority 3: --cdp
     if flags.cdp.is_some() {
         return (PROVIDER_LOCAL.to_string(), "--cdp flag (implies local)");
     }
 
-    // Priority 5: --auto-connect
+    // Priority 4: --auto-connect
     if flags.auto_connect {
         return (
             PROVIDER_LOCAL.to_string(),
@@ -734,12 +684,12 @@ fn determine_provider(flags: &Flags, explicit_provider: Option<&str>) -> (String
         );
     }
 
-    // Priority 6: NST_API_KEY environment variable present
+    // Priority 5: NST_API_KEY environment variable present
     if env::var(ENV_NST_API_KEY).is_ok() {
         return (PROVIDER_NST.to_string(), "NST_API_KEY environment variable");
     }
 
-    // Priority 7: Default
+    // Priority 6: Default
     (PROVIDER_NST.to_string(), "default provider")
 }
 
@@ -849,7 +799,6 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
         "--content-boundaries",
         "--confirm-interactive",
         "--native",
-        "--local",
     ];
     // Global flags that always take a value (need to skip the next arg too)
     const GLOBAL_FLAGS_WITH_VALUE: &[&str] = &[
@@ -858,8 +807,7 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
         "--executable-path",
         "--cdp",
         "--extension",
-        "--profile",         // NST profile name
-        "--profile-id",      // NST profile ID
+        "--profile",         // NST profile name or ID (auto-detects UUID)
         "--browser-profile", // Local browser profile path
         "--state",
         "--proxy",
@@ -877,8 +825,6 @@ pub fn clean_args(args: &[String]) -> Vec<String> {
         "--action-policy",
         "--confirm-actions",
         "--config",
-        "--nst-profile-name", // Deprecated, use --profile
-        "--nst-profile-id",   // Deprecated, use --profile-id
     ];
 
     let mut i = 0;
@@ -1521,13 +1467,6 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_local_flag() {
-        let flags = parse_flags(&args("--local open example.com"));
-        assert_eq!(flags.provider.as_deref(), Some("local"));
-        assert!(flags.local);
-    }
-
-    #[test]
     fn test_provider_headed_implies_local() {
         let flags = parse_flags(&args("--headed open example.com"));
         assert_eq!(flags.provider.as_deref(), Some("local"));
@@ -1546,41 +1485,9 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_explicit_overrides_local() {
-        let flags = parse_flags(&args("--provider nst --local open example.com"));
-        assert_eq!(flags.provider.as_deref(), Some("nst"));
-    }
-
-    #[test]
     fn test_provider_explicit_overrides_headed() {
         let flags = parse_flags(&args("--provider nst --headed open example.com"));
         assert_eq!(flags.provider.as_deref(), Some("nst"));
-    }
-
-    #[test]
-    fn test_provider_local_overrides_headed() {
-        let flags = parse_flags(&args("--local --headed open example.com"));
-        assert_eq!(flags.provider.as_deref(), Some("local"));
-    }
-
-    #[test]
-    fn test_local_flag_false() {
-        let flags = parse_flags(&args("--local false open example.com"));
-        assert!(!flags.local);
-        // When --local is false and no other flags, should default to "nst"
-        assert_eq!(flags.provider.as_deref(), Some("nst"));
-    }
-
-    #[test]
-    fn test_clean_args_removes_local() {
-        let cleaned = clean_args(&args("--local open example.com"));
-        assert_eq!(cleaned, vec!["open", "example.com"]);
-    }
-
-    #[test]
-    fn test_clean_args_removes_local_with_value() {
-        let cleaned = clean_args(&args("--local true open example.com"));
-        assert_eq!(cleaned, vec!["open", "example.com"]);
     }
 
     // === Configuration validation tests ===

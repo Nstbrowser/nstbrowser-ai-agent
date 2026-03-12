@@ -897,17 +897,15 @@ export class BrowserManager {
    * Uses WebSocket CDP endpoints: /api/v2/connect or /api/v2/connect/{profileId}
    * Requires NST_API_KEY, NST_HOST (default: 127.0.0.1), NST_PORT (default: 8848)
    *
-   * Profile selection priority:
-   * 1. nstProfileId from launch options (highest priority)
-   * 2. nstProfileName from launch options
-   * 3. NST_PROFILE_ID environment variable
-   * 4. NST_PROFILE environment variable (backward compatibility)
-   * 5. Once profile (temporary browser, default)
+   * Profile selection:
+   * - If --profile is UUID format → treat as profile ID
+   * - If --profile is not UUID → treat as profile name
+   * - If no profile specified → use once (temporary) browser
    *
    * When using profile name:
    * - First checks if a browser with matching profile name is already running (uses earliest started)
    * - If not running, queries profile API to get profileId, then starts browser
-   * - If profile not found, throws error
+   * - If profile not found, creates new profile
    */
   private async connectToNstbrowser(options?: LaunchCommand): Promise<void> {
     // Write debug log to file
@@ -917,8 +915,7 @@ export class BrowserManager {
       debugLog,
       `connectToNstbrowser called\noptions: ${JSON.stringify(
         {
-          nstProfileId: options?.nstProfileId,
-          nstProfileName: options?.nstProfileName,
+          profile: options?.profile,
         },
         null,
         2
@@ -930,8 +927,7 @@ export class BrowserManager {
       '[DEBUG] options:',
       JSON.stringify(
         {
-          nstProfileId: options?.nstProfileId,
-          nstProfileName: options?.nstProfileName,
+          profile: options?.profile,
         },
         null,
         2
@@ -950,10 +946,7 @@ export class BrowserManager {
         host: nstHost,
         port: nstPort,
         apiKey: nstApiKey ? `${nstApiKey.substring(0, 8)}...` : 'undefined',
-        nstProfileId: options?.nstProfileId,
-        nstProfileName: options?.nstProfileName,
-        envProfileId: process.env.NST_PROFILE_ID,
-        envProfile: process.env.NST_PROFILE,
+        profile: options?.profile,
       });
     }
 
@@ -986,47 +979,73 @@ export class BrowserManager {
 
     // Import NstbrowserClient and profile resolver
     const { NstbrowserClient } = await import('./nstbrowser-client.js');
-    const { resolveProfile, ensureBrowserRunning } =
-      await import('./nstbrowser-profile-resolver.js');
+    const { resolveBrowserProfile } = await import('./browser-profile-resolver.js');
 
     const client = new NstbrowserClient(nstHost, nstPort, nstApiKey);
 
     // Resolve profile using unified logic
-    const resolved = await resolveProfile(client, {
-      profileId: options?.nstProfileId,
-      profileName: options?.nstProfileName,
-      allowOnce: true,
-      autoStart: true,
+    const resolved = await resolveBrowserProfile(client, {
+      profile: options?.profile,
+      nstHost,
+      nstPort,
+      nstApiKey,
     });
 
-    // Ensure browser is running and get WebSocket URL
-    const profileWithWs = await ensureBrowserRunning(client, resolved, nstHost, nstPort, nstApiKey);
-
-    if (!profileWithWs.wsUrl) {
+    if (!resolved.wsUrl) {
       throw new Error('Failed to get WebSocket URL for browser');
     }
 
     // Store session info for cleanup
-    this.nstSessionId = profileWithWs.profileId || 'once';
+    this.nstSessionId = resolved.profileId || 'once';
     this.nstApiKey = nstApiKey;
     this.nstHost = nstHost;
     this.nstPort = nstPort;
 
-    // Connect to the browser via CDP WebSocket
+    // For once browsers, add a delay to allow browser initialization
+    // Once browsers are created on-demand and may not be fully ready immediately
+    const isOnceBrowser = !resolved.profileId || resolved.profileId === 'once';
+    if (isOnceBrowser && resolved.wasCreated) {
+      if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+        console.error('[DEBUG] Once browser was just created, waiting for initialization...');
+      }
+      // Wait longer for once browser to fully initialize
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+
+    // Connect to the browser via CDP WebSocket with retry logic for once browsers
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error(
-        `[DEBUG] Connecting to Nstbrowser via CDP: ${profileWithWs.wsUrl.replace(nstApiKey, '***')}`
+        `[DEBUG] Connecting to Nstbrowser via CDP: ${resolved.wsUrl.replace(nstApiKey, '***')}`
       );
     }
 
-    try {
-      await this.connectViaCDP(profileWithWs.wsUrl);
-      if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
-        console.error('[DEBUG] Successfully connected to Nstbrowser');
+    let lastError: Error | null = null;
+    const maxRetries = isOnceBrowser && resolved.wasCreated ? 3 : 1;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.connectViaCDP(resolved.wsUrl);
+        if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+          console.error('[DEBUG] Successfully connected to Nstbrowser');
+        }
+        return; // Success!
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < maxRetries) {
+          if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+            console.error(
+              `[DEBUG] Connection attempt ${attempt} failed, retrying in 2s... Error: ${error}`
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
       }
-    } catch (error) {
-      throw new Error(`Failed to connect to Nstbrowser CDP: ${error}`);
     }
+
+    // All retries failed
+    throw new Error(
+      `Failed to connect to Nstbrowser CDP after ${maxRetries} attempts: ${lastError}`
+    );
   }
 
   /**
@@ -1038,8 +1057,7 @@ export class BrowserManager {
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[DEBUG] launch() called with options:', {
         provider: options.provider,
-        nstProfileName: options.nstProfileName,
-        nstProfileId: options.nstProfileId,
+        profile: options.profile,
         cdpPort: options.cdpPort,
         cdpUrl: options.cdpUrl,
         autoConnect: options.autoConnect,
@@ -1078,11 +1096,7 @@ export class BrowserManager {
       // and the new options don't explicitly request a DIFFERENT endpoint or a local provider.
       const isSwitchingToLocal =
         options.provider === 'local' || options.headless === true || options.headless === false;
-      const hasNewCdpInfo =
-        !!cdpEndpoint ||
-        !!options.autoConnect ||
-        !!options.nstProfileId ||
-        !!options.nstProfileName;
+      const hasNewCdpInfo = !!cdpEndpoint || !!options.autoConnect || !!options.profile;
 
       let needsRelaunch = false;
 
@@ -1458,7 +1472,10 @@ export class BrowserManager {
       // Filter out pages with empty URLs, which can cause Playwright to hang
       const allPages = contexts.flatMap((context) => context.pages()).filter((page) => page.url());
 
-      if (allPages.length === 0) {
+      // For NST browsers, it's OK to have no pages initially - ensurePage() will create one
+      // For local CDP connections, we still require at least one page
+      const isNstConnection = cdpUrl.includes('/api/v2/connect');
+      if (allPages.length === 0 && !isNstConnection) {
         throw new Error('No page found. Make sure the app has loaded content.');
       }
 
@@ -1466,8 +1483,12 @@ export class BrowserManager {
       this.browser = browser;
       this.cdpEndpoint = cdpEndpoint;
 
+      // Use longer timeout for NST connections (25s) to allow for browser initialization
+      // Use shorter timeout for local CDP connections (10s) for faster feedback
+      const timeout = isNstConnection ? getDefaultTimeout() : 10000;
+
       for (const context of contexts) {
-        context.setDefaultTimeout(10000);
+        context.setDefaultTimeout(timeout);
         this.contexts.push(context);
         this.setupContextTracking(context);
         await this.ensureDomainFilter(context);

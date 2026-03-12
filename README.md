@@ -85,7 +85,6 @@ For projects that want to pin the version in `package.json`:
 
 ```bash
 npm install nstbrowser-ai-agent
-npx nstbrowser-ai-agent install
 ```
 
 Then use via `npx` or `package.json` scripts:
@@ -115,11 +114,6 @@ You can also download pre-built binaries directly from [GitHub Releases](https:/
    sudo mv nstbrowser-ai-agent-* /usr/local/bin/nstbrowser-ai-agent
    ```
 
-4. Download Chromium:
-   ```bash
-   nstbrowser-ai-agent install
-   ```
-
 ### From Source
 
 ```bash
@@ -129,7 +123,6 @@ pnpm install
 pnpm build
 pnpm build:native   # Requires Rust (https://rustup.rs)
 pnpm link --global  # Makes nstbrowser-ai-agent available globally
-nstbrowser-ai-agent install
 ```
 
 ## Updates
@@ -172,12 +165,7 @@ npm install nstbrowser-ai-agent@latest
 
 ### Linux Dependencies
 
-On Linux, install system dependencies:
-
-```bash
-nstbrowser-ai-agent install --with-deps
-# or manually: npx playwright install-deps chromium
-```
+The tool uses Nstbrowser by default, which handles browser management automatically. No additional dependencies are required.
 
 ## Quick Start Examples
 
@@ -256,59 +244,28 @@ When you specify a profile for a browser action, the system follows these rules:
 **Important:** The system automatically detects UUID format in profile names and treats them as profile IDs.
 
 ```bash
-# These are equivalent (UUID format detected):
-nstbrowser-ai-agent open https://example.com --nst-profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
-nstbrowser-ai-agent open https://example.com --nst-profile-id "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
-
-# Also works with environment variables:
-export NST_PROFILE="ef2b083a-8f77-4a7f-8441-a8d56bbd832b"  # Treated as ID
+# UUID format is automatically detected and treated as profile ID:
+nstbrowser-ai-agent open https://example.com --profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
 ```
 
 This means:
-- You can use `--nst-profile` with either names or IDs
+- You can use `--profile` with either names or IDs
 - UUID format (8-4-4-4-12 hex digits) is automatically recognized
 - Case-insensitive: both lowercase and uppercase UUIDs work
 - Prevents accidental profile creation when you meant to use an ID
 
 #### Specifying Profiles
 
-You can specify profiles in three ways:
+Use the `--profile` flag to specify which profile to use:
 
-**1. Environment Variables (Global Default)**
-```bash
-export NST_PROFILE="my-profile"        # Use profile name
-# OR
-export NST_PROFILE_ID="abc-123-def"    # Use profile ID
-
-# All browser actions will use this profile
-nstbrowser-ai-agent open https://example.com
-nstbrowser-ai-agent click "#button"
-```
-
-**2. Command-Line Flags (Per-Action)**
 ```bash
 # By profile name
-nstbrowser-ai-agent open https://example.com --nst-profile "my-profile"
-nstbrowser-ai-agent click "#button" --nst-profile "my-profile"
+nstbrowser-ai-agent open https://example.com --profile "my-profile"
+nstbrowser-ai-agent click "#button" --profile "my-profile"
 
-# By profile ID
-nstbrowser-ai-agent open https://example.com --nst-profile-id "abc-123-def"
-nstbrowser-ai-agent fill "#email" "test@test.com" --nst-profile-id "abc-123-def"
-
-# UUID format auto-detected (treated as ID)
-nstbrowser-ai-agent open https://example.com --nst-profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
-```
-
-**3. Mixed Approach**
-```bash
-# Set default profile
-export NST_PROFILE="default-profile"
-
-# Most commands use the default
-nstbrowser-ai-agent open https://example.com
-
-# Override for specific commands
-nstbrowser-ai-agent click "#button" --nst-profile "other-profile"
+# By profile ID (UUID format auto-detected)
+nstbrowser-ai-agent open https://example.com --profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
+nstbrowser-ai-agent fill "#email" "test@test.com" --profile "abc-123-def-456"
 ```
 
 #### Examples
@@ -316,8 +273,8 @@ nstbrowser-ai-agent click "#button" --nst-profile "other-profile"
 **Auto-create profile on first use:**
 ```bash
 # This will create "test-profile" if it doesn't exist
-nstbrowser-ai-agent open https://example.com --nst-profile "test-profile"
-nstbrowser-ai-agent click "#login" --nst-profile "test-profile"
+nstbrowser-ai-agent open https://example.com --profile "test-profile"
+nstbrowser-ai-agent click "#login" --profile "test-profile"
 ```
 
 **Use existing profile by ID:**
@@ -325,17 +282,17 @@ nstbrowser-ai-agent click "#login" --nst-profile "test-profile"
 # List profiles to find ID
 nstbrowser-ai-agent profile list
 
-# Use specific profile ID
-nstbrowser-ai-agent open https://example.com --nst-profile-id "abc-123-def"
+# Use specific profile ID (UUID format auto-detected)
+nstbrowser-ai-agent open https://example.com --profile "abc-123-def-456-789"
 ```
 
 **Reuse running browser:**
 ```bash
 # Start a browser with a profile
-nstbrowser-ai-agent open https://example.com --nst-profile "my-profile"
+nstbrowser-ai-agent open https://example.com --profile "my-profile"
 
 # Later commands automatically connect to the same running browser
-nstbrowser-ai-agent click "#button" --nst-profile "my-profile"
+nstbrowser-ai-agent click "#button" --profile "my-profile"
 # No restart needed - uses existing browser!
 ```
 
@@ -583,13 +540,6 @@ nstbrowser-ai-agent state clean --older-than <days>  # Delete old states
 nstbrowser-ai-agent back                    # Go back
 nstbrowser-ai-agent forward                 # Go forward
 nstbrowser-ai-agent reload                  # Reload page
-```
-
-### Setup
-
-```bash
-nstbrowser-ai-agent install                 # Download Chromium browser
-nstbrowser-ai-agent install --with-deps     # Also install system deps (Linux)
 ```
 
 ## Sessions
@@ -1321,7 +1271,7 @@ For more consistent results, add to your project or global instructions file:
 Use `nstbrowser-ai-agent` for web automation. Run `nstbrowser-ai-agent --help` for all commands.
 
 Core workflow:
-1. Set profile: `export NST_PROFILE="my-profile"` or use `browser start-once` for temporary browser
+1. Use profile: `--profile "my-profile"` or use `browser start-once` for temporary browser
 2. `nstbrowser-ai-agent open <url>` - Navigate to page
 3. `nstbrowser-ai-agent snapshot -i` - Get interactive elements with refs (@e1, @e2)
 4. `nstbrowser-ai-agent click @e1` / `fill @e2 "text"` - Interact using refs
@@ -1473,11 +1423,7 @@ nstbrowser-ai-agent nst browser stop-all
 <td>Nstbrowser API port</td>
 <td><code>8848</code></td>
 </tr>
-<tr>
-<td><code>NST_PROFILE</code></td>
-<td>Profile name for provider=nst launch</td>
-<td>(none)</td>
-</tr>
+
 </tbody>
 </table>
 
