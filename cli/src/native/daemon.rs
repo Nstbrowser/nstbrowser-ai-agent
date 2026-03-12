@@ -9,8 +9,14 @@ use tokio::signal;
 
 use super::actions::{execute_command, DaemonState};
 use super::state;
+use crate::update_checker;
 
 pub async fn run_daemon(session: &str) {
+    // Check for updates (non-blocking, runs in background)
+    tokio::spawn(async {
+        update_checker::check_for_updates(true).await;
+    });
+
     let socket_dir = get_daemon_socket_dir();
     if !socket_dir.exists() {
         let _ = fs::create_dir_all(&socket_dir);

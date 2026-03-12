@@ -6,8 +6,10 @@ mod constants;
 mod flags;
 mod install;
 mod native;
+mod nst_agent_checker;
 mod nst_profile;
 mod output;
+mod update_checker;
 mod validation;
 
 use serde_json::json;
@@ -442,6 +444,68 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
     }
 }
 
+/// Run update check command
+fn run_update_check(json_mode: bool) {
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    
+    match rt.block_on(update_checker::force_check_for_updates()) {
+        Ok(result) => {
+            if json_mode {
+                println!("{}", serde_json::to_string(&result).unwrap_or_default());
+            } else {
+                println!("Current version: {}", result.current);
+                println!("Latest version:  {}", result.latest);
+                println!();
+                if result.update_available {
+                    println!("✓ Update available!");
+                    println!();
+                    println!("To update:");
+                    println!("  npm install -g nstbrowser-ai-agent@latest");
+                    println!("  or");
+                    println!("  npx nstbrowser-ai-agent@latest");
+                } else {
+                    println!("✓ You are using the latest version");
+                }
+            }
+        }
+        Err(e) => {
+            if json_mode {
+                println!(r#"{{"success":false,"error":"{}"}}"#, e);
+            } else {
+                eprintln!("Error checking for updates: {}", e);
+            }
+            exit(1);
+        }
+    }
+}
+
+/// Run NST agent status check
+fn run_nst_status_check(json_mode: bool) {
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    
+    let is_running = rt.block_on(nst_agent_checker::check_nst_agent_with_config());
+    
+    if json_mode {
+        println!(
+            r#"{{"success":true,"data":{{"running":{},"endpoint":"http://127.0.0.1:8848"}}}}"#,
+            is_running
+        );
+    } else {
+        if is_running {
+            println!("✓ NST agent is running and responsive");
+            println!("  Endpoint: http://127.0.0.1:8848");
+        } else {
+            println!("✗ NST agent is not running or not responsive");
+            println!("  Endpoint: http://127.0.0.1:8848");
+            println!();
+            println!("Please ensure:");
+            println!("  1. Nstbrowser client is installed and running");
+            println!("  2. API key is configured (nstbrowser-ai-agent config set key YOUR_KEY)");
+            println!("  3. Service is accessible at http://127.0.0.1:8848");
+        }
+    }
+}
+
 fn main() {
     // Ignore SIGPIPE to prevent panic when piping to head/tail
     #[cfg(unix)]
@@ -489,6 +553,22 @@ fn main() {
     if has_version {
         print_version();
         return;
+    }
+
+    // Handle update check command
+    if clean.first().map(|s| s.as_str()) == Some("update") {
+        if clean.get(1).map(|s| s.as_str()) == Some("check") {
+            run_update_check(flags.json);
+            return;
+        }
+    }
+
+    // Handle nst agent status check command
+    if clean.first().map(|s| s.as_str()) == Some("nst") {
+        if clean.get(1).map(|s| s.as_str()) == Some("status") {
+            run_nst_status_check(flags.json);
+            return;
+        }
     }
 
     if clean.is_empty() {

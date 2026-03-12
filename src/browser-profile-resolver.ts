@@ -13,7 +13,7 @@
  */
 
 import type { NstbrowserClient } from './nstbrowser-client.js';
-import type { BrowserInstance, Profile, ProfileConfig } from './nstbrowser-types.js';
+import type { ProfileConfig } from './nstbrowser-types.js';
 import { NstbrowserError } from './nstbrowser-errors.js';
 
 /**
@@ -277,11 +277,34 @@ export async function resolveBrowserProfile(
 
   // === Rule 5: No profile specified → use once browser ===
   if (debug) {
-    console.error('[DEBUG] No profile specified, will use once browser');
+    console.error('[DEBUG] No profile specified, checking for running once browsers...');
   }
 
-  // Note: Once browsers don't persist in the running browsers list with a special flag
-  // We'll just create/connect to a once browser directly
+  // Rule 4.1: Check if there's already a running once browser
+  // Once browsers have profileId === 'once' in the running browsers list
+  const runningOnceBrowsers = runningBrowsers.filter((b) => b.profileId === 'once');
+
+  if (runningOnceBrowsers.length > 0) {
+    // Use the earliest started once browser (first in list)
+    if (debug) {
+      console.error(
+        `[DEBUG] Found ${runningOnceBrowsers.length} running once browser(s), using earliest`
+      );
+    }
+
+    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect?x-api-key=${options.nstApiKey}`;
+
+    return {
+      isRunning: true,
+      isOnce: true,
+      wsUrl,
+    };
+  }
+
+  // Rule 4.2: No running once browser, create a new one
+  if (debug) {
+    console.error('[DEBUG] No running once browser found, will create new once browser');
+  }
 
   // Build once browser WebSocket URL with config
   const config = {

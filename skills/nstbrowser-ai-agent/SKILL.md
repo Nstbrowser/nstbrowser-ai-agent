@@ -34,11 +34,11 @@ Nstbrowser client must be installed and running on your system.
 The Nstbrowser API service must be accessible:
 
 - Default endpoint: `http://127.0.0.1:8848`
-- Verify service is running:
+- Verify service is running using the CLI:
   ```bash
-  curl http://127.0.0.1:8848/api/v2/profiles
+  nstbrowser-ai-agent profile list
   ```
-- Expected response: JSON with profile data or empty list
+- Expected response: List of profiles or empty list
 
 ### 3. API Key Configuration
 
@@ -50,9 +50,8 @@ nstbrowser-ai-agent config set key YOUR_API_KEY
 ```
 
 **Method 2: Environment Variable**
-```bash
-export NST_API_KEY="YOUR_API_KEY"
-```
+
+Set the NST_API_KEY environment variable in your shell configuration file.
 
 ### 4. CLI Tool Installation
 
@@ -116,17 +115,14 @@ nstbrowser-ai-agent profile list
 # 2. Create a new profile (if needed)
 nstbrowser-ai-agent profile create my-profile
 
-# 3. Set default profile
-export NST_PROFILE="my-profile"
-
-# 4. Open browser (auto-starts with profile)
+# 3. Open browser with profile (auto-starts if not running)
 nstbrowser-ai-agent open https://example.com
 
-# 5. Interact with page
+# 4. Interact with page
 nstbrowser-ai-agent snapshot -i
 nstbrowser-ai-agent click @e1
 
-# 6. Close browser (session saved to profile)
+# 5. Close browser (session saved to profile)
 nstbrowser-ai-agent close
 ```
 
@@ -168,14 +164,28 @@ All profile commands support both profile NAME and profile ID:
 - Example: `86581051-fb0d-4c4a-b1e3-ebc1abd17174`
 - Use when: Scripting with multiple profiles or ensuring exact profile match
 
+**UUID Format Auto-Detection:**
+- The system automatically detects UUID format in profile names
+- If you provide a UUID-formatted string to `--profile`, it's treated as a profile ID
+- This prevents accidental profile creation when you meant to use an ID
+- Example: `--profile "86581051-fb0d-4c4a-b1e3-ebc1abd17174"` is treated as `--profile-id`
+
 **Resolution Priority:**
 1. `--profile-id` flag (highest priority)
-2. `--profile` flag (profile name)
+2. `--profile` flag (profile name or UUID auto-detected as ID)
 3. `NST_PROFILE_ID` environment variable
-4. `NST_PROFILE` environment variable
-5. Prompt user to specify profile
+4. `NST_PROFILE` environment variable (UUID format auto-detected as ID)
+5. Use once browser if no profile specified
 
-**Important:** If multiple profiles have the same name, the first one returned by the API will be used.
+**Profile Resolution Logic:**
+When you specify a profile for a browser action:
+1. **Check running browsers** - Uses existing browser if already running (earliest if multiple)
+2. **Start browser** - Starts the profile if it exists but isn't running
+3. **Create profile** - If profile NAME doesn't exist, creates it automatically
+4. **Error** - If profile ID doesn't exist, returns an error
+5. **Once browser** - If no profile specified, uses or creates temporary browser
+
+**Important:** If multiple profiles have the same name, the earliest started browser will be used.
 
 ### Sticky Sessions
 
@@ -245,16 +255,13 @@ Alternative to config file:
 
 ```bash
 # Nstbrowser API credentials (required if not using config)
-export NST_API_KEY="your-api-key"
+# Set NST_API_KEY in your environment
 
 # Optional: Nstbrowser API endpoint
-export NST_HOST="127.0.0.1"  # Default: 127.0.0.1
-export NST_PORT="8848"       # Default: 8848
+# Set NST_HOST and NST_PORT if using custom endpoint
 
 # Optional: Default profile
-export NST_PROFILE="my-profile-name"
-# Or use profile ID
-export NST_PROFILE_ID="profile-uuid"
+# Set NST_PROFILE or NST_PROFILE_ID for default profile
 ```
 
 **Priority:** Config file > Environment variables > Defaults
@@ -447,8 +454,8 @@ nstbrowser-ai-agent profile proxy update my-profile \
   --host proxy.example.com \
   --port 8080 \
   --type http \
-  --username user \
-  --password pass
+  --username proxyuser \
+  --password proxypass
 ```
 
 **Reset Proxy**
@@ -475,11 +482,11 @@ nstbrowser-ai-agent profile proxy batch-reset id-1 id-2 id-3
 **Use Case:** Automate tasks that require persistent login sessions or cookies.
 
 ```bash
-# 1. Verify Nstbrowser connection
-curl http://127.0.0.1:8848/api/v2/profiles
+# 1. List profiles to verify connection
+nstbrowser-ai-agent profile list
 
-# 2. Set API key
-export NST_API_KEY="your-key"
+# 2. Set profile by name
+nstbrowser-ai-agent config set profile my-profile
 
 # 3. List profiles to find target
 nstbrowser-ai-agent profile list
@@ -529,31 +536,28 @@ nstbrowser-ai-agent profile groups batch-change $GROUP_ID $PROFILE_IDS
 **Use Case:** Log in to a website, navigate to data pages, and extract information.
 
 ```bash
-# 1. Verify Nstbrowser connection
-curl http://127.0.0.1:8848/api/v2/profiles
-
-# 2. Open login page
+# 1. Open login page
 nstbrowser-ai-agent --profile my-profile open https://site.com/login
 
-# 3. Wait for page to load
+# 2. Wait for page to load
 nstbrowser-ai-agent wait --load networkidle
 
-# 4. Fill and submit using CSS selectors
-nstbrowser-ai-agent fill 'input[placeholder="Email"]' "username"
-nstbrowser-ai-agent fill 'input[type="password"]' "password"
+# 3. Fill and submit using CSS selectors
+nstbrowser-ai-agent fill 'input[placeholder="Email"]' "user@example.com"
+nstbrowser-ai-agent fill 'input[type="password"]' "userpassword"
 nstbrowser-ai-agent click 'button[type="submit"]'
 
-# 5. Wait for navigation
+# 4. Wait for navigation
 nstbrowser-ai-agent wait --load networkidle
 
-# 6. Navigate to target page
+# 5. Navigate to target page
 nstbrowser-ai-agent open https://site.com/data
 
-# 7. Extract data
+# 6. Extract data
 nstbrowser-ai-agent snapshot -i > data.txt
 nstbrowser-ai-agent eval "document.querySelector('.info')?.textContent"
 
-# 8. Close (session saved to profile)
+# 7. Close (session saved to profile)
 nstbrowser-ai-agent close
 ```
 
@@ -570,8 +574,7 @@ nstbrowser-ai-agent close
 # Method 1: Config file (recommended)
 nstbrowser-ai-agent config set key YOUR_API_KEY
 
-# Method 2: Environment variable
-export NST_API_KEY="YOUR_API_KEY"
+# Method 2: Set environment variable in your shell
 ```
 
 **Verify:**
@@ -584,11 +587,11 @@ nstbrowser-ai-agent config get key
 **Cause:** Nstbrowser service not running or wrong endpoint.
 
 **Solution:**
-1. Ensure Nstbrowser client is running
-2. Check API endpoint:
+1. Check if NST agent is running:
    ```bash
-   curl http://127.0.0.1:8848/api/v2/profiles
+   nstbrowser-ai-agent nst status
    ```
+2. Ensure Nstbrowser client is running
 3. If using custom host/port, configure:
    ```bash
    nstbrowser-ai-agent config set host YOUR_HOST
@@ -597,7 +600,10 @@ nstbrowser-ai-agent config get key
 
 **Verify:**
 ```bash
-# Should return JSON with profiles
+# Should show "NST agent is running and responsive"
+nstbrowser-ai-agent nst status
+
+# Should return list of profiles
 nstbrowser-ai-agent profile list
 ```
 
@@ -734,6 +740,8 @@ nstbrowser-ai-agent click 'button[type="submit"]'
 - `eval <js>` - Execute JavaScript
 - `close` - Close browser
 - `session list` - List active sessions
+- `update check` - Check for available updates
+- `nst status` - Check if NST agent is running
 - `config set <key> <value>` - Set configuration
 - `config get <key>` - Get configuration value
 - `config show` - Show all configuration
@@ -760,6 +768,42 @@ nstbrowser-ai-agent get text @e1 --json
 8. **Close Cleanly**: Always close browser to save session state
 9. **Handle Errors**: Check command output and retry if needed
 10. **Use Proxies Per Profile**: Configure proxies for geo-targeting or privacy
+11. **Keep Updated**: Run `nstbrowser-ai-agent update check` periodically
+
+## Updates
+
+### Automatic Update Checks
+
+The CLI automatically checks for updates once every 24 hours and notifies you when a new version is available.
+
+**Disable automatic checks:**
+```bash
+# Set environment variable
+NSTBROWSER_AI_AGENT_NO_UPDATE_CHECK=1
+```
+
+### Manual Update Check
+
+```bash
+# Check for updates
+nstbrowser-ai-agent update check
+
+# JSON output
+nstbrowser-ai-agent update check --json
+```
+
+### Updating to Latest Version
+
+```bash
+# If installed globally
+npm install -g nstbrowser-ai-agent@latest
+
+# If using npx
+npx nstbrowser-ai-agent@latest
+
+# If installed locally in project
+npm install nstbrowser-ai-agent@latest
+```
 
 ## Deep-Dive Documentation
 

@@ -2485,9 +2485,22 @@ Environment Variables:
   NST_HOST                 Nstbrowser API host (default: 127.0.0.1)
   NST_PORT                 Nstbrowser API port (default: 8848)
   NST_API_KEY              Nstbrowser API key (required)
-  NST_PROFILE              Profile name for provider=nst launch (backward compatibility)
+  NST_PROFILE              Profile name or ID (UUID format auto-detected)
   NST_PROFILE_NAME         Profile name for provider=nst launch
   NST_PROFILE_ID           Profile ID for provider=nst launch
+
+Profile Resolution:
+  When specifying a profile, the system automatically detects UUID format:
+  - UUID format (8-4-4-4-12 hex digits) is treated as profile ID
+  - Non-UUID format is treated as profile name
+  - Case-insensitive: both uppercase and lowercase UUIDs work
+  
+  Priority order:
+  1. Check running browsers (by ID or name, use earliest if multiple)
+  2. Start browser if profile exists but not running
+  3. Create new profile if name doesn't exist
+  4. Error if ID doesn't exist
+  5. Use once browser if no profile specified
 
 Configuration File:
   Config file location: ~/.nst-ai-agent/config.json
@@ -2725,6 +2738,12 @@ Sessions:
   session                    Show current session name
   session list               List active sessions
 
+Updates:
+  update check               Check for available updates
+
+NST Agent:
+  nst status                 Check if NST agent is running
+
 Setup:
   install                    Install browser binaries
   install --with-deps        Also install system dependencies (Linux)
@@ -2829,6 +2848,7 @@ Environment:
   NSTBROWSER_AI_AGENT_SESSION_NAME     Auto-save/restore state persistence name
   NSTBROWSER_AI_AGENT_ENCRYPTION_KEY   64-char hex key for AES-256-GCM state encryption
   NSTBROWSER_AI_AGENT_STATE_EXPIRE_DAYS Auto-delete states older than N days (default: 30)
+  NSTBROWSER_AI_AGENT_NO_UPDATE_CHECK  Disable automatic update checks (set to 1)
   NSTBROWSER_AI_AGENT_EXECUTABLE_PATH  Custom browser executable path
   NSTBROWSER_AI_AGENT_EXTENSIONS       Comma-separated browser extension paths
   NSTBROWSER_AI_AGENT_HEADED           Show browser window (not headless)

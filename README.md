@@ -46,6 +46,9 @@ export NST_API_KEY="YOUR_API_KEY"
 Test your configuration:
 
 ```bash
+# Check if NST agent is running
+nstbrowser-ai-agent nst status
+
 # Check CLI version
 nstbrowser-ai-agent --version
 
@@ -129,6 +132,44 @@ pnpm link --global  # Makes nstbrowser-ai-agent available globally
 nstbrowser-ai-agent install
 ```
 
+## Updates
+
+### Automatic Update Checks
+
+The CLI automatically checks for updates once every 24 hours and notifies you when a new version is available.
+
+**Disable automatic checks:**
+```bash
+export NSTBROWSER_AI_AGENT_NO_UPDATE_CHECK=1
+```
+
+### Manual Update Check
+
+Check for updates manually:
+
+```bash
+# Human-readable output
+nstbrowser-ai-agent update check
+
+# JSON output
+nstbrowser-ai-agent update check --json
+```
+
+### Updating
+
+When an update is available:
+
+```bash
+# If installed globally
+npm install -g nstbrowser-ai-agent@latest
+
+# If using npx
+npx nstbrowser-ai-agent@latest
+
+# If installed locally in project
+npm install nstbrowser-ai-agent@latest
+```
+
 ### Linux Dependencies
 
 On Linux, install system dependencies:
@@ -210,6 +251,25 @@ When you specify a profile for a browser action, the system follows these rules:
    - Otherwise creates a new temporary browser
    - Temporary browsers don't persist session data
 
+#### UUID Format Auto-Detection
+
+**Important:** The system automatically detects UUID format in profile names and treats them as profile IDs.
+
+```bash
+# These are equivalent (UUID format detected):
+nstbrowser-ai-agent open https://example.com --nst-profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
+nstbrowser-ai-agent open https://example.com --nst-profile-id "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
+
+# Also works with environment variables:
+export NST_PROFILE="ef2b083a-8f77-4a7f-8441-a8d56bbd832b"  # Treated as ID
+```
+
+This means:
+- You can use `--nst-profile` with either names or IDs
+- UUID format (8-4-4-4-12 hex digits) is automatically recognized
+- Case-insensitive: both lowercase and uppercase UUIDs work
+- Prevents accidental profile creation when you meant to use an ID
+
 #### Specifying Profiles
 
 You can specify profiles in three ways:
@@ -234,6 +294,9 @@ nstbrowser-ai-agent click "#button" --nst-profile "my-profile"
 # By profile ID
 nstbrowser-ai-agent open https://example.com --nst-profile-id "abc-123-def"
 nstbrowser-ai-agent fill "#email" "test@test.com" --nst-profile-id "abc-123-def"
+
+# UUID format auto-detected (treated as ID)
+nstbrowser-ai-agent open https://example.com --nst-profile "ef2b083a-8f77-4a7f-8441-a8d56bbd832b"
 ```
 
 **3. Mixed Approach**
@@ -585,6 +648,20 @@ nstbrowser-ai-agent config unset key
 Configuration is stored in `~/.nst-ai-agent/config.json` and takes priority over environment variables.
 
 **Priority order:** Config file > Environment variables > Defaults
+
+### Check NST Agent Status
+
+Verify that NST agent is running and responsive:
+
+```bash
+# Check NST agent status
+nstbrowser-ai-agent nst status
+
+# JSON output
+nstbrowser-ai-agent nst status --json
+```
+
+This command uses the `/api/agent/agent/info` endpoint to verify the NST service is accessible.
 
 ## Persistent Profiles
 

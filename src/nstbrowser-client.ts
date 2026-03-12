@@ -166,6 +166,21 @@ export class NstbrowserClient {
   // ==================== Browser Instance Management ====================
 
   /**
+   * Check if NST agent is running and responsive
+   */
+  async checkAgentInfo(): Promise<boolean> {
+    try {
+      await this.request<unknown>('GET', '/api/agent/agent/info', undefined, {
+        timeout: 3000,
+        retries: 1,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get all running browser instances
    */
   async getBrowsers(): Promise<BrowserInstance[]> {

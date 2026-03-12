@@ -14,6 +14,8 @@ use super::diff;
 use super::element::RefMap;
 use super::interaction;
 use super::network::{self, DomainFilter, EventTracker};
+use super::nst_client::NstClient;
+use super::nst_profile_resolver::{extract_profile_options, resolve_browser_profile};
 use super::policy::{ActionPolicy, ConfirmActions, PolicyResult};
 use super::providers;
 use super::recording::{self, RecordingState};

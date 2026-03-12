@@ -7,6 +7,7 @@ import { parseCommand, serializeResponse, errorResponse } from './protocol.js';
 import { executeCommand, initActionPolicy } from './actions.js';
 import { executeNstbrowserCommand } from './nstbrowser-actions.js';
 import { StreamServer } from './stream-server.js';
+import { checkForUpdates } from './update-checker.js';
 import type { Command } from './types.js';
 import {
   getSessionsDir,
@@ -322,6 +323,11 @@ export async function startDaemon(options?: {
   streamPort?: number;
   provider?: string;
 }): Promise<void> {
+  // Check for updates (non-blocking, runs in background)
+  checkForUpdates(true).catch(() => {
+    // Ignore errors silently
+  });
+
   // Ensure socket directory exists with restricted permissions (owner-only access)
   const socketDir = getSocketDir();
   if (!fs.existsSync(socketDir)) {

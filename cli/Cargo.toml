@@ -1,6 +1,6 @@
 [package]
 name = "nstbrowser-ai-agent"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Nstbrowser AI agent for browser automation with advanced fingerprinting"
 license = "Apache-2.0"
@@ -25,6 +25,7 @@ async-trait = "0.1"
 similar = "2"
 regex = "1"
 once_cell = "1"
+urlencoding = "2"
 
 [dev-dependencies]
 rand = "0.8"

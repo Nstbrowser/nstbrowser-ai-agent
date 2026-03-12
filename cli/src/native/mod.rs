@@ -19,6 +19,10 @@ pub mod interaction;
 #[allow(dead_code)]
 pub mod network;
 #[allow(dead_code)]
+pub mod nst_client;
+#[allow(dead_code)]
+pub mod nst_profile_resolver;
+#[allow(dead_code)]
 pub mod policy;
 #[allow(dead_code)]
 pub mod providers;
