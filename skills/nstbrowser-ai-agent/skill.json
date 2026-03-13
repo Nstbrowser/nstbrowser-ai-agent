@@ -1,6 +1,6 @@
 {
   "name": "nstbrowser-ai-agent",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Browser automation CLI with Nstbrowser integration for AI agents",
   "author": "NstbrowserIO",
   "license": "MIT-0",

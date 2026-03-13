@@ -226,10 +226,20 @@ export async function resolveBrowserProfile(
       console.error(`[DEBUG] Resolving profile name: ${profileName}`);
     }
 
-    // Query profiles by name
+    // Query profiles by name (note: API uses fuzzy search, so we need exact match filtering)
     const profiles = await client.getProfiles({ name: profileName });
 
-    if (profiles.length === 0) {
+    // Filter for exact name match (API 's' parameter does fuzzy search)
+    const exactMatches = profiles.filter((p) => p.name === profileName);
+
+    if (debug) {
+      console.error(
+        `[DEBUG] Found ${exactMatches.length} exact matches for "${profileName}" ` +
+          `(API returned ${profiles.length} total profiles via fuzzy search)`
+      );
+    }
+
+    if (exactMatches.length === 0) {
       // Rule 3: Name specified and doesn't exist → create new profile
       if (debug) {
         console.error(`[DEBUG] Profile "${profileName}" not found, creating new profile...`);
@@ -295,13 +305,13 @@ export async function resolveBrowserProfile(
       };
     }
 
-    // Use first matching profile
-    const profile = profiles[0];
+    // Use exact match (prioritize exact match over fuzzy matches)
+    const profile = exactMatches[0];
     profileId = profile.profileId;
 
-    if (profiles.length > 1 && debug) {
+    if (exactMatches.length > 1 && debug) {
       console.error(
-        `[DEBUG] Found ${profiles.length} profiles with name "${profileName}". ` +
+        `[DEBUG] Found ${exactMatches.length} profiles with exact name "${profileName}". ` +
           `Using the first one: ${profileId}`
       );
     }

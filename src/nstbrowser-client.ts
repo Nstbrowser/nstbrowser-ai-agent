@@ -47,6 +47,7 @@ import {
   API_CDP_CONNECT,
   ERROR_CODES,
 } from './constants.js';
+import { isUuid } from './nstbrowser-profile-resolver.js';
 
 export class NstbrowserClient {
   private baseUrl: string;
@@ -312,10 +313,12 @@ export class NstbrowserClient {
   async getProfiles(query?: ProfileQuery): Promise<Profile[]> {
     // Build query parameters for server-side filtering
     const params = new URLSearchParams();
+    params.append('pageSize', '20');
+    const profileName = query?.name?.trim().replace(' ', '');
 
     if (query) {
-      if (query.name) {
-        params.append('s', query.name); // 's' parameter searches by name or id
+      if (profileName && profileName != '') {
+        params.append('s', profileName); // 's' parameter searches by name or id
       }
       if (query.groupId) {
         params.append('groupId', query.groupId);
@@ -341,6 +344,10 @@ export class NstbrowserClient {
       if (platformNum !== undefined) {
         profiles = profiles.filter((p) => p.platform === platformNum);
       }
+    }
+
+    if (profileName != '' && !isUuid(profileName || '')) {
+      profiles = profiles.filter((p) => p.name === profileName);
     }
 
     return profiles;
