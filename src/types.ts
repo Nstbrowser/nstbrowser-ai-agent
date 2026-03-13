@@ -808,6 +808,24 @@ export interface PauseCommand extends BaseCommand {
   action: 'pause';
 }
 
+// Diagnostic commands
+export interface DiagnoseCommand extends BaseCommand {
+  action: 'diagnose';
+  checks: string[];
+}
+
+export interface VerifyCommand extends BaseCommand {
+  action: 'verify';
+  testUrl: string;
+  nstProfileId?: string;
+  nstProfileName?: string;
+}
+
+export interface RepairCommand extends BaseCommand {
+  action: 'repair';
+  tasks: string[];
+}
+
 export interface PressCommand extends BaseCommand, ProfileAwareCommand {
   action: 'press';
   key: string;
@@ -1076,7 +1094,10 @@ export type Command =
   | NstBrowserConnectCommand
   | NstBrowserConnectOnceCommand
   | NstBrowserCdpUrlCommand
-  | NstBrowserCdpUrlOnceCommand;
+  | NstBrowserCdpUrlOnceCommand
+  | DiagnoseCommand
+  | VerifyCommand
+  | RepairCommand;
 
 export interface AuthSaveCommand extends BaseCommand {
   action: 'auth_save';

@@ -14,6 +14,8 @@ import type {
 } from './nstbrowser-types.js';
 import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
 import { loadNstConfig } from './config-loader.js';
+import { cleanupExpiredStates } from './state-utils.js';
+import { resolveBrowserProfile } from './browser-profile-resolver.js';
 
 /**
  * Execute a Nstbrowser command
@@ -109,6 +111,12 @@ export async function executeNstbrowserCommand(command: Command): Promise<Respon
         return await handleBrowserConnectOnce(command, client);
       case 'nst_profile_list_cursor':
         return await handleProfileListCursor(command, client);
+      case 'diagnose':
+        return await handleDiagnose(command, client, config);
+      case 'verify':
+        return await handleVerify(command, client, config);
+      case 'repair':
+        return await handleRepair(command, client);
       default:
         return errorResponse(
           (command as { id: string }).id,
@@ -173,10 +181,20 @@ async function handleBrowserStop(
     });
   }
 
-  // Regular profile: use resolveProfileId
+  // Regular profile: use resolveProfileId to handle both names and IDs
   const profileId = await resolveProfileId(client, command.profileId);
+
+  // Get profile details to show in response
+  const profile = await getProfileByNameOrId(client, profileId);
+
   await client.stopBrowser(profileId);
-  return successResponse(command.id, { stopped: true });
+
+  return successResponse(command.id, {
+    stopped: true,
+    profileId: profile.profileId,
+    profileName: profile.name,
+    message: `Stopped browser for profile "${profile.name}" (ID: ${profile.profileId})`,
+  });
 }
 
 async function handleBrowserStopAll(
@@ -665,3 +683,226 @@ type NstCommand =
   | { id: string; action: 'nst_profile_group_change'; profileId: string; groupId: string }
   | { id: string; action: 'nst_profile_cache_clear'; profileId: string }
   | { id: string; action: 'nst_profile_cookies_clear'; profileId: string };
+
+// ==================== Diagnostic Commands ====================
+
+/**
+ * Diagnose system environment and configuration
+ */
+async function handleDiagnose(
+  command: {
+    id: string;
+    action: 'diagnose';
+    checks: string[];
+  },
+  client: NstbrowserClient,
+  config: { host: string; port: number; apiKey: string }
+): Promise<Response> {
+  const results: Record<string, any> = {};
+
+  // 1. Check NST Status
+  try {
+    const isRunning = await client.checkAgentInfo();
+    results.nst_status = {
+      status: isRunning ? 'OK' : 'FAILED',
+      message: isRunning
+        ? 'Nstbrowser agent is running and responsive'
+        : 'Nstbrowser agent is not responding',
+    };
+  } catch (error) {
+    results.nst_status = {
+      status: 'FAILED',
+      message: `Failed to connect: ${error instanceof Error ? error.message : String(error)}`,
+      suggestion: 'Ensure Nstbrowser client is running and accessible',
+    };
+  }
+
+  // 2. Check API Key
+  results.api_key = {
+    status: config.apiKey ? 'OK' : 'MISSING',
+    message: config.apiKey
+      ? `API key configured (${config.apiKey.substring(0, 8)}...)`
+      : 'API key not configured',
+    suggestion: config.apiKey
+      ? null
+      : 'Set API key with: nstbrowser-ai-agent config set key <your-api-key>',
+  };
+
+  // 3. Check Running Browsers
+  try {
+    const browsers = await client.getBrowsers();
+    const runningCount = browsers.filter((b) => b.running).length;
+    results.running_browsers = {
+      status: 'OK',
+      total: browsers.length,
+      running: runningCount,
+      message: `${runningCount} browser(s) running out of ${browsers.length} total`,
+    };
+  } catch (error) {
+    results.running_browsers = {
+      status: 'FAILED',
+      message: `Failed to list browsers: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  // 4. Check Profiles
+  try {
+    const profiles = await client.getProfiles();
+    results.profiles_count = {
+      status: 'OK',
+      count: profiles.length,
+      message: `${profiles.length} profile(s) configured`,
+    };
+  } catch (error) {
+    results.profiles_count = {
+      status: 'FAILED',
+      message: `Failed to list profiles: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  // 5. Config Validity
+  results.config_validity = {
+    status: 'OK',
+    host: config.host,
+    port: config.port,
+    api_key_set: !!config.apiKey,
+    endpoint: `http://${config.host}:${config.port}`,
+  };
+
+  // Overall status
+  const allOk = Object.values(results).every((r: any) => !r.status || r.status === 'OK');
+
+  return successResponse(command.id, {
+    overall_status: allOk ? 'OK' : 'ISSUES_DETECTED',
+    checks: results,
+    suggestion: allOk
+      ? 'All checks passed. System is configured correctly.'
+      : 'Some issues detected. Run "nstbrowser-ai-agent repair" to attempt automatic fixes.',
+  });
+}
+
+/**
+ * Verify browser functionality
+ */
+async function handleVerify(
+  command: {
+    id: string;
+    action: 'verify';
+    testUrl: string;
+    nstProfileId?: string;
+    nstProfileName?: string;
+  },
+  client: NstbrowserClient,
+  config: { host: string; port: number; apiKey: string }
+): Promise<Response> {
+  try {
+    // Resolve profile
+    const profile = command.nstProfileId || command.nstProfileName;
+
+    // Use resolveBrowserProfile to start/connect to browser
+    const resolved = await resolveBrowserProfile(client, {
+      profile,
+      nstHost: config.host,
+      nstPort: config.port,
+      nstApiKey: config.apiKey,
+    });
+
+    // Return success with browser info
+    return successResponse(command.id, {
+      status: 'OK',
+      message: 'Browser verification successful',
+      profile: resolved.profileName || resolved.profileId || 'once browser',
+      isOnce: resolved.isOnce,
+      isRunning: resolved.isRunning,
+      wasCreated: resolved.wasCreated,
+      wsUrl: resolved.wsUrl ? 'Available' : 'Not available',
+      suggestion: 'Browser is ready. You can now run browser commands like "open <url>".',
+    });
+  } catch (error) {
+    return errorResponse(
+      command.id,
+      `Verification failed: ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `Troubleshooting:\n` +
+        `- Run: nstbrowser-ai-agent diagnose\n` +
+        `- Check: nstbrowser-ai-agent nst status\n` +
+        `- Try: nstbrowser-ai-agent repair`
+    );
+  }
+}
+
+/**
+ * Repair common configuration issues
+ */
+async function handleRepair(
+  command: {
+    id: string;
+    action: 'repair';
+    tasks: string[];
+  },
+  client: NstbrowserClient
+): Promise<Response> {
+  const tasks: Record<string, { status: string; message: string }> = {};
+
+  // 1. Stop all browsers
+  try {
+    await client.stopAllBrowsers();
+    tasks.stop_all_browsers = {
+      status: 'OK',
+      message: 'All browsers stopped successfully',
+    };
+  } catch (error) {
+    tasks.stop_all_browsers = {
+      status: 'FAILED',
+      message: `Failed to stop browsers: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  // 2. Clear stale states
+  try {
+    const deleted = cleanupExpiredStates(7); // Clean up states older than 7 days
+    tasks.clear_stale_states = {
+      status: 'OK',
+      message: `Expired state files cleaned up (${deleted.length} files removed)`,
+    };
+  } catch (error) {
+    tasks.clear_stale_states = {
+      status: 'FAILED',
+      message: `Failed to clear states: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  // 3. Verify config
+  const config = loadNstConfig();
+  tasks.verify_config = {
+    status: config?.apiKey ? 'OK' : 'FAILED',
+    message: config?.apiKey
+      ? 'Configuration is valid'
+      : 'API key is missing. Set it with: nstbrowser-ai-agent config set key <your-api-key>',
+  };
+
+  // 4. Test connection
+  try {
+    const isRunning = await client.checkAgentInfo();
+    tasks.test_connection = {
+      status: isRunning ? 'OK' : 'FAILED',
+      message: isRunning
+        ? 'Connection to Nstbrowser agent successful'
+        : 'Nstbrowser agent is not responding',
+    };
+  } catch (error) {
+    tasks.test_connection = {
+      status: 'FAILED',
+      message: `Connection test failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const allOk = Object.values(tasks).every((t) => t.status === 'OK');
+
+  return successResponse(command.id, {
+    overall_status: allOk ? 'OK' : 'PARTIAL',
+    tasks,
+    suggestion: allOk
+      ? 'All repair tasks completed successfully. Try your command again.'
+      : 'Some repair tasks failed. Check the detailed messages above and address any remaining issues.',
+  });
+}

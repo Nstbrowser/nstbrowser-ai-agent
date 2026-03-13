@@ -19,6 +19,8 @@ import type { ProfileConfig } from './nstbrowser-types.js';
 import { NstbrowserError } from './nstbrowser-errors.js';
 import {
   BROWSER_START_VERIFICATION_DELAY,
+  MAX_BROWSER_START_RETRIES,
+  BROWSER_START_RETRY_DELAY,
   ERROR_CODES,
   buildWsProfileUrl,
   buildWsOnceUrl,
@@ -182,24 +184,28 @@ export async function resolveBrowserProfile(
       );
     }
 
-    // Start the browser
+    // Start the browser with retry mechanism
     if (debug) {
       console.error(`[DEBUG] Starting browser for profile ID: ${profileId}`);
     }
 
-    await client.startBrowser(profileId);
+    const started = await startBrowserWithRetry(client, profileId);
 
-    // Wait for browser to fully initialize
-    await new Promise((resolve) => setTimeout(resolve, BROWSER_START_VERIFICATION_DELAY));
-
-    // Verify browser is actually running
-    const browsersAfterStart = await client.getBrowsers();
-    const runningBrowser = browsersAfterStart.find((b) => b.profileId === profileId && b.running);
-
-    if (!runningBrowser) {
+    if (!started) {
       throw new NstbrowserError(
-        `Browser started but not found in running list`,
-        ERROR_CODES.BROWSER_START_VERIFICATION_FAILED
+        `Failed to start browser after ${MAX_BROWSER_START_RETRIES} attempts.\n` +
+          `Profile ID: ${profileId}\n\n` +
+          `This may indicate:\n` +
+          `1. Nstbrowser client crashed or is not responding\n` +
+          `2. Profile configuration is invalid\n` +
+          `3. System resources are insufficient\n` +
+          `4. Port conflict or browser process failed to start\n\n` +
+          `Troubleshooting:\n` +
+          `- Run: nstbrowser-ai-agent diagnose\n` +
+          `- Check: nstbrowser-ai-agent nst status\n` +
+          `- Try: nstbrowser-ai-agent repair\n` +
+          `- Restart Nstbrowser client application`,
+        ERROR_CODES.BROWSER_START_FAILED
       );
     }
 
@@ -235,13 +241,42 @@ export async function resolveBrowserProfile(
 
       const newProfile = await client.createProfile(profileConfig);
       profileId = newProfile.profileId;
+      const actualProfileName = newProfile.name;
 
       if (debug) {
-        console.error(`[DEBUG] Created new profile "${profileName}" with ID: ${profileId}`);
+        console.error(`[DEBUG] Created new profile with ID: ${profileId}`);
+        if (actualProfileName !== profileName) {
+          console.error(
+            `[DEBUG] Note: Requested name "${profileName}" but API assigned "${actualProfileName}"`
+          );
+        }
       }
 
-      // Start the newly created profile
-      await client.startBrowser(profileId);
+      // Inform user if profile name was modified by the API
+      if (actualProfileName !== profileName) {
+        console.error(
+          `\n⚠️  Profile name modified by API: "${profileName}" → "${actualProfileName}"\n` +
+            `   This happens when a profile with the requested name already exists.\n` +
+            `   Use "--profile ${actualProfileName}" or "--profile ${profileId}" for future operations.\n`
+        );
+      }
+
+      // Start the newly created profile with retry
+      const started = await startBrowserWithRetry(client, profileId);
+
+      if (!started) {
+        throw new NstbrowserError(
+          `Failed to start newly created profile "${profileName}" (${profileId}).\n\n` +
+            `The profile was created but the browser failed to start. This may indicate:\n` +
+            `1. Nstbrowser client is not responding\n` +
+            `2. System resources are insufficient\n\n` +
+            `Troubleshooting:\n` +
+            `- Run: nstbrowser-ai-agent diagnose\n` +
+            `- Try: nstbrowser-ai-agent repair\n` +
+            `- Delete the profile and try again: nstbrowser-ai-agent profile delete ${profileId}`,
+          ERROR_CODES.BROWSER_START_FAILED
+        );
+      }
 
       const wsUrl = buildWsProfileUrl(
         options.nstHost,
@@ -252,7 +287,7 @@ export async function resolveBrowserProfile(
 
       return {
         profileId,
-        profileName,
+        profileName: actualProfileName, // Use actual name from API, not requested name
         isRunning: true,
         isOnce: false,
         wsUrl,
@@ -271,12 +306,23 @@ export async function resolveBrowserProfile(
       );
     }
 
-    // Start the browser
+    // Start the browser with retry
     if (debug) {
       console.error(`[DEBUG] Starting browser for profile "${profileName}" (ID: ${profileId})`);
     }
 
-    await client.startBrowser(profileId);
+    const started = await startBrowserWithRetry(client, profileId);
+
+    if (!started) {
+      throw new NstbrowserError(
+        `Failed to start browser for profile "${profileName}" (${profileId}).\n\n` +
+          `Troubleshooting:\n` +
+          `- Run: nstbrowser-ai-agent diagnose\n` +
+          `- Check: nstbrowser-ai-agent nst status\n` +
+          `- Try: nstbrowser-ai-agent repair`,
+        ERROR_CODES.BROWSER_START_FAILED
+      );
+    }
 
     const wsUrl = buildWsProfileUrl(options.nstHost, options.nstPort, profileId, options.nstApiKey);
 
@@ -361,4 +407,88 @@ export function extractProfileOptions(
     nstPort,
     nstApiKey,
   };
+}
+
+/**
+ * Start browser with retry mechanism
+ * @returns true if browser started successfully, false otherwise
+ */
+async function startBrowserWithRetry(
+  client: NstbrowserClient,
+  profileId: string,
+  maxRetries: number = MAX_BROWSER_START_RETRIES
+): Promise<boolean> {
+  const debug = process.env.NSTBROWSER_AI_AGENT_DEBUG === '1';
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (debug && attempt > 1) {
+        console.error(
+          `[DEBUG] Browser start attempt ${attempt}/${maxRetries} for profile: ${profileId}`
+        );
+      }
+
+      await client.startBrowser(profileId);
+
+      // Wait for browser to initialize
+      await new Promise((resolve) => setTimeout(resolve, BROWSER_START_VERIFICATION_DELAY));
+
+      // Verify browser is running
+      const browsers = await client.getBrowsers();
+      const running = browsers.find((b) => b.profileId === profileId && b.running);
+
+      if (running) {
+        if (debug && attempt > 1) {
+          console.error(`[DEBUG] Browser started successfully on attempt ${attempt}`);
+        }
+        return true; // Success
+      }
+
+      // Browser not found in running list
+      if (attempt < maxRetries) {
+        if (debug) {
+          console.error(
+            `[DEBUG] Browser not running after start (attempt ${attempt}/${maxRetries}), retrying in ${BROWSER_START_RETRY_DELAY}ms...`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, BROWSER_START_RETRY_DELAY));
+      }
+    } catch (error) {
+      if (attempt === maxRetries) {
+        // Last attempt failed, throw error
+        throw error;
+      }
+      if (debug) {
+        console.error(
+          `[DEBUG] Browser start failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`
+        );
+        console.error(`[DEBUG] Retrying in ${BROWSER_START_RETRY_DELAY}ms...`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, BROWSER_START_RETRY_DELAY));
+    }
+  }
+
+  return false; // All attempts failed
+}
+
+/**
+ * Verify browser health
+ * @returns true if browser is healthy, false otherwise
+ */
+async function verifyBrowserHealth(client: NstbrowserClient, profileId: string): Promise<boolean> {
+  try {
+    // Check if browser is running
+    const browsers = await client.getBrowsers();
+    const browser = browsers.find((b) => b.profileId === profileId);
+
+    if (!browser || !browser.running) {
+      return false;
+    }
+
+    // Try to get CDP URL (tests if browser is responsive)
+    const cdpInfo = await client.getCdpUrl(profileId);
+    return !!cdpInfo.webSocketDebuggerUrl;
+  } catch (error) {
+    return false;
+  }
 }

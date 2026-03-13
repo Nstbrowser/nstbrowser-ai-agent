@@ -111,6 +111,16 @@ export const PROFILE_CACHE_TTL = 30000; // 30 seconds
  */
 export const BROWSER_START_VERIFICATION_DELAY = 2000; // 2 seconds
 
+/**
+ * Maximum retry attempts for browser start
+ */
+export const MAX_BROWSER_START_RETRIES = 3;
+
+/**
+ * Delay between browser start retry attempts in milliseconds
+ */
+export const BROWSER_START_RETRY_DELAY = 2000; // 2 seconds
+
 // ==================== Retry Configuration ====================
 
 /**
@@ -156,6 +166,7 @@ export const ERROR_CODES = {
   INVALID_INPUT: 'INVALID_INPUT',
   RESOLUTION_ERROR: 'RESOLUTION_ERROR',
   BROWSER_START_VERIFICATION_FAILED: 'BROWSER_START_VERIFICATION_FAILED',
+  BROWSER_START_FAILED: 'BROWSER_START_FAILED',
 } as const;
 
 // ==================== URL Helpers ====================

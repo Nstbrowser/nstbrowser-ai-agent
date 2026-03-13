@@ -1370,6 +1370,53 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
             }
         }
 
+        // === Diagnostic Commands ===
+        "diagnose" => {
+            Ok(json!({
+                "id": id,
+                "action": "diagnose",
+                "checks": [
+                    "nst_status",
+                    "api_key",
+                    "running_browsers",
+                    "profiles_count",
+                    "config_validity"
+                ]
+            }))
+        }
+
+        "verify" => {
+            // Optional profile parameter
+            let profile = rest.first().map(|s| s.to_string());
+            let mut cmd = json!({
+                "id": id,
+                "action": "verify",
+                "testUrl": "https://example.com"
+            });
+            if let Some(p) = profile {
+                // Auto-detect if it's a UUID or profile name
+                if is_uuid(&p) {
+                    cmd["nstProfileId"] = json!(p);
+                } else {
+                    cmd["nstProfileName"] = json!(p);
+                }
+            }
+            Ok(cmd)
+        }
+
+        "repair" => {
+            Ok(json!({
+                "id": id,
+                "action": "repair",
+                "tasks": [
+                    "stop_all_browsers",
+                    "clear_stale_states",
+                    "verify_config",
+                    "test_connection"
+                ]
+            }))
+        }
+
         _ => Err(ParseError::UnknownCommand {
             command: cmd.to_string(),
         }),
@@ -2271,10 +2318,31 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
             Ok(cmd)
         }
         Some("stop") => {
-            let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
+            // Support both positional argument and --profile flag for consistency
+            let mut profile_id: Option<&str> = None;
+            let mut i = 1;
+
+            while i < rest.len() {
+                match rest[i] {
+                    "--profile" => {
+                        profile_id = rest.get(i + 1).copied();
+                        i += 2;
+                    }
+                    arg if !arg.starts_with("--") && profile_id.is_none() => {
+                        profile_id = Some(arg);
+                        i += 1;
+                    }
+                    _ => {
+                        i += 1;
+                    }
+                }
+            }
+
+            let profile_id = profile_id.ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser stop".to_string(),
-                usage: "nst browser stop <profile-id>",
+                usage: "nst browser stop <profile-id> | nst browser stop --profile <name-or-id>",
             })?;
+
             Ok(json!({
                 "id": id,
                 "action": "nst_browser_stop",

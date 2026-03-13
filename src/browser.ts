@@ -351,12 +351,28 @@ export class BrowserManager {
       return;
     }
 
-    const page = await context.newPage();
-    if (!this.pages.includes(page)) {
-      this.pages.push(page);
-      this.setupPageTracking(page);
+    try {
+      const page = await context.newPage();
+      if (!this.pages.includes(page)) {
+        this.pages.push(page);
+        this.setupPageTracking(page);
+      }
+      this.activePageIndex = this.pages.length - 1;
+    } catch (error: any) {
+      // Handle case where browser context was closed externally (e.g., via nst browser stop)
+      if (error?.message?.includes('Target page, context or browser has been closed')) {
+        // Clear stale references and re-throw with helpful message
+        this.browser = null;
+        this.contexts = [];
+        this.pages = [];
+        this.nstSessionId = null;
+        throw new Error(
+          'Browser context was closed. The browser may have been stopped externally. ' +
+            'Please start a new browser session.'
+        );
+      }
+      throw error;
     }
-    this.activePageIndex = this.pages.length - 1;
   }
 
   /**
@@ -1412,14 +1428,29 @@ export class BrowserManager {
     this.setupContextTracking(context);
     await this.ensureDomainFilter(context);
 
-    const page = context.pages()[0] ?? (await context.newPage());
-    await this.sanitizeExistingPages([page]);
-    // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
-    if (!this.pages.includes(page)) {
-      this.pages.push(page);
-      this.setupPageTracking(page);
+    try {
+      const page = context.pages()[0] ?? (await context.newPage());
+      await this.sanitizeExistingPages([page]);
+      // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
+      if (!this.pages.includes(page)) {
+        this.pages.push(page);
+        this.setupPageTracking(page);
+      }
+      this.activePageIndex = this.pages.length > 0 ? this.pages.length - 1 : 0;
+    } catch (error: any) {
+      // Handle case where browser context was closed externally
+      if (error?.message?.includes('Target page, context or browser has been closed')) {
+        this.browser = null;
+        this.contexts = [];
+        this.pages = [];
+        this.nstSessionId = null;
+        throw new Error(
+          'Browser context was closed. The browser may have been stopped externally. ' +
+            'Please start a new browser session.'
+        );
+      }
+      throw error;
     }
-    this.activePageIndex = this.pages.length > 0 ? this.pages.length - 1 : 0;
   }
 
   /**
@@ -1726,15 +1757,30 @@ export class BrowserManager {
     await this.invalidateCDPSession();
 
     const context = this.contexts[0]; // Use first context for tabs
-    const page = await context.newPage();
-    // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
-    if (!this.pages.includes(page)) {
-      this.pages.push(page);
-      this.setupPageTracking(page);
-    }
-    this.activePageIndex = this.pages.length - 1;
+    try {
+      const page = await context.newPage();
+      // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
+      if (!this.pages.includes(page)) {
+        this.pages.push(page);
+        this.setupPageTracking(page);
+      }
+      this.activePageIndex = this.pages.length - 1;
 
-    return { index: this.activePageIndex, total: this.pages.length };
+      return { index: this.activePageIndex, total: this.pages.length };
+    } catch (error: any) {
+      // Handle case where browser context was closed externally
+      if (error?.message?.includes('Target page, context or browser has been closed')) {
+        this.browser = null;
+        this.contexts = [];
+        this.pages = [];
+        this.nstSessionId = null;
+        throw new Error(
+          'Browser context was closed. The browser may have been stopped externally. ' +
+            'Please start a new browser session.'
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1757,15 +1803,30 @@ export class BrowserManager {
     this.setupContextTracking(context);
     await this.ensureDomainFilter(context);
 
-    const page = await context.newPage();
-    // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
-    if (!this.pages.includes(page)) {
-      this.pages.push(page);
-      this.setupPageTracking(page);
-    }
-    this.activePageIndex = this.pages.length - 1;
+    try {
+      const page = await context.newPage();
+      // Only add if not already tracked (setupContextTracking may have already added it via 'page' event)
+      if (!this.pages.includes(page)) {
+        this.pages.push(page);
+        this.setupPageTracking(page);
+      }
+      this.activePageIndex = this.pages.length - 1;
 
-    return { index: this.activePageIndex, total: this.pages.length };
+      return { index: this.activePageIndex, total: this.pages.length };
+    } catch (error: any) {
+      // Handle case where browser context was closed externally
+      if (error?.message?.includes('Target page, context or browser has been closed')) {
+        this.browser = null;
+        this.contexts = [];
+        this.pages = [];
+        this.nstSessionId = null;
+        throw new Error(
+          'Browser context was closed. The browser may have been stopped externally. ' +
+            'Please start a new browser session.'
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -2279,12 +2340,27 @@ export class BrowserManager {
     this.recordingContext.setDefaultTimeout(10000);
 
     // Create a page in the recording context
-    this.recordingPage = await this.recordingContext.newPage();
+    try {
+      this.recordingPage = await this.recordingContext.newPage();
 
-    // Add the recording context and page to our managed lists
-    this.contexts.push(this.recordingContext);
-    this.pages.push(this.recordingPage);
-    this.activePageIndex = this.pages.length - 1;
+      // Add the recording context and page to our managed lists
+      this.contexts.push(this.recordingContext);
+      this.pages.push(this.recordingPage);
+      this.activePageIndex = this.pages.length - 1;
+    } catch (error: any) {
+      // Handle case where browser context was closed externally
+      if (error?.message?.includes('Target page, context or browser has been closed')) {
+        this.browser = null;
+        this.contexts = [];
+        this.pages = [];
+        this.nstSessionId = null;
+        throw new Error(
+          'Browser context was closed. The browser may have been stopped externally. ' +
+            'Please start a new browser session.'
+        );
+      }
+      throw error;
+    }
 
     // Set up page tracking
     this.setupPageTracking(this.recordingPage);

@@ -335,54 +335,56 @@ nstbrowser-ai-agent find role button click --name "Submit"
 
 ### Core Commands
 
+All browser action commands support `--profile <name-or-id>` to specify which profile to use:
+
 ```bash
-nstbrowser-ai-agent open <url>              # Navigate to URL (aliases: goto, navigate)
-nstbrowser-ai-agent click <sel>             # Click element (--new-tab to open in new tab)
-nstbrowser-ai-agent dblclick <sel>          # Double-click element
-nstbrowser-ai-agent focus <sel>             # Focus element
-nstbrowser-ai-agent type <sel> <text>       # Type into element
-nstbrowser-ai-agent fill <sel> <text>       # Clear and fill
-nstbrowser-ai-agent press <key>             # Press key (Enter, Tab, Control+a) (alias: key)
-nstbrowser-ai-agent keyboard type <text>    # Type with real keystrokes (no selector, current focus)
-nstbrowser-ai-agent keyboard inserttext <text>  # Insert text without key events (no selector)
-nstbrowser-ai-agent keydown <key>           # Hold key down
-nstbrowser-ai-agent keyup <key>             # Release key
-nstbrowser-ai-agent hover <sel>             # Hover element
-nstbrowser-ai-agent select <sel> <val>      # Select dropdown option
-nstbrowser-ai-agent check <sel>             # Check checkbox
-nstbrowser-ai-agent uncheck <sel>           # Uncheck checkbox
-nstbrowser-ai-agent scroll <dir> [px]       # Scroll (up/down/left/right, --selector <sel>)
-nstbrowser-ai-agent scrollintoview <sel>    # Scroll element into view (alias: scrollinto)
-nstbrowser-ai-agent drag <src> <tgt>        # Drag and drop
-nstbrowser-ai-agent upload <sel> <files>    # Upload files
-nstbrowser-ai-agent screenshot [path]       # Take screenshot (--full for full page, saves to a temporary directory if no path)
-nstbrowser-ai-agent screenshot --annotate   # Annotated screenshot with numbered element labels
-nstbrowser-ai-agent pdf <path>              # Save as PDF
-nstbrowser-ai-agent snapshot                # Accessibility tree with refs (best for AI)
-nstbrowser-ai-agent eval <js>               # Run JavaScript (-b for base64, --stdin for piped input)
-nstbrowser-ai-agent close                   # Close browser (aliases: quit, exit)
+nstbrowser-ai-agent open <url> [--profile <name-or-id>]           # Navigate to URL (aliases: goto, navigate)
+nstbrowser-ai-agent click <sel> [--profile <name-or-id>]          # Click element (--new-tab to open in new tab)
+nstbrowser-ai-agent dblclick <sel> [--profile <name-or-id>]       # Double-click element
+nstbrowser-ai-agent focus <sel> [--profile <name-or-id>]          # Focus element
+nstbrowser-ai-agent type <sel> <text> [--profile <name-or-id>]    # Type into element
+nstbrowser-ai-agent fill <sel> <text> [--profile <name-or-id>]    # Clear and fill
+nstbrowser-ai-agent press <key> [--profile <name-or-id>]          # Press key (Enter, Tab, Control+a) (alias: key)
+nstbrowser-ai-agent keyboard type <text> [--profile <name-or-id>] # Type with real keystrokes (no selector, current focus)
+nstbrowser-ai-agent keyboard inserttext <text> [--profile <name-or-id>]  # Insert text without key events (no selector)
+nstbrowser-ai-agent keydown <key> [--profile <name-or-id>]        # Hold key down
+nstbrowser-ai-agent keyup <key> [--profile <name-or-id>]          # Release key
+nstbrowser-ai-agent hover <sel> [--profile <name-or-id>]          # Hover element
+nstbrowser-ai-agent select <sel> <val> [--profile <name-or-id>]   # Select dropdown option
+nstbrowser-ai-agent check <sel> [--profile <name-or-id>]          # Check checkbox
+nstbrowser-ai-agent uncheck <sel> [--profile <name-or-id>]        # Uncheck checkbox
+nstbrowser-ai-agent scroll <dir> [px] [--profile <name-or-id>]    # Scroll (up/down/left/right, --selector <sel>)
+nstbrowser-ai-agent scrollintoview <sel> [--profile <name-or-id>] # Scroll element into view (alias: scrollinto)
+nstbrowser-ai-agent drag <src> <tgt> [--profile <name-or-id>]     # Drag and drop
+nstbrowser-ai-agent upload <sel> <files> [--profile <name-or-id>] # Upload files
+nstbrowser-ai-agent screenshot [path] [--profile <name-or-id>]    # Take screenshot (--full for full page, saves to a temporary directory if no path)
+nstbrowser-ai-agent screenshot --annotate [--profile <name-or-id>]  # Annotated screenshot with numbered element labels
+nstbrowser-ai-agent pdf <path> [--profile <name-or-id>]           # Save as PDF
+nstbrowser-ai-agent snapshot [--profile <name-or-id>]             # Accessibility tree with refs (best for AI)
+nstbrowser-ai-agent eval <js> [--profile <name-or-id>]            # Run JavaScript (-b for base64, --stdin for piped input)
+nstbrowser-ai-agent close [--profile <name-or-id>]                # Close browser (aliases: quit, exit)
 ```
 
 ### Get Info
 
 ```bash
-nstbrowser-ai-agent get text <sel>          # Get text content
-nstbrowser-ai-agent get html <sel>          # Get innerHTML
-nstbrowser-ai-agent get value <sel>         # Get input value
-nstbrowser-ai-agent get attr <sel> <attr>   # Get attribute
-nstbrowser-ai-agent get title               # Get page title
-nstbrowser-ai-agent get url                 # Get current URL
-nstbrowser-ai-agent get count <sel>         # Count matching elements
-nstbrowser-ai-agent get box <sel>           # Get bounding box
-nstbrowser-ai-agent get styles <sel>        # Get computed styles
+nstbrowser-ai-agent get text <sel> [--profile <name-or-id>]       # Get text content
+nstbrowser-ai-agent get html <sel> [--profile <name-or-id>]       # Get innerHTML
+nstbrowser-ai-agent get value <sel> [--profile <name-or-id>]      # Get input value
+nstbrowser-ai-agent get attr <sel> <attr> [--profile <name-or-id>]  # Get attribute
+nstbrowser-ai-agent get title [--profile <name-or-id>]            # Get page title
+nstbrowser-ai-agent get url [--profile <name-or-id>]              # Get current URL
+nstbrowser-ai-agent get count <sel> [--profile <name-or-id>]      # Count matching elements
+nstbrowser-ai-agent get box <sel> [--profile <name-or-id>]        # Get bounding box
+nstbrowser-ai-agent get styles <sel> [--profile <name-or-id>]     # Get computed styles
 ```
 
 ### Check State
 
 ```bash
-nstbrowser-ai-agent is visible <sel>        # Check if visible
-nstbrowser-ai-agent is enabled <sel>        # Check if enabled
-nstbrowser-ai-agent is checked <sel>        # Check if checked
+nstbrowser-ai-agent is visible <sel> [--profile <name-or-id>]     # Check if visible
+nstbrowser-ai-agent is enabled <sel> [--profile <name-or-id>]     # Check if enabled
+nstbrowser-ai-agent is checked <sel> [--profile <name-or-id>]     # Check if checked
 ```
 
 ### Find Elements (Semantic Locators)
@@ -416,12 +418,12 @@ nstbrowser-ai-agent find nth 2 "a" text
 ### Wait
 
 ```bash
-nstbrowser-ai-agent wait <selector>         # Wait for element to be visible
-nstbrowser-ai-agent wait <ms>               # Wait for time (milliseconds)
-nstbrowser-ai-agent wait --text "Welcome"   # Wait for text to appear
-nstbrowser-ai-agent wait --url "**/dash"    # Wait for URL pattern
-nstbrowser-ai-agent wait --load networkidle # Wait for load state
-nstbrowser-ai-agent wait --fn "window.ready === true"  # Wait for JS condition
+nstbrowser-ai-agent wait <selector> [--profile <name-or-id>]       # Wait for element to be visible
+nstbrowser-ai-agent wait <ms> [--profile <name-or-id>]             # Wait for time (milliseconds)
+nstbrowser-ai-agent wait --text "Welcome" [--profile <name-or-id>] # Wait for text to appear
+nstbrowser-ai-agent wait --url "**/dash" [--profile <name-or-id>]  # Wait for URL pattern
+nstbrowser-ai-agent wait --load networkidle [--profile <name-or-id>]  # Wait for load state
+nstbrowser-ai-agent wait --fn "window.ready === true" [--profile <name-or-id>]  # Wait for JS condition
 ```
 
 **Load states:** `load`, `domcontentloaded`, `networkidle`
@@ -429,10 +431,10 @@ nstbrowser-ai-agent wait --fn "window.ready === true"  # Wait for JS condition
 ### Mouse Control
 
 ```bash
-nstbrowser-ai-agent mouse move <x> <y>      # Move mouse
-nstbrowser-ai-agent mouse down [button]     # Press button (left/right/middle)
-nstbrowser-ai-agent mouse up [button]       # Release button
-nstbrowser-ai-agent mouse wheel <dy> [dx]   # Scroll wheel
+nstbrowser-ai-agent mouse move <x> <y> [--profile <name-or-id>]    # Move mouse
+nstbrowser-ai-agent mouse down [button] [--profile <name-or-id>]   # Press button (left/right/middle)
+nstbrowser-ai-agent mouse up [button] [--profile <name-or-id>]     # Release button
+nstbrowser-ai-agent mouse wheel <dy> [dx] [--profile <name-or-id>] # Scroll wheel
 ```
 
 ### Browser Settings
@@ -1442,6 +1444,31 @@ nstbrowser-ai-agent nst browser stop-all
 - Local network access to Nstbrowser API (default: localhost:8848)
 
 When enabled, nstbrowser-ai-agent connects to your local Nstbrowser instance via CDP. All standard nstbrowser-ai-agent commands work identically, with the added benefit of Nstbrowser's anti-detection features.
+
+## Troubleshooting
+
+If you encounter issues:
+
+**Quick Diagnostic Commands:**
+```bash
+# Comprehensive environment check
+nstbrowser-ai-agent diagnose
+
+# Test browser functionality
+nstbrowser-ai-agent verify [--profile <name-or-id>]
+
+# Attempt automatic fixes
+nstbrowser-ai-agent repair
+```
+
+**Common Issues:**
+- [Browser connection errors](TROUBLESHOOTING.md#browsercontextnewpage-target-page-context-or-browser-has-been-closed)
+- [API key issues](TROUBLESHOOTING.md#api-key-issues)
+- [Browser won't start](TROUBLESHOOTING.md#browser-wont-start)
+- [Profile not found](TROUBLESHOOTING.md#profile-not-found)
+- [Connection refused](TROUBLESHOOTING.md#connection-refused--cannot-connect-to-nstbrowser)
+
+**Full Guide**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions to common problems.
 
 ## License
 
