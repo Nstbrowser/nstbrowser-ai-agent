@@ -27,8 +27,12 @@ import {
 export class NstbrowserClient {
   private baseUrl: string;
   private apiKey: string;
+  private host: string;
+  private port: number;
 
   constructor(host: string, port: number, apiKey: string) {
+    this.host = host;
+    this.port = port;
     this.baseUrl = `http://${host}:${port}`;
     this.apiKey = apiKey;
 
@@ -95,32 +99,45 @@ export class NstbrowserClient {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          if (response.status === 401) {
-            throw new NstbrowserAuthError();
-          }
+          const errorText = await response.text().catch(() => 'No response body');
 
-          if (response.status === 404) {
-            const errorText = await response.text().catch(() => 'No response body');
-            if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
-              console.error('[DEBUG] 404 Error details:', {
-                url,
-                status: response.status,
-                statusText: response.statusText,
-                body: errorText,
-              });
-            }
-            throw new NstbrowserError(`Resource not found: ${url}`, 'NST_NOT_FOUND', 404);
+          // Create structured error message with diagnostic information
+          let errorMessage: string;
+          switch (response.status) {
+            case 400:
+              errorMessage = `NST Service Error (HTTP 400): ${errorText}\n\nDiagnostic Information:\n• The Nstbrowser desktop client may not be running\n• API endpoint may not be accessible\n• Request format may be invalid\n\nTroubleshooting Steps:\n1. Start the Nstbrowser desktop client\n2. Check if port ${this.port} is accessible: curl http://${this.host}:${this.port}\n3. Verify API key: nstbrowser-ai-agent config show\n4. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              break;
+            case 401:
+              errorMessage = `NST Authentication Error (HTTP 401): ${errorText}\n\nDiagnostic Information:\n• API key is missing or invalid\n• API key may have expired\n\nTroubleshooting Steps:\n1. Set your API key: nstbrowser-ai-agent config set key YOUR_API_KEY\n2. Verify API key: nstbrowser-ai-agent config show\n3. Check if API key is valid in Nstbrowser dashboard\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              throw new NstbrowserError(errorMessage, 'NST_AUTH_ERROR', 401);
+            case 403:
+              errorMessage = `NST Permission Error (HTTP 403): ${errorText}\n\nDiagnostic Information:\n• API key lacks required permissions\n• Resource access is restricted\n\nTroubleshooting Steps:\n1. Check API key permissions in Nstbrowser dashboard\n2. Verify you have access to the requested resource\n3. Contact support if permissions appear correct\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              break;
+            case 404:
+              errorMessage = `NST Resource Not Found (HTTP 404): ${errorText}\n\nDiagnostic Information:\n• Profile ID or name does not exist\n• Browser instance may have been stopped\n• API endpoint may be incorrect\n\nTroubleshooting Steps:\n1. List available profiles: nstbrowser-ai-agent profile list\n2. Check running browsers: nstbrowser-ai-agent browser list\n3. Verify profile ID format (UUID) or name spelling\n4. Create profile if needed: nstbrowser-ai-agent profile create <name>\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+                console.error('[DEBUG] 404 Error details:', {
+                  url,
+                  status: response.status,
+                  statusText: response.statusText,
+                  body: errorText,
+                });
+              }
+              throw new NstbrowserError(errorMessage, 'NST_NOT_FOUND', 404);
+            default:
+              if (response.status >= 500) {
+                errorMessage = `NST Server Error (HTTP ${response.status}): ${errorText}\n\nDiagnostic Information:\n• Nstbrowser service encountered an internal error\n• Service may be overloaded or misconfigured\n\nTroubleshooting Steps:\n1. Wait a moment and try again\n2. Restart the Nstbrowser desktop client\n3. Check Nstbrowser service logs\n4. Contact support if problem persists\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              } else {
+                errorMessage = `NST Service Error (HTTP ${response.status}): ${errorText}\n\nDiagnostic Information:\n• Unexpected HTTP status code\n• Service may be unavailable\n\nTroubleshooting Steps:\n1. Check if Nstbrowser desktop client is running\n2. Verify network connectivity to ${this.host}:${this.port}\n3. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
+              }
+              break;
           }
 
           const errorData = (await response.json().catch(() => ({}))) as {
             message?: string;
             code?: number;
           };
-          throw new NstbrowserError(
-            errorData.message || `HTTP ${response.status}: ${response.statusText}`,
-            errorData.code?.toString(),
-            response.status
-          );
+          throw new NstbrowserError(errorMessage, errorData.code?.toString(), response.status);
         }
 
         const result = (await response.json()) as NstApiResponse<T>;

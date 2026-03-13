@@ -194,10 +194,32 @@ async function handleProfileList(
     id: string;
     action: 'nst_profile_list';
     query?: { name?: string; groupId?: string; platform?: 'Windows' | 'macOS' | 'Linux' };
+    verbose?: boolean;
   },
   client: NstbrowserClient
 ): Promise<Response> {
   const profiles = await client.getProfiles(command.query);
+
+  // If not verbose, return simplified profile data
+  if (!command.verbose) {
+    const simplifiedProfiles = profiles.map((profile) => ({
+      profileId: profile.profileId,
+      name: profile.name,
+      platform: profile.platform,
+      groupName: profile.groupName,
+      // Include basic proxy info but not full details
+      proxyResult: profile.proxyResult
+        ? {
+            ip: profile.proxyResult.ip,
+          }
+        : undefined,
+      // Include tag names but not full tag objects
+      tags: profile.tags?.map((tag) => ({ name: tag.name })),
+    }));
+    return successResponse(command.id, { profiles: simplifiedProfiles });
+  }
+
+  // Verbose mode returns full profile data
   return successResponse(command.id, { profiles });
 }
 

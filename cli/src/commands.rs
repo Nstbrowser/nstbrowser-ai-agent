@@ -2422,7 +2422,30 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
     ];
 
     match rest.first().copied() {
-        Some("list") | None => Ok(json!({ "id": id, "action": "nst_profile_list" })),
+        Some("list") | None => {
+            let mut cmd = json!({ "id": id, "action": "nst_profile_list" });
+            
+            // Check for --verbose flag
+            let mut i = 1;
+            while i < rest.len() {
+                match rest[i] {
+                    "--verbose" => {
+                        cmd["verbose"] = json!(true);
+                    }
+                    other => {
+                        if other.starts_with("--") {
+                            return Err(ParseError::InvalidValue {
+                                message: format!("unknown flag '{}' for profile list", other),
+                                usage: "profile list [--verbose]",
+                            });
+                        }
+                    }
+                }
+                i += 1;
+            }
+            
+            Ok(cmd)
+        }
         Some("list-cursor") => {
             let mut cmd = json!({
                 "id": id,

@@ -2405,63 +2405,50 @@ Examples:
 
         "nst" => {
             r##"
-nstbrowser-ai-agent nst - Nstbrowser Integration
+nstbrowser-ai-agent - Nstbrowser Integration
 
 Manage Nstbrowser profiles and browser instances for advanced fingerprinting
 and anti-detection capabilities.
 
-Usage: nstbrowser-ai-agent nst <category> <subcommand> [args]
-   OR: nstbrowser-ai-agent <category> <subcommand> [args]  (when using NST as default provider)
+Usage: nstbrowser-ai-agent <category> <subcommand> [args]
 
 Categories:
   browser              Manage browser instances
   profile              Manage browser profiles
 
 Browser Commands:
-  nst browser list                    List running browser instances
-  nst browser start <profile-id>      Start browser for profile
-  nst browser start-once              Start temporary browser without profile
-  nst browser stop <profile-id>       Stop browser instance
-  nst browser stop-all                Stop all browser instances
-  nst browser cdp-url <profile-id>    Get CDP WebSocket URL for profile
-  nst browser cdp-url-once            Get CDP URL for temporary browser
-  nst browser connect <profile-id>    Connect and get CDP URL (starts if not running)
-  nst browser connect-once            Connect to temporary browser
+  browser list                        List running browser instances
+  browser start <profile-id>          Start browser for profile
+  browser start-once                  Start temporary browser without profile
+  browser stop <profile-id>           Stop browser instance
+  browser stop-all                    Stop all browser instances
+  browser cdp-url <profile-id>        Get CDP WebSocket URL for profile
+  browser cdp-url-once                Get CDP URL for temporary browser
+  browser connect <profile-id>        Connect and get CDP URL (starts if not running)
+  browser connect-once                Connect to temporary browser
 
 Profile Commands:
-  nst profile list                    List all profiles
-  nst profile list-cursor             List profiles with cursor pagination
+  profile list                        List all profiles
+    Options: --verbose                Include full profile data (cookies, fingerprints, etc.)
+  profile list-cursor                 List profiles with cursor pagination
     Options: --page-size <n>  --cursor <token>
-  nst profile create <name>           Create new profile
+  profile create <name>               Create new profile
     Options: --platform <Windows|macOS|Linux>
              --kernel <version>
              --group-id <id>
              --proxy-host <host> --proxy-port <port>
              --proxy-type <http|https|socks5>
              --proxy-username <user> --proxy-password <pass>
-  nst profile delete <id> [id...]     Delete profiles
-  nst profile proxy update <id>       Update proxy settings
-  nst profile proxy reset <id> [id...] Reset proxy to local
-  nst profile tags list               List all tags
-  nst profile tags create <id> <tag>  Add tags to profile
-  nst profile tags clear <id> [id...] Clear profile tags
-  nst profile groups list             List all groups
-  nst profile groups change <gid> <id> Move profiles to group
-  nst profile cache clear <id> [id...] Clear profile cache
-  nst profile cookies clear <id> [id...] Clear profile cookies
-
-Default Provider Shortcuts (when NST_API_KEY is set):
-  profile list                        Same as: nst profile list
-  profile list-cursor                 Same as: nst profile list-cursor
-  profile create <name>               Same as: nst profile create <name>
-  browser list                        Same as: nst browser list
-  browser start <profile-id>          Same as: nst browser start <profile-id>
-  browser start-once                  Same as: nst browser start-once
-  browser cdp-url <profile-id>        Same as: nst browser cdp-url <profile-id>
-  browser cdp-url-once                Same as: nst browser cdp-url-once
-  browser connect <profile-id>        Same as: nst browser connect <profile-id>
-  browser connect-once                Same as: nst browser connect-once
-  (All nst commands work without 'nst' prefix when using NST as default provider)
+  profile delete <id> [id...]         Delete profiles
+  profile proxy update <id>           Update proxy settings
+  profile proxy reset <id> [id...]    Reset proxy to local
+  profile tags list                   List all tags
+  profile tags create <id> <tag>      Add tags to profile
+  profile tags clear <id> [id...]     Clear profile tags
+  profile groups list                 List all groups
+  profile groups change <gid> <id>    Move profiles to group
+  profile cache clear <id> [id...]    Clear profile cache
+  profile cookies clear <id> [id...]  Clear profile cookies
 
 Environment Variables:
   NST_HOST                 Nstbrowser API host (default: 127.0.0.1)
@@ -2497,42 +2484,42 @@ Options:
 
 Examples:
   # List all profiles
-  nstbrowser-ai-agent nst profile list
+  nstbrowser-ai-agent profile list
 
   # Create a new profile with all options
-  nstbrowser-ai-agent nst profile create myprofile \
+  nstbrowser-ai-agent profile create myprofile \
     --platform Windows \
     --kernel "128" \
     --group-id "254861a7-f1af-4b6c-99c5-059e5036ae49" \
     --proxy-host 127.0.0.1 --proxy-port 1080 --proxy-type socks5
 
   # Start browser with profile
-  nstbrowser-ai-agent nst browser start profile-123
+  nstbrowser-ai-agent browser start profile-123
 
   # Launch browser using Nstbrowser provider with profile name
-  nstbrowser-ai-agent -p nst --profile myprofile
+  nstbrowser-ai-agent --profile myprofile
 
   # Launch browser using Nstbrowser provider with profile ID (auto-detected)
-  nstbrowser-ai-agent -p nst --profile "527e7b55-ca19-4422-89e4-88af4cf0f543"
+  nstbrowser-ai-agent --profile "527e7b55-ca19-4422-89e4-88af4cf0f543"
 
   # Both work the same way - UUID pattern is auto-detected
-  nstbrowser-ai-agent -p nst --profile proxy_ph
-  nstbrowser-ai-agent -p nst --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b
+  nstbrowser-ai-agent --profile proxy_ph
+  nstbrowser-ai-agent --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b
 
   # Launch browser using Nstbrowser provider (once profile, temporary)
-  nstbrowser-ai-agent -p nst
+  nstbrowser-ai-agent
 
   # Launch browser using environment variable (backward compatible)
-  NST_PROFILE=myprofile nstbrowser-ai-agent -p nst
-  nstbrowser-ai-agent -p nst open https://example.com
+  NST_PROFILE=myprofile nstbrowser-ai-agent
+  nstbrowser-ai-agent open https://example.com
 
   # Update proxy settings
-  nstbrowser-ai-agent nst profile proxy update profile-123 \
+  nstbrowser-ai-agent profile proxy update profile-123 \
     --host 127.0.0.1 --port 1080 --type http
 
   # Batch operations
-  nstbrowser-ai-agent nst profile delete profile-1 profile-2 profile-3
-  nstbrowser-ai-agent nst profile cache clear profile-1 profile-2
+  nstbrowser-ai-agent profile delete profile-1 profile-2 profile-3
+  nstbrowser-ai-agent profile cache clear profile-1 profile-2
 
 Note: Requires Nstbrowser client to be installed and running.
       Set NST_API_KEY environment variable before using.
@@ -2699,16 +2686,19 @@ Configuration:
   config show                Show all configuration
   config unset <key>         Remove configuration value
 
-Nstbrowser Integration:
-  nst browser list           List running browser instances
-  nst browser start <name-or-id> Start browser for profile
-  nst browser stop <name-or-id>  Stop browser instance
-  nst profile list           List all profiles
-  nst profile create <name>  Create new profile
-  nst profile delete <name-or-id> Delete profile(s)
-  nst profile proxy update   Update proxy settings
-  nst profile tags list      List all tags
-  nst profile groups list    List all groups
+Profile Management:
+  profile list               List all profiles
+  profile create <name>      Create new profile
+  profile delete <name-or-id> Delete profile(s)
+  profile proxy update       Update proxy settings
+  profile tags list          List all tags
+  profile groups list        List all groups
+
+Browser Control:
+  browser list               List running browser instances
+  browser start <name-or-id> Start browser for profile
+  browser stop <name-or-id>  Stop browser instance
+  browser start-once         Start temporary browser
 
 Confirmation:
   confirm <id>               Approve a pending action
@@ -2722,7 +2712,7 @@ Updates:
   update check               Check for available updates
 
 NST Agent:
-  nst status                 Check if NST agent is running
+  status                     Check if NST agent is running
 
 Snapshot Options:
   -i, --interactive          Only interactive elements
@@ -2731,7 +2721,7 @@ Snapshot Options:
   -s, --selector <sel>       Scope to CSS selector
 
 Default Provider:
-  By default, nstbrowser-ai-agent uses Nstbrowser (nst) as the browser provider.
+  By default, nstbrowser-ai-agent uses Nstbrowser as the browser provider.
   This means you don't need to specify -p nst unless you want to be explicit.
   
   All browser operations are performed through Nstbrowser profiles.
@@ -2846,7 +2836,7 @@ Environment:
   NST_API_KEY                    Nstbrowser API key (required for nst provider, default provider)
   NST_HOST                       Nstbrowser API host (default: localhost)
   NST_PORT                       Nstbrowser API port (default: 8848)
-  NST_PROFILE                    Profile name for provider=nst launch
+  NST_PROFILE                    Profile name for Nstbrowser launch
 
 Installation:
   npm install -g nstbrowser-ai-agent           # Install globally (recommended)
@@ -2855,7 +2845,7 @@ Installation:
 Examples:
   # Using Nstbrowser (default provider)
   export NST_API_KEY="your-api-key"
-  nstbrowser-ai-agent open example.com         # Uses nst by default
+  nstbrowser-ai-agent open example.com         # Uses Nstbrowser by default
   nstbrowser-ai-agent snapshot -i              # Interactive elements only
   nstbrowser-ai-agent click @e2                # Click by ref from snapshot
   nstbrowser-ai-agent fill @e3 "test@example.com"

@@ -1176,6 +1176,7 @@ export interface NstBrowserStopAllCommand extends BaseCommand {
 
 export interface NstProfileListCommand extends BaseCommand {
   action: 'nst_profile_list';
+  verbose?: boolean;
   page?: number;
   pageSize?: number;
 }

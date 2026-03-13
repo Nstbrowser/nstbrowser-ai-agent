@@ -961,6 +961,7 @@ const nstBrowserStopAllSchema = baseCommandSchema.extend({
 
 const nstProfileListSchema = baseCommandSchema.extend({
   action: z.literal('nst_profile_list'),
+  verbose: z.boolean().optional(),
   query: z
     .object({
       name: z.string().optional(),

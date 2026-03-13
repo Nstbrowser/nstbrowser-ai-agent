@@ -37,6 +37,8 @@ struct ProfileListResponse {
 pub struct NstClient {
     base_url: String,
     api_key: String,
+    host: String,
+    port: u16,
 }
 
 impl NstClient {
@@ -44,6 +46,8 @@ impl NstClient {
         Self {
             base_url: format!("http://{}:{}", host, port),
             api_key: api_key.to_string(),
+            host: host.to_string(),
+            port,
         }
     }
 
@@ -150,7 +154,48 @@ impl NstClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "No error details".to_string());
-            return Err(format!("HTTP {}: {}", status, error_text));
+            
+            // Create structured error message with diagnostic information
+            let error_msg = match status.as_u16() {
+                400 => {
+                    format!(
+                        "NST Service Error (HTTP 400): {}\n\nDiagnostic Information:\n• The Nstbrowser desktop client may not be running\n• API endpoint may not be accessible\n• Request format may be invalid\n\nTroubleshooting Steps:\n1. Start the Nstbrowser desktop client\n2. Check if port {} is accessible: curl http://{}:{}\n3. Verify API key: nstbrowser-ai-agent config show\n4. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        error_text, self.port, self.host, self.port
+                    )
+                }
+                401 => {
+                    format!(
+                        "NST Authentication Error (HTTP 401): {}\n\nDiagnostic Information:\n• API key is missing or invalid\n• API key may have expired\n\nTroubleshooting Steps:\n1. Set your API key: nstbrowser-ai-agent config set key YOUR_API_KEY\n2. Verify API key: nstbrowser-ai-agent config show\n3. Check if API key is valid in Nstbrowser dashboard\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        error_text
+                    )
+                }
+                403 => {
+                    format!(
+                        "NST Permission Error (HTTP 403): {}\n\nDiagnostic Information:\n• API key lacks required permissions\n• Resource access is restricted\n\nTroubleshooting Steps:\n1. Check API key permissions in Nstbrowser dashboard\n2. Verify you have access to the requested resource\n3. Contact support if permissions appear correct\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        error_text
+                    )
+                }
+                404 => {
+                    format!(
+                        "NST Resource Not Found (HTTP 404): {}\n\nDiagnostic Information:\n• Profile ID or name does not exist\n• Browser instance may have been stopped\n• API endpoint may be incorrect\n\nTroubleshooting Steps:\n1. List available profiles: nstbrowser-ai-agent profile list\n2. Check running browsers: nstbrowser-ai-agent browser list\n3. Verify profile ID format (UUID) or name spelling\n4. Create profile if needed: nstbrowser-ai-agent profile create <name>\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        error_text
+                    )
+                }
+                500..=599 => {
+                    format!(
+                        "NST Server Error (HTTP {}): {}\n\nDiagnostic Information:\n• Nstbrowser service encountered an internal error\n• Service may be overloaded or misconfigured\n\nTroubleshooting Steps:\n1. Wait a moment and try again\n2. Restart the Nstbrowser desktop client\n3. Check Nstbrowser service logs\n4. Contact support if problem persists\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        status.as_u16(), error_text
+                    )
+                }
+                _ => {
+                    format!(
+                        "NST Service Error (HTTP {}): {}\n\nDiagnostic Information:\n• Unexpected HTTP status code\n• Service may be unavailable\n\nTroubleshooting Steps:\n1. Check if Nstbrowser desktop client is running\n2. Verify network connectivity to {}:{}\n3. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting",
+                        status.as_u16(), error_text, self.host, self.port
+                    )
+                }
+            };
+            
+            return Err(error_msg);
         }
 
         response
