@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { APPIUM_HOST, IOS_AUTOMATION_TIMEOUT, IOS_POLLING_INTERVAL } from './constants.js';
 
 // Ref map for element targeting (mirrors snapshot.ts)
 export interface IOSRefMap {
@@ -61,7 +62,6 @@ export class IOSManager {
 
   // Default Appium port
   private static readonly APPIUM_PORT = 4723;
-  private static readonly APPIUM_HOST = '127.0.0.1';
 
   constructor() {
     this.simctl = new Simctl();
@@ -250,9 +250,7 @@ export class IOSManager {
    */
   private async isAppiumRunning(): Promise<boolean> {
     try {
-      const response = await fetch(
-        `http://${IOSManager.APPIUM_HOST}:${IOSManager.APPIUM_PORT}/status`
-      );
+      const response = await fetch(`http://${APPIUM_HOST}:${IOSManager.APPIUM_PORT}/status`);
       return response.ok;
     } catch {
       return false;
@@ -288,7 +286,7 @@ export class IOSManager {
         if (!started) {
           reject(new Error('Appium server failed to start within 30 seconds'));
         }
-      }, 30000);
+      }, IOS_AUTOMATION_TIMEOUT);
 
       this.appiumProcess.stdout?.on('data', (data: Buffer) => {
         const output = data.toString();
@@ -442,7 +440,7 @@ export class IOSManager {
     // Connect to Safari via Appium
     try {
       this.browser = await remote({
-        hostname: IOSManager.APPIUM_HOST,
+        hostname: APPIUM_HOST,
         port: IOSManager.APPIUM_PORT,
         path: '/',
         capabilities: {
@@ -483,7 +481,7 @@ export class IOSManager {
         )) as unknown as string;
         return state === 'complete';
       },
-      { timeout: 30000, interval: 500 }
+      { timeout: IOS_AUTOMATION_TIMEOUT, interval: IOS_POLLING_INTERVAL }
     );
 
     const title = await this.browser.getTitle();
@@ -983,7 +981,7 @@ export class IOSManager {
       throw new Error('iOS browser not launched');
     }
 
-    const timeout = options.timeout ?? 30000;
+    const timeout = options.timeout ?? IOS_AUTOMATION_TIMEOUT;
 
     if (options.selector) {
       const element = await this.getElement(options.selector);

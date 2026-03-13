@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { DEFAULT_NST_HOST, DEFAULT_NST_PORT } from './constants.js';
 
 const CONFIG_DIR = '.nst-ai-agent';
 const CONFIG_FILE = 'config.json';
@@ -44,9 +45,10 @@ export function loadNstConfig(): NstConfig | null {
 
   // Priority: Config file > Environment variable > Default
   const apiKey = fileConfig.nstApiKey || process.env.NST_API_KEY || '';
-  const host = fileConfig.nstHost || process.env.NST_HOST || 'localhost';
+  const host = fileConfig.nstHost || process.env.NST_HOST || DEFAULT_NST_HOST;
   const port =
-    fileConfig.nstPort || (process.env.NST_PORT ? parseInt(process.env.NST_PORT, 10) : 8848);
+    fileConfig.nstPort ||
+    (process.env.NST_PORT ? parseInt(process.env.NST_PORT, 10) : DEFAULT_NST_PORT);
 
   if (!apiKey) {
     return null;

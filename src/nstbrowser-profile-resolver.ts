@@ -18,6 +18,7 @@
  */
 
 import type { NstbrowserClient } from './nstbrowser-client.js';
+import { buildWsProfileUrl, buildWsOnceUrl } from './constants.js';
 
 /**
  * Check if a string is a valid UUID (case-insensitive)
@@ -224,7 +225,7 @@ export async function ensureBrowserRunning(
       clearCacheOnClose: true,
     };
     const configParam = encodeURIComponent(JSON.stringify(config));
-    const wsUrl = `ws://${nstHost}:${nstPort}/api/v2/connect?config=${configParam}&x-api-key=${nstApiKey}`;
+    const wsUrl = buildWsOnceUrl(nstHost, nstPort, configParam, nstApiKey);
 
     return {
       ...resolved,
@@ -245,7 +246,7 @@ export async function ensureBrowserRunning(
       );
     }
 
-    const wsUrl = `ws://${nstHost}:${nstPort}/api/v2/connect/${resolved.profileId}?x-api-key=${nstApiKey}`;
+    const wsUrl = buildWsProfileUrl(nstHost, nstPort, resolved.profileId, nstApiKey);
 
     return {
       ...resolved,
@@ -264,7 +265,7 @@ export async function ensureBrowserRunning(
     console.error(`[DEBUG] Browser started successfully for profile ${resolved.profileId}`);
   }
 
-  const wsUrl = `ws://${nstHost}:${nstPort}/api/v2/connect/${resolved.profileId}?x-api-key=${nstApiKey}`;
+  const wsUrl = buildWsProfileUrl(nstHost, nstPort, resolved.profileId, nstApiKey);
 
   return {
     ...resolved,

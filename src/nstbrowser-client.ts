@@ -23,6 +23,30 @@ import {
   NstbrowserAuthError,
   handleNstbrowserError,
 } from './nstbrowser-errors.js';
+import {
+  DEFAULT_NST_PORT,
+  DEFAULT_REQUEST_TIMEOUT,
+  DEFAULT_RETRY_COUNT,
+  AGENT_INFO_TIMEOUT,
+  HEADER_API_KEY,
+  HEADER_CONTENT_TYPE,
+  CONTENT_TYPE_JSON,
+  API_AGENT_INFO,
+  API_BROWSERS,
+  API_BROWSERS_ONCE,
+  API_BROWSERS_BATCH,
+  API_PROFILES,
+  API_PROFILES_CURSOR,
+  API_PROFILES_TAGS,
+  API_PROFILES_PROXY_BATCH,
+  API_PROFILES_PROXY_BATCH_RESET,
+  API_PROFILES_TAGS_BATCH,
+  API_PROFILES_TAGS_BATCH_CLEAR,
+  API_PROFILES_GROUP_BATCH,
+  API_PROFILES_GROUPS,
+  API_CDP_CONNECT,
+  ERROR_CODES,
+} from './constants.js';
 
 export class NstbrowserClient {
   private baseUrl: string;
@@ -73,8 +97,8 @@ export class NstbrowserClient {
     data?: unknown,
     options?: { timeout?: number; retries?: number }
   ): Promise<T> {
-    const timeout = options?.timeout || 30000;
-    const retries = options?.retries || 3;
+    const timeout = options?.timeout || DEFAULT_REQUEST_TIMEOUT;
+    const retries = options?.retries || DEFAULT_RETRY_COUNT;
     const url = `${this.baseUrl}${endpoint}`;
 
     let lastError: Error | null = null;
@@ -89,8 +113,8 @@ export class NstbrowserClient {
         const response = await fetch(url, {
           method,
           headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': this.apiKey,
+            [HEADER_CONTENT_TYPE]: CONTENT_TYPE_JSON,
+            [HEADER_API_KEY]: this.apiKey,
           },
           body: data ? JSON.stringify(data) : undefined,
           signal: controller.signal,
@@ -99,51 +123,51 @@ export class NstbrowserClient {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const errorText = await response.text().catch(() => 'No response body');
+          // Get the raw error response
+          const errorText = await response.text().catch(() => '');
+          let errorBody: { msg?: string; message?: string; code?: number } = {};
 
-          // Create structured error message with diagnostic information
-          let errorMessage: string;
-          switch (response.status) {
-            case 400:
-              errorMessage = `NST Service Error (HTTP 400): ${errorText}\n\nDiagnostic Information:\n• The Nstbrowser desktop client may not be running\n• API endpoint may not be accessible\n• Request format may be invalid\n\nTroubleshooting Steps:\n1. Start the Nstbrowser desktop client\n2. Check if port ${this.port} is accessible: curl http://${this.host}:${this.port}\n3. Verify API key: nstbrowser-ai-agent config show\n4. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              break;
-            case 401:
-              errorMessage = `NST Authentication Error (HTTP 401): ${errorText}\n\nDiagnostic Information:\n• API key is missing or invalid\n• API key may have expired\n\nTroubleshooting Steps:\n1. Set your API key: nstbrowser-ai-agent config set key YOUR_API_KEY\n2. Verify API key: nstbrowser-ai-agent config show\n3. Check if API key is valid in Nstbrowser dashboard\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              throw new NstbrowserError(errorMessage, 'NST_AUTH_ERROR', 401);
-            case 403:
-              errorMessage = `NST Permission Error (HTTP 403): ${errorText}\n\nDiagnostic Information:\n• API key lacks required permissions\n• Resource access is restricted\n\nTroubleshooting Steps:\n1. Check API key permissions in Nstbrowser dashboard\n2. Verify you have access to the requested resource\n3. Contact support if permissions appear correct\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              break;
-            case 404:
-              errorMessage = `NST Resource Not Found (HTTP 404): ${errorText}\n\nDiagnostic Information:\n• Profile ID or name does not exist\n• Browser instance may have been stopped\n• API endpoint may be incorrect\n\nTroubleshooting Steps:\n1. List available profiles: nstbrowser-ai-agent profile list\n2. Check running browsers: nstbrowser-ai-agent browser list\n3. Verify profile ID format (UUID) or name spelling\n4. Create profile if needed: nstbrowser-ai-agent profile create <name>\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
-                console.error('[DEBUG] 404 Error details:', {
-                  url,
-                  status: response.status,
-                  statusText: response.statusText,
-                  body: errorText,
-                });
-              }
-              throw new NstbrowserError(errorMessage, 'NST_NOT_FOUND', 404);
-            default:
-              if (response.status >= 500) {
-                errorMessage = `NST Server Error (HTTP ${response.status}): ${errorText}\n\nDiagnostic Information:\n• Nstbrowser service encountered an internal error\n• Service may be overloaded or misconfigured\n\nTroubleshooting Steps:\n1. Wait a moment and try again\n2. Restart the Nstbrowser desktop client\n3. Check Nstbrowser service logs\n4. Contact support if problem persists\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              } else {
-                errorMessage = `NST Service Error (HTTP ${response.status}): ${errorText}\n\nDiagnostic Information:\n• Unexpected HTTP status code\n• Service may be unavailable\n\nTroubleshooting Steps:\n1. Check if Nstbrowser desktop client is running\n2. Verify network connectivity to ${this.host}:${this.port}\n3. Check service status: nstbrowser-ai-agent status\n\nFor more help: https://github.com/nstbrowser/nstbrowser-ai-agent#troubleshooting`;
-              }
-              break;
+          // Try to parse JSON error response
+          if (errorText) {
+            try {
+              errorBody = JSON.parse(errorText);
+            } catch {
+              // Not JSON, use raw text
+            }
           }
 
-          const errorData = (await response.json().catch(() => ({}))) as {
-            message?: string;
-            code?: number;
-          };
-          throw new NstbrowserError(errorMessage, errorData.code?.toString(), response.status);
+          // Extract the actual error message from API response
+          const apiMessage = errorBody.msg || errorBody.message || errorText || 'No error message';
+
+          // Build concise error message with API response
+          const errorMessage = `HTTP ${response.status}: ${apiMessage}`;
+
+          // In debug mode, log full details
+          if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
+            console.error('[DEBUG] API Error:', {
+              url,
+              method,
+              status: response.status,
+              statusText: response.statusText,
+              body: errorText,
+              headers: Object.fromEntries(response.headers.entries()),
+            });
+          }
+
+          // Special handling for auth errors
+          if (response.status === 401) {
+            throw new NstbrowserError(errorMessage, ERROR_CODES.NST_AUTH_ERROR, response.status);
+          }
+
+          // Throw error with original API message
+          throw new NstbrowserError(errorMessage, errorBody.code?.toString(), response.status);
         }
 
         const result = (await response.json()) as NstApiResponse<T>;
 
         // Nstbrowser API uses 'err: false' to indicate success
         if (result.err) {
+          // Return the exact error message from API
           throw new NstbrowserError(result.msg || 'Unknown error', result.code?.toString());
         }
 
@@ -187,8 +211,8 @@ export class NstbrowserClient {
    */
   async checkAgentInfo(): Promise<boolean> {
     try {
-      await this.request<unknown>('GET', '/api/agent/agent/info', undefined, {
-        timeout: 3000,
+      await this.request<unknown>('GET', API_AGENT_INFO, undefined, {
+        timeout: AGENT_INFO_TIMEOUT,
         retries: 1,
       });
       return true;
@@ -201,7 +225,7 @@ export class NstbrowserClient {
    * Get all running browser instances
    */
   async getBrowsers(): Promise<BrowserInstance[]> {
-    const result = await this.request<BrowserInstance[] | null>('GET', '/api/v2/browsers');
+    const result = await this.request<BrowserInstance[] | null>('GET', API_BROWSERS);
     return result || [];
   }
 
@@ -219,7 +243,7 @@ export class NstbrowserClient {
       port: number;
       webSocketDebuggerUrl: string;
       proxy: string;
-    }>('POST', `/api/v2/browsers/${profileId}`);
+    }>('POST', `${API_BROWSERS}/${profileId}`);
 
     return {
       profileId: response.profileId,
@@ -232,7 +256,7 @@ export class NstbrowserClient {
    * Start a temporary browser (once browser)
    */
   async startOnceBrowser(config: OnceBrowserConfig): Promise<StartBrowserResponse> {
-    return this.request<StartBrowserResponse>('POST', '/api/v2/browsers/once', config);
+    return this.request<StartBrowserResponse>('POST', API_BROWSERS_ONCE, config);
   }
 
   /**
@@ -242,7 +266,7 @@ export class NstbrowserClient {
     profileIds: string[],
     options?: StartBrowserOptions
   ): Promise<StartBrowserResponse[]> {
-    return this.request<StartBrowserResponse[]>('POST', '/api/v2/browsers/batch', {
+    return this.request<StartBrowserResponse[]>('POST', API_BROWSERS_BATCH, {
       profileIds,
       ...options,
     });
@@ -252,7 +276,7 @@ export class NstbrowserClient {
    * Stop a browser instance
    */
   async stopBrowser(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/browsers/${profileId}`);
+    await this.request<void>('DELETE', `${API_BROWSERS}/${profileId}`);
   }
 
   /**
@@ -262,21 +286,21 @@ export class NstbrowserClient {
    * Note: Endpoint requires trailing slash to avoid 307 redirect
    */
   async stopAllBrowsers(): Promise<void> {
-    await this.request<void>('DELETE', '/api/v2/browsers/', []);
+    await this.request<void>('DELETE', `${API_BROWSERS}/`, []);
   }
 
   /**
    * Get all pages for a browser instance
    */
   async getBrowserPages(profileId: string): Promise<unknown[]> {
-    return this.request<unknown[]>('GET', `/api/v2/browsers/${profileId}/pages`);
+    return this.request<unknown[]>('GET', `${API_BROWSERS}/${profileId}/pages`);
   }
 
   /**
    * Get remote debugging address for a browser
    */
   async getBrowserDebugger(profileId: string): Promise<{ debuggerUrl: string }> {
-    return this.request<{ debuggerUrl: string }>('GET', `/api/v2/browsers/${profileId}/debugger`);
+    return this.request<{ debuggerUrl: string }>('GET', `${API_BROWSERS}/${profileId}/debugger`);
   }
 
   // ==================== Profile Management ====================
@@ -305,7 +329,7 @@ export class NstbrowserClient {
     }
 
     const queryString = params.toString();
-    const endpoint = queryString ? `/api/v2/profiles?${queryString}` : '/api/v2/profiles';
+    const endpoint = queryString ? `${API_PROFILES}?${queryString}` : API_PROFILES;
 
     const response = await this.request<{ docs: Profile[] }>('GET', endpoint);
     let profiles = response.docs || [];
@@ -351,9 +375,7 @@ export class NstbrowserClient {
     }
 
     const queryString = params.toString();
-    const endpoint = queryString
-      ? `/api/v2/profiles/cursor?${queryString}`
-      : '/api/v2/profiles/cursor';
+    const endpoint = queryString ? `${API_PROFILES_CURSOR}?${queryString}` : API_PROFILES_CURSOR;
 
     return this.request<{
       docs: Profile[];
@@ -367,7 +389,7 @@ export class NstbrowserClient {
    * Create a new profile
    */
   async createProfile(config: ProfileConfig): Promise<Profile> {
-    const response = await this.request<Profile>('POST', '/api/v2/profiles', config);
+    const response = await this.request<Profile>('POST', API_PROFILES, config);
 
     // Debug log in debug mode
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
@@ -381,7 +403,7 @@ export class NstbrowserClient {
    * Delete a profile
    */
   async deleteProfile(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}`);
+    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}`);
   }
 
   /**
@@ -390,7 +412,7 @@ export class NstbrowserClient {
    */
   async deleteProfilesBatch(profileIds: string[]): Promise<void> {
     // Note: API expects array directly as request body, not wrapped in object
-    await this.request<void>('DELETE', '/api/v2/profiles', profileIds);
+    await this.request<void>('DELETE', API_PROFILES, profileIds);
   }
 
   // ==================== Proxy Management ====================
@@ -402,7 +424,7 @@ export class NstbrowserClient {
   async updateProfileProxy(profileId: string, proxy: ProxyConfig): Promise<void> {
     // Convert ProxyConfig to URL format expected by API
     const proxyUrl = `${proxy.type}://${proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
-    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/proxy`, { url: proxyUrl });
+    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/proxy`, { url: proxyUrl });
   }
 
   /**
@@ -413,7 +435,7 @@ export class NstbrowserClient {
     // Convert ProxyConfig to URL format expected by API
     const proxyUrl = `${proxy.type}://${proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
 
-    await this.request<void>('PUT', '/api/v2/profiles/proxy/batch', {
+    await this.request<void>('PUT', API_PROFILES_PROXY_BATCH, {
       profileIds,
       proxyConfig: {
         // Note: API expects 'proxyConfig', not 'proxy'
@@ -426,14 +448,14 @@ export class NstbrowserClient {
    * Reset profile proxy to local type
    */
   async resetProfileProxy(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/proxy`);
+    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/proxy`);
   }
 
   /**
    * Reset proxy for multiple profiles in batch
    */
   async batchResetProfileProxy(profileIds: string[]): Promise<void> {
-    await this.request<void>('POST', '/api/v2/profiles/proxy/batch-reset', { profileIds });
+    await this.request<void>('POST', API_PROFILES_PROXY_BATCH_RESET, { profileIds });
   }
 
   // ==================== Tag Management ====================
@@ -442,7 +464,7 @@ export class NstbrowserClient {
    * Get all available tags
    */
   async getProfileTags(): Promise<Tag[]> {
-    return this.request<Tag[]>('GET', '/api/v2/profiles/tags');
+    return this.request<Tag[]>('GET', API_PROFILES_TAGS);
   }
 
   /**
@@ -450,14 +472,14 @@ export class NstbrowserClient {
    */
   async createProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
     // API expects array directly, not wrapped in object
-    await this.request<void>('POST', `/api/v2/profiles/${profileId}/tags`, tags);
+    await this.request<void>('POST', `${API_PROFILES}/${profileId}/tags`, tags);
   }
 
   /**
    * Create tags for multiple profiles in batch
    */
   async batchCreateProfileTags(profileIds: string[], tags: TagConfig[]): Promise<void> {
-    await this.request<void>('POST', '/api/v2/profiles/tags/batch', {
+    await this.request<void>('POST', API_PROFILES_TAGS_BATCH, {
       profileIds,
       tags,
     });
@@ -467,14 +489,14 @@ export class NstbrowserClient {
    * Update tags for a profile
    */
   async updateProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
-    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/tags`, { tags });
+    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/tags`, { tags });
   }
 
   /**
    * Update tags for multiple profiles in batch
    */
   async batchUpdateProfileTags(profileIds: string[], tags: TagConfig[]): Promise<void> {
-    await this.request<void>('PUT', '/api/v2/profiles/tags/batch', {
+    await this.request<void>('PUT', API_PROFILES_TAGS_BATCH, {
       profileIds,
       tags,
     });
@@ -484,14 +506,14 @@ export class NstbrowserClient {
    * Clear tags for a profile
    */
   async clearProfileTags(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/tags`);
+    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/tags`);
   }
 
   /**
    * Clear tags for multiple profiles in batch
    */
   async batchClearProfileTags(profileIds: string[]): Promise<void> {
-    await this.request<void>('POST', '/api/v2/profiles/tags/batch-clear', { profileIds });
+    await this.request<void>('POST', API_PROFILES_TAGS_BATCH_CLEAR, { profileIds });
   }
 
   // ==================== Group Management ====================
@@ -500,21 +522,21 @@ export class NstbrowserClient {
    * Get all profile groups
    */
   async getAllProfileGroups(): Promise<ProfileGroup[]> {
-    return this.request<ProfileGroup[]>('GET', '/api/v2/profiles/groups');
+    return this.request<ProfileGroup[]>('GET', API_PROFILES_GROUPS);
   }
 
   /**
    * Change profile group
    */
   async changeProfileGroup(profileId: string, groupId: string): Promise<void> {
-    await this.request<void>('PUT', `/api/v2/profiles/${profileId}/group`, { groupId });
+    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/group`, { groupId });
   }
 
   /**
    * Change group for multiple profiles in batch
    */
   async batchChangeProfileGroup(profileIds: string[], groupId: string): Promise<void> {
-    await this.request<void>('PUT', '/api/v2/profiles/group/batch', {
+    await this.request<void>('PUT', API_PROFILES_GROUP_BATCH, {
       profileIds,
       groupId,
     });
@@ -526,14 +548,14 @@ export class NstbrowserClient {
    * Clear profile cache
    */
   async clearProfileCache(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/cache`);
+    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/cache`);
   }
 
   /**
    * Clear profile cookies
    */
   async clearProfileCookies(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/v2/profiles/${profileId}/cookies`);
+    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/cookies`);
   }
 
   // ==================== CDP Endpoints ====================
@@ -545,7 +567,7 @@ export class NstbrowserClient {
   async getCdpUrl(profileId: string): Promise<{ webSocketDebuggerUrl: string }> {
     const response = await this.request<{
       webSocketDebuggerUrl: string;
-    }>('GET', `/api/v2/connect/${profileId}`);
+    }>('GET', `${API_CDP_CONNECT}/${profileId}`);
 
     return {
       webSocketDebuggerUrl: response.webSocketDebuggerUrl,
@@ -559,7 +581,7 @@ export class NstbrowserClient {
   async getCdpUrlOnce(): Promise<{ webSocketDebuggerUrl: string }> {
     const response = await this.request<{
       webSocketDebuggerUrl: string;
-    }>('GET', '/api/v2/connect');
+    }>('GET', API_CDP_CONNECT);
 
     return {
       webSocketDebuggerUrl: response.webSocketDebuggerUrl,
@@ -575,7 +597,7 @@ export class NstbrowserClient {
       port: number;
       webSocketDebuggerUrl: string;
       proxy: string;
-    }>('POST', `/api/v2/browsers/${profileId}`);
+    }>('POST', `${API_BROWSERS}/${profileId}`);
 
     return {
       profileId: response.profileId,
@@ -593,7 +615,7 @@ export class NstbrowserClient {
       port: number;
       webSocketDebuggerUrl: string;
       proxy: string;
-    }>('POST', '/api/v2/browsers/once', config);
+    }>('POST', API_BROWSERS_ONCE, config);
 
     return {
       profileId: response.profileId,

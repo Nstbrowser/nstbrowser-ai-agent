@@ -66,4 +66,21 @@ if (cargoTomlUpdated) {
   }
 }
 
+// Update skills/nstbrowser-ai-agent/skill.json
+const skillJsonPath = join(rootDir, "skills", "nstbrowser-ai-agent", "skill.json");
+try {
+  const skillJson = JSON.parse(readFileSync(skillJsonPath, "utf-8"));
+  const oldVersion = skillJson.version;
+
+  if (oldVersion !== version) {
+    skillJson.version = version;
+    writeFileSync(skillJsonPath, JSON.stringify(skillJson, null, 2) + "\n");
+    console.log(`  Updated skills/nstbrowser-ai-agent/skill.json: ${oldVersion} -> ${version}`);
+  } else {
+    console.log(`  skills/nstbrowser-ai-agent/skill.json already up to date`);
+  }
+} catch (e) {
+  console.error(`  Warning: Could not update skill.json: ${e.message}`);
+}
+
 console.log("Version sync complete.");

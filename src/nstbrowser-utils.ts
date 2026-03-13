@@ -5,10 +5,10 @@
 
 import { NstbrowserError } from './nstbrowser-errors.js';
 import type { NstbrowserClient } from './nstbrowser-client.js';
+import { PROFILE_CACHE_TTL, API_BROWSERS, HEADER_API_KEY, ERROR_CODES } from './constants.js';
 
 // Simple in-memory cache for profile lookups
 const profileCache = new Map<string, { profiles: any[]; timestamp: number }>();
-const CACHE_TTL_MS = 30000; // 30 seconds
 
 /**
  * Check if a string is a valid UUID format
@@ -28,7 +28,7 @@ async function getCachedProfiles(client: NstbrowserClient, bypassCache = false):
   const now = Date.now();
 
   // Bypass cache if requested or cache is expired
-  if (bypassCache || !cached || now - cached.timestamp >= CACHE_TTL_MS) {
+  if (bypassCache || !cached || now - cached.timestamp >= PROFILE_CACHE_TTL) {
     const profiles = await client.getProfiles();
     profileCache.set(cacheKey, { profiles, timestamp: now });
     return profiles;
@@ -68,7 +68,7 @@ export async function resolveProfileId(
   nameOrId: string
 ): Promise<string> {
   if (!nameOrId || nameOrId.trim() === '') {
-    throw new NstbrowserError('Profile name or ID cannot be empty', 'INVALID_INPUT');
+    throw new NstbrowserError('Profile name or ID cannot be empty', ERROR_CODES.INVALID_INPUT);
   }
 
   const trimmedInput = nameOrId.trim();
@@ -87,12 +87,8 @@ export async function resolveProfileId(
       }
       // UUID format but not found
       throw new NstbrowserError(
-        `Profile ID not found: "${trimmedInput}"\n\n` +
-          `Troubleshooting:\n` +
-          `1. List available profiles: nstbrowser-ai-agent profile list\n` +
-          `2. Verify the profile exists: nstbrowser-ai-agent profile show ${trimmedInput}\n` +
-          `3. Create a new profile: nstbrowser-ai-agent profile create <name>`,
-        'PROFILE_NOT_FOUND',
+        `Profile ID not found: "${trimmedInput}"`,
+        ERROR_CODES.PROFILE_NOT_FOUND,
         404
       );
     }
@@ -102,12 +98,8 @@ export async function resolveProfileId(
 
     if (profilesByName.length === 0) {
       throw new NstbrowserError(
-        `Profile not found: "${trimmedInput}"\n\n` +
-          `Troubleshooting:\n` +
-          `1. List available profiles: nstbrowser-ai-agent profile list\n` +
-          `2. Create the profile: nstbrowser-ai-agent profile create ${trimmedInput}\n` +
-          `3. Use a temporary browser: nstbrowser-ai-agent browser start-once`,
-        'PROFILE_NOT_FOUND',
+        `Profile not found: "${trimmedInput}"`,
+        ERROR_CODES.PROFILE_NOT_FOUND,
         404
       );
     }
@@ -132,7 +124,7 @@ export async function resolveProfileId(
     // Wrap other errors
     throw new NstbrowserError(
       `Failed to resolve profile "${trimmedInput}": ${error instanceof Error ? error.message : String(error)}`,
-      'RESOLUTION_ERROR'
+      ERROR_CODES.RESOLUTION_ERROR
     );
   }
 }
@@ -150,7 +142,10 @@ export async function resolveProfileIds(
   namesOrIds: string[]
 ): Promise<string[]> {
   if (!Array.isArray(namesOrIds) || namesOrIds.length === 0) {
-    throw new NstbrowserError('Profile names or IDs array cannot be empty', 'INVALID_INPUT');
+    throw new NstbrowserError(
+      'Profile names or IDs array cannot be empty',
+      ERROR_CODES.INVALID_INPUT
+    );
   }
 
   // Resolve all profiles in parallel
@@ -173,7 +168,7 @@ export async function profileExists(client: NstbrowserClient, nameOrId: string):
     await resolveProfileId(client, nameOrId);
     return true;
   } catch (error) {
-    if (error instanceof NstbrowserError && error.code === 'PROFILE_NOT_FOUND') {
+    if (error instanceof NstbrowserError && error.code === ERROR_CODES.PROFILE_NOT_FOUND) {
       return false;
     }
     // Re-throw other errors
@@ -204,7 +199,7 @@ export async function getProfileByNameOrId(client: NstbrowserClient, nameOrId: s
     return profileByName;
   }
 
-  throw new NstbrowserError(`Profile not found: "${nameOrId}"`, 'PROFILE_NOT_FOUND', 404);
+  throw new NstbrowserError(`Profile not found: "${nameOrId}"`, ERROR_CODES.PROFILE_NOT_FOUND, 404);
 }
 
 /**
@@ -229,10 +224,10 @@ export async function isNstbrowserInstalled(): Promise<boolean> {
 export async function isNstbrowserRunning(host: string, port: number): Promise<boolean> {
   try {
     // Try to connect to the NSTBrowser API
-    const response = await fetch(`http://${host}:${port}/api/v2/browsers`, {
+    const response = await fetch(`http://${host}:${port}${API_BROWSERS}`, {
       method: 'GET',
       headers: {
-        'x-api-key': process.env.NST_API_KEY || '',
+        [HEADER_API_KEY]: process.env.NST_API_KEY || '',
       },
     });
     return response.ok;

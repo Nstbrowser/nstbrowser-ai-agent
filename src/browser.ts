@@ -942,8 +942,9 @@ export class BrowserManager {
     // Load configuration from file (priority: config file > env var)
     const config = loadNstConfig();
     const nstApiKey = config?.apiKey;
-    const nstHost = config?.host || '127.0.0.1';
-    const nstPort = config?.port || 8848;
+    const { LOCALHOST_IP, DEFAULT_NST_PORT } = await import('./constants.js');
+    const nstHost = config?.host || LOCALHOST_IP;
+    const nstPort = config?.port || DEFAULT_NST_PORT;
 
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[DEBUG] Nstbrowser connection parameters:', {

@@ -17,6 +17,12 @@
 import type { NstbrowserClient } from './nstbrowser-client.js';
 import type { ProfileConfig } from './nstbrowser-types.js';
 import { NstbrowserError } from './nstbrowser-errors.js';
+import {
+  BROWSER_START_VERIFICATION_DELAY,
+  ERROR_CODES,
+  buildWsProfileUrl,
+  buildWsOnceUrl,
+} from './constants.js';
 
 /**
  * Check if a string is a valid UUID (case-insensitive)
@@ -108,7 +114,12 @@ export async function resolveBrowserProfile(
         console.error(`[DEBUG] Found running browser with ID "${profileId}"`);
       }
 
-      const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
+      const wsUrl = buildWsProfileUrl(
+        options.nstHost,
+        options.nstPort,
+        profileId,
+        options.nstApiKey
+      );
 
       return {
         profileId,
@@ -134,7 +145,12 @@ export async function resolveBrowserProfile(
         );
       }
 
-      const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
+      const wsUrl = buildWsProfileUrl(
+        options.nstHost,
+        options.nstPort,
+        profileId,
+        options.nstApiKey
+      );
 
       return {
         profileId,
@@ -174,7 +190,7 @@ export async function resolveBrowserProfile(
     await client.startBrowser(profileId);
 
     // Wait for browser to fully initialize
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, BROWSER_START_VERIFICATION_DELAY));
 
     // Verify browser is actually running
     const browsersAfterStart = await client.getBrowsers();
@@ -182,16 +198,12 @@ export async function resolveBrowserProfile(
 
     if (!runningBrowser) {
       throw new NstbrowserError(
-        `Browser started but not found in running list. This may be a timing issue.\n\n` +
-          `Troubleshooting:\n` +
-          `1. Try using Profile ID directly: nstbrowser-ai-agent --profile ${profileId} open <url>\n` +
-          `2. Check browser status: nstbrowser-ai-agent browser list\n` +
-          `3. Stop all and retry: nstbrowser-ai-agent browser stop-all`,
-        'BROWSER_START_VERIFICATION_FAILED'
+        `Browser started but not found in running list`,
+        ERROR_CODES.BROWSER_START_VERIFICATION_FAILED
       );
     }
 
-    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
+    const wsUrl = buildWsProfileUrl(options.nstHost, options.nstPort, profileId, options.nstApiKey);
 
     return {
       profileId,
@@ -231,7 +243,12 @@ export async function resolveBrowserProfile(
       // Start the newly created profile
       await client.startBrowser(profileId);
 
-      const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
+      const wsUrl = buildWsProfileUrl(
+        options.nstHost,
+        options.nstPort,
+        profileId,
+        options.nstApiKey
+      );
 
       return {
         profileId,
@@ -261,7 +278,7 @@ export async function resolveBrowserProfile(
 
     await client.startBrowser(profileId);
 
-    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${profileId}?x-api-key=${options.nstApiKey}`;
+    const wsUrl = buildWsProfileUrl(options.nstHost, options.nstPort, profileId, options.nstApiKey);
 
     return {
       profileId,
@@ -290,7 +307,12 @@ export async function resolveBrowserProfile(
       );
     }
 
-    const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect/${onceBrowser.profileId}?x-api-key=${options.nstApiKey}`;
+    const wsUrl = buildWsProfileUrl(
+      options.nstHost,
+      options.nstPort,
+      onceBrowser.profileId,
+      options.nstApiKey
+    );
 
     return {
       profileId: onceBrowser.profileId,
@@ -314,7 +336,7 @@ export async function resolveBrowserProfile(
     clearCacheOnClose: true,
   };
   const configParam = encodeURIComponent(JSON.stringify(config));
-  const wsUrl = `ws://${options.nstHost}:${options.nstPort}/api/v2/connect?config=${configParam}&x-api-key=${options.nstApiKey}`;
+  const wsUrl = buildWsOnceUrl(options.nstHost, options.nstPort, configParam, options.nstApiKey);
 
   return {
     isRunning: false, // Will be started when connecting

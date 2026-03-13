@@ -1063,19 +1063,20 @@ async function handleWait(command: WaitCommand, browser: BrowserManager): Promis
     await page.waitForTimeout(command.timeout);
   } else if (command.load) {
     // Improved wait for load state with retry logic
-    const maxAttempts = 2;
+    const { WAIT_MAX_ATTEMPTS, WAIT_TIMEOUT_FIRST_ATTEMPT, WAIT_TIMEOUT_RETRY } =
+      await import('./constants.js');
     let lastError: Error | null = null;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= WAIT_MAX_ATTEMPTS; attempt++) {
       try {
         await page.waitForLoadState(command.load as any, {
-          timeout: attempt === 1 ? 15000 : 30000, // First attempt: 15s, second: 30s
+          timeout: attempt === 1 ? WAIT_TIMEOUT_FIRST_ATTEMPT : WAIT_TIMEOUT_RETRY,
         });
         return successResponse(command.id, { waited: true });
       } catch (error) {
         lastError = error as Error;
 
-        if (attempt < maxAttempts && command.load === 'networkidle') {
+        if (attempt < WAIT_MAX_ATTEMPTS && command.load === 'networkidle') {
           // Log warning for first failure
           if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
             console.error(
@@ -1088,7 +1089,7 @@ async function handleWait(command: WaitCommand, browser: BrowserManager): Promis
 
     // All attempts failed
     throw new Error(
-      `Wait for load state "${command.load}" failed after ${maxAttempts} attempts. ` +
+      `Wait for load state "${command.load}" failed after ${WAIT_MAX_ATTEMPTS} attempts. ` +
         `The page may still be loading background resources. ` +
         `Try using a fixed delay instead: "wait 5000"`
     );
