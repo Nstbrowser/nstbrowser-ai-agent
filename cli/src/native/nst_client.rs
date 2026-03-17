@@ -83,7 +83,7 @@ impl NstClient {
 
     /// Get profiles with optional name filter
     pub async fn get_profiles(&self, name_filter: Option<&str>) -> Result<Vec<NstProfile>, String> {
-        let mut url = format!("{}/api/v2/profiles", self.base_url);
+        let mut url = format!("{}/api/v2/profiles/", self.base_url);
 
         if let Some(name) = name_filter {
             url = format!("{}?s={}", url, urlencoding::encode(name));
@@ -100,7 +100,7 @@ impl NstClient {
 
     /// Create a new profile
     pub async fn create_profile(&self, name: &str) -> Result<NstProfile, String> {
-        let url = format!("{}/api/v2/profiles", self.base_url);
+        let url = format!("{}/api/v2/profiles/", self.base_url);
         let body = json!({ "name": name });
 
         let response: NstApiResponse<NstProfile> = self.request("POST", &url, Some(&body)).await?;

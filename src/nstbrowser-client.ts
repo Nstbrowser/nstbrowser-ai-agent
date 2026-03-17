@@ -78,8 +78,7 @@ export class NstbrowserClient {
   private static buildCiHeader(): string {
     const name = `nstbrowser-ai-agent/${VERSION}`;
     const runtime = `node/${process.version.substring(1)}`;
-    const platform = `${process.platform}/${process.arch}`;
-    return `${name}; ${runtime}; ${platform}`;
+    return `${name}; ${runtime}`;
   }
 
   /**
@@ -327,10 +326,10 @@ export class NstbrowserClient {
     // Build query parameters for server-side filtering
     const params = new URLSearchParams();
     params.append('pageSize', '20');
-    const profileName = query?.name?.trim().replace(' ', '');
+    const profileName = query?.name?.trim().replace(' ', '') || '';
 
     if (query) {
-      if (profileName && profileName != '') {
+      if (profileName && profileName !== '') {
         params.append('s', profileName); // 's' parameter searches by name or id
       }
       if (query.groupId) {
@@ -359,7 +358,7 @@ export class NstbrowserClient {
       }
     }
 
-    if (profileName != '' && !isUuid(profileName || '')) {
+    if (profileName !== '' && !isUuid(profileName)) {
       profiles = profiles.filter((p) => p.name === profileName);
     }
 
