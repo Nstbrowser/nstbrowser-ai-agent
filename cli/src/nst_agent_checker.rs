@@ -17,10 +17,18 @@ pub async fn is_nst_agent_running(host: &str, port: u16, api_key: &str) -> bool 
         Err(_) => return false,
     };
 
+    // Build CI header with version information
+    let ci_header = format!(
+        "nstbrowser-ai-agent/{}; native/{}",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_VERSION")
+    );
+
     let response = client
         .get(&url)
         .header("x-api-key", api_key)
         .header("Content-Type", "application/json")
+        .header("ci", ci_header)
         .send()
         .await;
 

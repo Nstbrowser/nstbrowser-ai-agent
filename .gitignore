@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Auto-generated version file
+src/version.ts
+
 # Native binaries (keep the launcher scripts)
 bin/nstbrowser-ai-agent-*
 !bin/nstbrowser-ai-agent

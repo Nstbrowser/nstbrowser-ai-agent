@@ -23,6 +23,7 @@ import {
   NstbrowserAuthError,
   handleNstbrowserError,
 } from './nstbrowser-errors.js';
+import { VERSION } from './version.js';
 import {
   DEFAULT_NST_PORT,
   DEFAULT_REQUEST_TIMEOUT,
@@ -54,6 +55,7 @@ export class NstbrowserClient {
   private apiKey: string;
   private host: string;
   private port: number;
+  private static readonly CI_HEADER = NstbrowserClient.buildCiHeader();
 
   constructor(host: string, port: number, apiKey: string) {
     this.host = host;
@@ -68,6 +70,16 @@ export class NstbrowserClient {
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
       console.error('[SECURITY] Debug mode enabled - API keys may be logged');
     }
+  }
+
+  /**
+   * Build CI header with client information
+   */
+  private static buildCiHeader(): string {
+    const name = `nstbrowser-ai-agent/${VERSION}`;
+    const runtime = `node/${process.version.substring(1)}`;
+    const platform = `${process.platform}/${process.arch}`;
+    return `${name}; ${runtime}; ${platform}`;
   }
 
   /**
@@ -116,6 +128,7 @@ export class NstbrowserClient {
           headers: {
             [HEADER_CONTENT_TYPE]: CONTENT_TYPE_JSON,
             [HEADER_API_KEY]: this.apiKey,
+            ci: NstbrowserClient.CI_HEADER,
           },
           body: data ? JSON.stringify(data) : undefined,
           signal: controller.signal,

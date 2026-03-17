@@ -39,15 +39,23 @@ pub struct NstClient {
     api_key: String,
     host: String,
     port: u16,
+    ci_header: String,
 }
 
 impl NstClient {
     pub fn new(host: &str, port: u16, api_key: &str) -> Self {
+        let ci_header = format!(
+            "nstbrowser-ai-agent/{}; native/{}",
+            env!("CARGO_PKG_VERSION"),
+            env!("CARGO_PKG_VERSION")
+        );
+
         Self {
             base_url: format!("http://{}:{}", host, port),
             api_key: api_key.to_string(),
             host: host.to_string(),
             port,
+            ci_header,
         }
     }
 
@@ -138,6 +146,7 @@ impl NstClient {
 
         req = req.header("x-api-key", &self.api_key);
         req = req.header("Content-Type", "application/json");
+        req = req.header("ci", &self.ci_header);
 
         if let Some(b) = body {
             req = req.json(b);
