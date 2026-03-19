@@ -31,6 +31,36 @@ describe('parseCommand', () => {
       }
     });
 
+    it('should normalize NST profile name on navigate commands', () => {
+      const result = parseCommand(
+        cmd({
+          id: '1',
+          action: 'navigate',
+          url: 'https://example.com',
+          nstProfileName: 'my-profile',
+        })
+      );
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.profile).toBe('my-profile');
+      }
+    });
+
+    it('should normalize NST profile ID on navigate commands', () => {
+      const result = parseCommand(
+        cmd({
+          id: '1',
+          action: 'navigate',
+          url: 'https://example.com',
+          nstProfileId: 'ef2b083a-8f77-4a7f-8441-a8d56bbd832b',
+        })
+      );
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.profile).toBe('ef2b083a-8f77-4a7f-8441-a8d56bbd832b');
+      }
+    });
+
     it('should reject navigate without url', () => {
       const result = parseCommand(cmd({ id: '1', action: 'navigate' }));
       expect(result.success).toBe(false);
@@ -109,6 +139,35 @@ describe('parseCommand', () => {
     it('should parse wait with text', () => {
       const result = parseCommand(cmd({ id: '1', action: 'wait', text: 'Welcome' }));
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('diagnostics', () => {
+    it('should parse diagnose command', () => {
+      const result = parseCommand(cmd({ id: '1', action: 'diagnose', checks: ['api_key'] }));
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.action).toBe('diagnose');
+      }
+    });
+
+    it('should parse verify command', () => {
+      const result = parseCommand(
+        cmd({ id: '1', action: 'verify', testUrl: 'https://example.com', profile: 'my-profile' })
+      );
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.action).toBe('verify');
+        expect(result.command.profile).toBe('my-profile');
+      }
+    });
+
+    it('should parse repair command', () => {
+      const result = parseCommand(cmd({ id: '1', action: 'repair', tasks: ['stop_all_browsers'] }));
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.command.action).toBe('repair');
+      }
     });
   });
 

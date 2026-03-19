@@ -37,6 +37,7 @@ import {
   API_BROWSERS_ONCE,
   API_BROWSERS_BATCH,
   API_PROFILES,
+  API_LOCAL_PROFILES,
   API_PROFILES_CURSOR,
   API_PROFILES_TAGS,
   API_PROFILES_PROXY_BATCH,
@@ -408,7 +409,33 @@ export class NstbrowserClient {
    * Create a new profile
    */
   async createProfile(config: ProfileConfig): Promise<Profile> {
-    const response = await this.request<Profile>('POST', API_PROFILES, config);
+    const payload: Record<string, unknown> = {
+      name: config.name,
+    };
+
+    if (config.platform) {
+      payload.platform = config.platform;
+    }
+    if (config.kernel) {
+      payload.kernel = config.kernel;
+    }
+    if (config.fingerprint) {
+      payload.fingerprint = config.fingerprint;
+    }
+    if (config.groupId) {
+      payload.groupId = config.groupId;
+    }
+    if (config.proxy) {
+      const auth =
+        config.proxy.username && config.proxy.password
+          ? `${config.proxy.username}:${config.proxy.password}@`
+          : '';
+      payload.proxyConfig = {
+        url: `${config.proxy.type}://${auth}${config.proxy.host}:${config.proxy.port}`,
+      };
+    }
+
+    const response = await this.request<Profile>('POST', API_PROFILES, payload);
 
     // Debug log in debug mode
     if (process.env.NSTBROWSER_AI_AGENT_DEBUG === '1') {
@@ -422,7 +449,7 @@ export class NstbrowserClient {
    * Delete a profile
    */
   async deleteProfile(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}`);
+    await this.request<void>('DELETE', `${API_PROFILES}${profileId}`);
   }
 
   /**
@@ -443,7 +470,7 @@ export class NstbrowserClient {
   async updateProfileProxy(profileId: string, proxy: ProxyConfig): Promise<void> {
     // Convert ProxyConfig to URL format expected by API
     const proxyUrl = `${proxy.type}://${proxy.username && proxy.password ? `${proxy.username}:${proxy.password}@` : ''}${proxy.host}:${proxy.port}`;
-    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/proxy`, { url: proxyUrl });
+    await this.request<void>('PUT', `${API_PROFILES}${profileId}/proxy`, { url: proxyUrl });
   }
 
   /**
@@ -467,7 +494,7 @@ export class NstbrowserClient {
    * Reset profile proxy to local type
    */
   async resetProfileProxy(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/proxy`);
+    await this.request<void>('DELETE', `${API_PROFILES}${profileId}/proxy`);
   }
 
   /**
@@ -491,7 +518,7 @@ export class NstbrowserClient {
    */
   async createProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
     // API expects array directly, not wrapped in object
-    await this.request<void>('POST', `${API_PROFILES}/${profileId}/tags`, tags);
+    await this.request<void>('POST', `${API_PROFILES}${profileId}/tags`, tags);
   }
 
   /**
@@ -508,7 +535,7 @@ export class NstbrowserClient {
    * Update tags for a profile
    */
   async updateProfileTags(profileId: string, tags: TagConfig[]): Promise<void> {
-    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/tags`, { tags });
+    await this.request<void>('PUT', `${API_PROFILES}${profileId}/tags`, tags);
   }
 
   /**
@@ -525,7 +552,7 @@ export class NstbrowserClient {
    * Clear tags for a profile
    */
   async clearProfileTags(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/tags`);
+    await this.request<void>('DELETE', `${API_PROFILES}${profileId}/tags`);
   }
 
   /**
@@ -548,7 +575,7 @@ export class NstbrowserClient {
    * Change profile group
    */
   async changeProfileGroup(profileId: string, groupId: string): Promise<void> {
-    await this.request<void>('PUT', `${API_PROFILES}/${profileId}/group`, { groupId });
+    await this.request<void>('PUT', `${API_PROFILES}${profileId}/group`, { groupId });
   }
 
   /**
@@ -567,14 +594,14 @@ export class NstbrowserClient {
    * Clear profile cache
    */
   async clearProfileCache(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/cache`);
+    await this.request<void>('DELETE', `${API_LOCAL_PROFILES}${profileId}`);
   }
 
   /**
    * Clear profile cookies
    */
   async clearProfileCookies(profileId: string): Promise<void> {
-    await this.request<void>('DELETE', `${API_PROFILES}/${profileId}/cookies`);
+    await this.request<void>('DELETE', `${API_LOCAL_PROFILES}${profileId}/cookies`);
   }
 
   // ==================== CDP Endpoints ====================

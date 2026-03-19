@@ -15,7 +15,7 @@
  */
 
 import type { NstbrowserClient } from './nstbrowser-client.js';
-import type { ProfileConfig } from './nstbrowser-types.js';
+import type { ProfileConfig, BrowserInstance } from './nstbrowser-types.js';
 import { NstbrowserError } from './nstbrowser-errors.js';
 import {
   BROWSER_START_VERIFICATION_DELAY,
@@ -25,6 +25,29 @@ import {
   buildWsProfileUrl,
   buildWsOnceUrl,
 } from './constants.js';
+
+/**
+ * Check if a browser is a once/temporary browser
+ *
+ * Priority:
+ * 1. If browser.once field is present, use that value
+ * 2. Otherwise, check if name matches pattern: nst_<digits>
+ */
+export function isOnceBrowser(browser: BrowserInstance): boolean {
+  // Priority 1: Use explicit once field if available
+  if (browser.once !== undefined) {
+    return browser.once;
+  }
+
+  // Priority 2: Fallback to name pattern matching
+  if (browser.name) {
+    // Check if name matches pattern: nst_<digits>
+    // Must have at least one digit after "nst_"
+    return /^nst_\d+$/.test(browser.name);
+  }
+
+  return false;
+}
 
 /**
  * Check if a string is a valid UUID (case-insensitive)
@@ -351,8 +374,8 @@ export async function resolveBrowserProfile(
   }
 
   // Rule 4.1: Check if there's already a running once browser
-  // Once browsers have profile name matching pattern: nst_<timestamp>
-  const runningOnceBrowsers = runningBrowsers.filter((b) => b.name && b.name.match(/^nst_\d+$/));
+  // Use new isOnceBrowser function for improved detection
+  const runningOnceBrowsers = runningBrowsers.filter((b) => isOnceBrowser(b));
 
   if (runningOnceBrowsers.length > 0) {
     // Use the earliest started once browser (first in list)
@@ -411,8 +434,9 @@ export function extractProfileOptions(
   nstPort: number,
   nstApiKey: string
 ): BrowserProfileResolutionOptions {
+  const envProfile = process.env.NST_PROFILE_ID || process.env.NST_PROFILE;
   return {
-    profile: command.profile,
+    profile: command.profile || envProfile,
     nstHost,
     nstPort,
     nstApiKey,

@@ -78,6 +78,7 @@ pub enum BackendType {
 
 pub struct DaemonState {
     pub browser: Option<BrowserManager>,
+    pub current_profile: Option<String>,
     pub appium: Option<AppiumManager>,
     pub safari_driver: Option<safari::SafariDriverProcess>,
     pub webdriver_backend: Option<super::webdriver::backend::WebDriverBackend>,
@@ -106,6 +107,7 @@ impl DaemonState {
     pub fn new() -> Self {
         Self {
             browser: None,
+            current_profile: None,
             appium: None,
             safari_driver: None,
             webdriver_backend: None,
@@ -847,12 +849,18 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
         .get("autoConnect")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let requested_profile = cmd
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Relaunch logic: check if we can reuse the existing connection
     let needs_relaunch = if let Some(ref mgr) = state.browser {
         let has_cdp_arg = cdp_url.is_some() || cdp_port.is_some();
         let was_cdp = mgr.is_cdp_connection();
-        if has_cdp_arg != was_cdp {
+        if requested_profile != state.current_profile {
+            true
+        } else if has_cdp_arg != was_cdp {
             true
         } else if has_cdp_arg && !mgr.is_connection_alive().await {
             true
@@ -870,6 +878,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
             b.close().await?;
             state.browser = None;
         }
+        state.current_profile = None;
     } else {
         return Ok(json!({ "launched": true, "reused": true }));
     }
@@ -880,7 +889,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
         });
-    let profile = cmd.get("profile").and_then(|v| v.as_str());
+    let profile = requested_profile.as_deref();
     let storage_state = cmd.get("storageState").and_then(|v| v.as_str());
     let allow_file_access = cmd
         .get("allowFileAccess")
@@ -904,18 +913,21 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if let Some(url) = cdp_url {
         state.browser = Some(BrowserManager::connect_cdp(url).await?);
+        state.current_profile = None;
         state.subscribe_to_browser_events();
         return Ok(json!({ "launched": true }));
     }
 
     if let Some(port) = cdp_port {
         state.browser = Some(BrowserManager::connect_cdp(&port.to_string()).await?);
+        state.current_profile = None;
         state.subscribe_to_browser_events();
         return Ok(json!({ "launched": true }));
     }
 
     if auto_connect {
         state.browser = Some(BrowserManager::connect_auto().await?);
+        state.current_profile = None;
         state.subscribe_to_browser_events();
         return Ok(json!({ "launched": true }));
     }
@@ -933,6 +945,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
                 match BrowserManager::connect_cdp(&ws_url).await {
                     Ok(mgr) => {
                         state.browser = Some(mgr);
+                        state.current_profile = None;
                         state.subscribe_to_browser_events();
                         return Ok(json!({ "launched": true, "provider": provider }));
                     }
@@ -1012,6 +1025,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
     }
 
     state.browser = Some(BrowserManager::launch(options).await?);
+    state.current_profile = requested_profile;
     state.subscribe_to_browser_events();
 
     if let Some(ref filter) = state.domain_filter {
@@ -2111,10 +2125,14 @@ async fn handle_diff_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Va
     };
 
     let result = diff::diff_snapshots(&baseline_text, &current);
+    let summary = diff::diff_text(&baseline_text, &current);
     Ok(json!({
-        "diff": result.diff,
+        "diff": summary,
+        "unifiedDiff": result.diff,
+        "identical": !result.changed,
         "additions": result.additions,
         "removals": result.removals,
+        "deletions": result.removals,
         "unchanged": result.unchanged,
         "changed": result.changed,
     }))

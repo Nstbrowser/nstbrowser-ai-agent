@@ -397,8 +397,13 @@ export async function startDaemon(options?: {
             );
           }
 
-          // Handle Nstbrowser commands - they don't require a browser session
-          if (parseResult.command.action.startsWith('nst_')) {
+          // Handle Nstbrowser commands - they don't require a Playwright browser session
+          if (
+            parseResult.command.action.startsWith('nst_') ||
+            parseResult.command.action === 'diagnose' ||
+            parseResult.command.action === 'verify' ||
+            parseResult.command.action === 'repair'
+          ) {
             try {
               const response = await executeNstbrowserCommand(parseResult.command);
               await safeWrite(socket, serializeResponse(response) + '\n');

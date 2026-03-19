@@ -15,7 +15,7 @@ import type {
 import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
 import { loadNstConfig } from './config-loader.js';
 import { cleanupExpiredStates } from './state-utils.js';
-import { resolveBrowserProfile } from './browser-profile-resolver.js';
+import { resolveBrowserProfile, isOnceBrowser } from './browser-profile-resolver.js';
 
 /**
  * Execute a Nstbrowser command
@@ -149,34 +149,45 @@ async function handleBrowserStart(
   client: NstbrowserClient
 ): Promise<Response> {
   const profileId = await resolveProfileId(client, command.profileId);
-  const result = await client.startBrowser(profileId, command.options);
-  return successResponse(command.id, result);
+  try {
+    const result = await client.startBrowser(profileId, command.options);
+    return successResponse(command.id, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('already exists')) {
+      throw error;
+    }
+
+    const browsers = await client.getBrowsers();
+    const existing = browsers.find((browser) => browser.profileId === profileId && browser.running);
+
+    return successResponse(command.id, {
+      alreadyRunning: true,
+      profileId,
+      remoteDebuggingPort: existing?.remoteDebuggingPort,
+      message: existing
+        ? `Browser for profile ${existing.name || profileId} is already running`
+        : `Browser for profile ${profileId} is already running`,
+    });
+  }
 }
 
 async function handleBrowserStop(
   command: { id: string; action: 'nst_browser_stop'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  // Check if this is a temporary browser name (nst_<number> pattern)
-  const isOnceBrowserName = /^nst_\d+$/.test(command.profileId);
+  // First, get all browsers to check if this is a once browser
+  const browsers = await client.getBrowsers();
 
-  if (isOnceBrowserName) {
-    // Temporary browser: look up by name in running browsers list
-    const browsers = await client.getBrowsers();
-    const onceBrowser = browsers.find((b) => b.name === command.profileId && b.running);
+  // Try to find browser by name first (for once browsers)
+  const browserByName = browsers.find((b) => b.name === command.profileId && b.running);
 
-    if (!onceBrowser) {
-      return errorResponse(
-        command.id,
-        `Temporary browser "${command.profileId}" not found. ` +
-          `Use "browser list" to see running browsers, or "browser stop-all" to stop all browsers.`
-      );
-    }
-
-    await client.stopBrowser(onceBrowser.profileId);
+  if (browserByName && isOnceBrowser(browserByName)) {
+    // This is a once/temporary browser
+    await client.stopBrowser(browserByName.profileId);
     return successResponse(command.id, {
       stopped: true,
-      profileId: onceBrowser.profileId,
+      profileId: browserByName.profileId,
       message: `Stopped temporary browser ${command.profileId}`,
     });
   }
@@ -261,7 +272,10 @@ async function handleProfileCreate(
   },
   client: NstbrowserClient
 ): Promise<Response> {
-  // Build ProfileConfig from command
+  // Create the profile first, then apply proxy settings as a second step.
+  // NST's create-profile endpoint accepts the core profile fields reliably,
+  // while proxy updates are handled consistently through the dedicated
+  // proxy endpoint.
   const profileConfig: ProfileConfig = {
     name: command.name,
     platform: command.platform,
@@ -270,18 +284,21 @@ async function handleProfileCreate(
     groupId: command.groupId,
   };
 
-  // Add proxy config if provided
+  const profile = await client.createProfile(profileConfig);
+
   if (command.proxyConfig) {
-    profileConfig.proxy = {
+    await client.updateProfileProxy(profile.profileId, {
       type: command.proxyConfig.type,
       host: command.proxyConfig.host,
       port: command.proxyConfig.port,
       username: command.proxyConfig.username,
       password: command.proxyConfig.password,
-    };
+    });
+
+    const refreshedProfile = await getProfileByNameOrId(client, profile.profileId);
+    return successResponse(command.id, { profile: refreshedProfile });
   }
 
-  const profile = await client.createProfile(profileConfig);
   return successResponse(command.id, { profile });
 }
 
@@ -290,11 +307,7 @@ async function handleProfileDelete(
   client: NstbrowserClient
 ): Promise<Response> {
   const profileIds = await resolveProfileIds(client, command.profileIds);
-  if (profileIds.length === 1) {
-    await client.deleteProfile(profileIds[0]);
-  } else {
-    await client.deleteProfilesBatch(profileIds);
-  }
+  await client.deleteProfilesBatch(profileIds);
   return successResponse(command.id, { deleted: profileIds.length });
 }
 
@@ -353,9 +366,20 @@ async function handleProfileTagsCreate(
   client: NstbrowserClient
 ): Promise<Response> {
   const profileId = await resolveProfileId(client, command.profileId);
-  // Convert single tag string to TagConfig array
-  const tags = [{ name: command.tag }];
-  await client.createProfileTags(profileId, tags);
+  // Build the next tag set from the existing profile tags so the ergonomic
+  // "tags create <profile> <tag>" command appends one tag without making the
+  // caller understand the full replacement semantics of the update endpoint.
+  const profile = await getProfileByNameOrId(client, profileId);
+  const existingTags = (profile.tags ?? []).map((tag) => ({
+    name: tag.name,
+    color: tag.color,
+  }));
+
+  if (!existingTags.some((tag) => tag.name === command.tag)) {
+    existingTags.push({ name: command.tag, color: '#8B5CF6' });
+  }
+
+  await client.updateProfileTags(profileId, existingTags);
   return successResponse(command.id, { created: true });
 }
 
@@ -747,16 +771,19 @@ async function handleDiagnose(
 
   // 4. Check Profiles
   try {
-    const profiles = await client.getProfiles();
+    const profiles = await client.getProfilesByCursor(undefined, 1);
     results.profiles_count = {
       status: 'OK',
-      count: profiles.length,
-      message: `${profiles.length} profile(s) configured`,
+      sampled: profiles.docs.length,
+      hasMore: profiles.hasMore,
+      message: profiles.hasMore
+        ? 'Profile access is working (at least one profile found; more profiles available)'
+        : `Profile access is working (${profiles.docs.length} profile(s) found)`,
     };
   } catch (error) {
     results.profiles_count = {
       status: 'FAILED',
-      message: `Failed to list profiles: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Failed to access profiles: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 
@@ -789,6 +816,7 @@ async function handleVerify(
     id: string;
     action: 'verify';
     testUrl: string;
+    profile?: string;
     nstProfileId?: string;
     nstProfileName?: string;
   },
@@ -797,7 +825,7 @@ async function handleVerify(
 ): Promise<Response> {
   try {
     // Resolve profile
-    const profile = command.nstProfileId || command.nstProfileName;
+    const profile = command.profile || command.nstProfileId || command.nstProfileName;
 
     // Use resolveBrowserProfile to start/connect to browser
     const resolved = await resolveBrowserProfile(client, {

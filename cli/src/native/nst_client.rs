@@ -11,6 +11,8 @@ pub struct RunningBrowser {
     pub profile_id: Option<String>,
     pub name: Option<String>,
     pub running: bool,
+    /// Whether this is a once/temporary browser (if provided by API)
+    pub once: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

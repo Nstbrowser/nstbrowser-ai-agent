@@ -65,6 +65,7 @@ export const API_BROWSERS_BATCH = `${API_V2_BASE}/browsers/batch`;
  * Profile management endpoints
  */
 export const API_PROFILES = `${API_V2_BASE}/profiles/`;
+export const API_LOCAL_PROFILES = `${API_V2_BASE}/local/profiles/`;
 export const API_PROFILES_CURSOR = `${API_V2_BASE}/profiles/cursor`;
 export const API_PROFILES_TAGS = `${API_V2_BASE}/profiles/tags`;
 export const API_PROFILES_GROUPS = `${API_V2_BASE}/profiles/groups`;

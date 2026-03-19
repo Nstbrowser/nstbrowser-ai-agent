@@ -10,6 +10,8 @@ export interface BrowserInstance {
   kernel: string;
   remoteDebuggingPort: number;
   running: boolean;
+  /// Whether this is a once/temporary browser (if provided by API)
+  once?: boolean;
 }
 
 export interface StartBrowserOptions {

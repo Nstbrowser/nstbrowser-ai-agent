@@ -105,6 +105,7 @@ export class BrowserManager {
   private cdpEndpoint: string | null = null; // stores port number or full URL
   private isPersistentContext: boolean = false;
   private nstSessionId: string | null = null;
+  private nstProfileName: string | null = null;
   private nstApiKey: string | null = null;
   private nstHost: string | null = null;
   private nstPort: number | null = null;
@@ -366,6 +367,7 @@ export class BrowserManager {
         this.contexts = [];
         this.pages = [];
         this.nstSessionId = null;
+        this.nstProfileName = null;
         throw new Error(
           'Browser context was closed. The browser may have been stopped externally. ' +
             'Please start a new browser session.'
@@ -884,6 +886,18 @@ export class BrowserManager {
   }
 
   /**
+   * Compare the requested NST profile with the currently attached NST session.
+   * We keep both the resolved profile ID and name because callers can pass either form.
+   */
+  private isCurrentNstProfile(profile: string | undefined): boolean {
+    if (!profile) {
+      return this.nstSessionId === 'once';
+    }
+
+    return profile === this.nstSessionId || profile === this.nstProfileName;
+  }
+
+  /**
    * Close a Nstbrowser session via API
    * Only stops the browser if it's a temporary "once" browser
    * Profile browsers are left running for reuse
@@ -1018,6 +1032,7 @@ export class BrowserManager {
 
     // Store session info for cleanup
     this.nstSessionId = resolved.profileId || 'once';
+    this.nstProfileName = resolved.profileName || options?.profile || null;
     this.nstApiKey = nstApiKey;
     this.nstHost = nstHost;
     this.nstPort = nstPort;
@@ -1124,8 +1139,13 @@ export class BrowserManager {
       if (this.cdpEndpoint !== null) {
         // We are currently in CDP/Remote mode
         if (hasNewCdpInfo) {
-          // Only relaunch if the new CDP info is different from current
-          needsRelaunch = !!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint);
+          if (options.profile) {
+            // Switching NST profiles inside the same daemon session must reconnect.
+            needsRelaunch = !this.isCurrentNstProfile(options.profile);
+          } else {
+            // Only relaunch if the new CDP info is different from current
+            needsRelaunch = !!cdpEndpoint && this.needsCdpReconnect(cdpEndpoint);
+          }
         } else if (options.provider === 'local') {
           // Explicitly switching to local
           needsRelaunch = true;
@@ -1444,6 +1464,7 @@ export class BrowserManager {
         this.contexts = [];
         this.pages = [];
         this.nstSessionId = null;
+        this.nstProfileName = null;
         throw new Error(
           'Browser context was closed. The browser may have been stopped externally. ' +
             'Please start a new browser session.'
@@ -1774,6 +1795,7 @@ export class BrowserManager {
         this.contexts = [];
         this.pages = [];
         this.nstSessionId = null;
+        this.nstProfileName = null;
         throw new Error(
           'Browser context was closed. The browser may have been stopped externally. ' +
             'Please start a new browser session.'
@@ -1820,6 +1842,7 @@ export class BrowserManager {
         this.contexts = [];
         this.pages = [];
         this.nstSessionId = null;
+        this.nstProfileName = null;
         throw new Error(
           'Browser context was closed. The browser may have been stopped externally. ' +
             'Please start a new browser session.'
@@ -2546,6 +2569,7 @@ export class BrowserManager {
     this.contexts = [];
     this.cdpEndpoint = null;
     this.nstSessionId = null;
+    this.nstProfileName = null;
     this.nstApiKey = null;
     this.nstHost = null;
     this.nstPort = null;

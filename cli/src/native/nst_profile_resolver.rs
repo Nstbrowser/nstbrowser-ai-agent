@@ -16,6 +16,31 @@ use std::env;
 
 use super::nst_client::{NstClient, RunningBrowser};
 
+/// Check if a browser is a once/temporary browser
+/// 
+/// Priority:
+/// 1. If browser.once field is present, use that value
+/// 2. Otherwise, check if name matches pattern: nst_<digits>
+pub fn is_once_browser(browser: &RunningBrowser) -> bool {
+    // Priority 1: Use explicit once field if available
+    if let Some(once) = browser.once {
+        return once;
+    }
+    
+    // Priority 2: Fallback to name pattern matching
+    if let Some(name) = &browser.name {
+        // Check if name matches pattern: nst_<digits>
+        // Must have at least one digit after "nst_"
+        if name.starts_with("nst_") && name.len() > 4 {
+            name[4..].chars().all(|c| c.is_ascii_digit())
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
 /// Check if a string is a valid UUID (case-insensitive)
 pub fn is_uuid(input: &str) -> bool {
     let uuid_regex =
@@ -328,17 +353,10 @@ pub async fn resolve_browser_profile(
     }
 
     // Rule 5.1: Check if there's already a running once browser
-    // Once browsers have profile name matching pattern: nst_<timestamp>
+    // Use new is_once_browser function for improved detection
     let running_once_browsers: Vec<&RunningBrowser> = running_browsers
         .iter()
-        .filter(|b| {
-            if let Some(name) = &b.name {
-                // Check if name matches pattern: nst_<digits>
-                name.starts_with("nst_") && name[4..].chars().all(|c| c.is_ascii_digit())
-            } else {
-                false
-            }
-        })
+        .filter(|b| is_once_browser(b))
         .copied()
         .collect();
 
@@ -475,5 +493,84 @@ mod tests {
         assert_eq!(options.nst_host, "localhost");
         assert_eq!(options.nst_port, 8848);
         assert_eq!(options.nst_api_key, "test-key");
+    }
+
+    #[test]
+    fn test_is_once_browser_with_explicit_once_field() {
+        // Test explicit once field takes priority
+        let browser_once_true = RunningBrowser {
+            profile_id: Some("test-id".to_string()),
+            name: Some("regular-name".to_string()),
+            running: true,
+            once: Some(true),
+        };
+        assert!(is_once_browser(&browser_once_true));
+
+        let browser_once_false = RunningBrowser {
+            profile_id: Some("test-id".to_string()),
+            name: Some("nst_123456".to_string()), // Would match pattern but once=false
+            running: true,
+            once: Some(false),
+        };
+        assert!(!is_once_browser(&browser_once_false));
+    }
+
+    #[test]
+    fn test_is_once_browser_with_name_pattern() {
+        // Test fallback to name pattern when once field is None
+        let browser_nst_pattern = RunningBrowser {
+            profile_id: Some("test-id".to_string()),
+            name: Some("nst_1234567890".to_string()),
+            running: true,
+            once: None,
+        };
+        assert!(is_once_browser(&browser_nst_pattern));
+
+        let browser_regular_name = RunningBrowser {
+            profile_id: Some("test-id".to_string()),
+            name: Some("my-profile".to_string()),
+            running: true,
+            once: None,
+        };
+        assert!(!is_once_browser(&browser_regular_name));
+
+        let browser_no_name = RunningBrowser {
+            profile_id: Some("test-id".to_string()),
+            name: None,
+            running: true,
+            once: None,
+        };
+        assert!(!is_once_browser(&browser_no_name));
+    }
+
+    #[test]
+    fn test_is_once_browser_name_pattern_edge_cases() {
+        // Test various edge cases for name pattern matching
+        let test_cases = vec![
+            ("nst_123", true),
+            ("nst_0", true),
+            ("nst_999999999", true),
+            ("nst_", false), // No digits after nst_
+            ("nst_abc", false), // Non-digits after nst_
+            ("nst_123abc", false), // Mixed digits and letters
+            ("prefix_nst_123", false), // nst_ not at start
+            ("NST_123", false), // Wrong case
+            ("", false), // Empty string
+        ];
+
+        for (name, expected) in test_cases {
+            let browser = RunningBrowser {
+                profile_id: Some("test-id".to_string()),
+                name: Some(name.to_string()),
+                running: true,
+                once: None,
+            };
+            assert_eq!(
+                is_once_browser(&browser),
+                expected,
+                "Failed for name: '{}'",
+                name
+            );
+        }
     }
 }

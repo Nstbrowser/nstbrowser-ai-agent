@@ -5,6 +5,9 @@ import type { Command, Response } from './types.js';
 const baseCommandSchema = z.object({
   id: z.string(),
   action: z.string(),
+  profile: z.string().optional(),
+  nstProfileName: z.string().optional(),
+  nstProfileId: z.string().optional(),
 });
 
 // Individual action schemas
@@ -56,8 +59,6 @@ const launchSchema = baseCommandSchema.extend({
   allowedDomains: z.array(z.string()).optional(),
   actionPolicy: z.string().optional(),
   confirmActions: z.array(z.string()).optional(),
-  nstProfileName: z.string().optional(),
-  nstProfileId: z.string().optional(),
 });
 
 const navigateSchema = baseCommandSchema.extend({
@@ -1178,6 +1179,21 @@ const nstBrowserCdpUrlOnceSchema = baseCommandSchema.extend({
   action: z.literal('nst_browser_cdp_url_once'),
 });
 
+const diagnoseSchema = baseCommandSchema.extend({
+  action: z.literal('diagnose'),
+  checks: z.array(z.string()).optional(),
+});
+
+const verifySchema = baseCommandSchema.extend({
+  action: z.literal('verify'),
+  testUrl: z.string().min(1),
+});
+
+const repairSchema = baseCommandSchema.extend({
+  action: z.literal('repair'),
+  tasks: z.array(z.string()).optional(),
+});
+
 // Union schema for all commands
 const commandSchema = z.discriminatedUnion('action', [
   launchSchema,
@@ -1357,6 +1373,9 @@ const commandSchema = z.discriminatedUnion('action', [
   nstBrowserConnectOnceSchema,
   nstBrowserCdpUrlSchema,
   nstBrowserCdpUrlOnceSchema,
+  diagnoseSchema,
+  verifySchema,
+  repairSchema,
 ]);
 
 // Parse result type
@@ -1391,6 +1410,25 @@ export function parseCommand(input: string): ParseResult {
   }
 
   const command = result.data as Command;
+
+  // Normalize legacy/external NST profile fields into the shared `profile` field
+  // so all browser action handlers can consume profile selection consistently.
+  const raw = json as {
+    profile?: unknown;
+    nstProfileId?: unknown;
+    nstProfileName?: unknown;
+  };
+  const normalizedProfile =
+    typeof raw.profile === 'string'
+      ? raw.profile
+      : typeof raw.nstProfileId === 'string'
+        ? raw.nstProfileId
+        : typeof raw.nstProfileName === 'string'
+          ? raw.nstProfileName
+          : undefined;
+  if (normalizedProfile) {
+    (command as Command & { profile?: string }).profile = normalizedProfile;
+  }
 
   // Post-parse validation for commands that need cross-field checks
   if (

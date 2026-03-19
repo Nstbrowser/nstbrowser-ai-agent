@@ -2758,7 +2758,20 @@ async function handleDiffSnapshot(
   const after = tree || 'Empty page';
   const result = diffSnapshots(before, after);
   browser.setLastSnapshot(after);
-  return successResponse(command.id, result);
+  return successResponse(command.id, {
+    ...result,
+    diff: {
+      identical: !result.changed,
+      additions: result.additions,
+      removals: result.removals,
+      deletions: result.removals,
+      unchanged: result.unchanged,
+      changed: result.changed,
+    },
+    unifiedDiff: result.diff,
+    identical: !result.changed,
+    deletions: result.removals,
+  });
 }
 
 async function handleDiffScreenshot(

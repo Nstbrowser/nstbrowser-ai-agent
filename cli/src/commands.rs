@@ -1386,8 +1386,23 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         }
 
         "verify" => {
-            // Optional profile parameter
-            let profile = rest.first().map(|s| s.to_string());
+            // Optional profile parameter: supports either positional argument
+            // or `verify --profile <name-or-id>` for consistency with docs.
+            let mut profile: Option<String> = None;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i] {
+                    "--profile" => {
+                        profile = rest.get(i + 1).map(|s| s.to_string());
+                        i += 1;
+                    }
+                    arg if !arg.starts_with("--") && profile.is_none() => {
+                        profile = Some(arg.to_string());
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
             let mut cmd = json!({
                 "id": id,
                 "action": "verify",
@@ -2251,7 +2266,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("pages") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser pages".to_string(),
-                usage: "nst browser pages <profile-id>",
+                usage: "nst browser pages <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2262,7 +2277,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("debugger") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser debugger".to_string(),
-                usage: "nst browser debugger <profile-id>",
+                usage: "nst browser debugger <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2273,7 +2288,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("start") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser start".to_string(),
-                usage: "nst browser start <profile-id> [--headless] [--auto-close]",
+                usage: "nst browser start <name-or-id> [--headless] [--auto-close]",
             })?;
 
             let mut cmd = json!({
@@ -2303,7 +2318,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                         if other.starts_with("--") {
                             return Err(ParseError::InvalidValue {
                                 message: format!("unknown flag '{}' for nst browser start", other),
-                                usage: "nst browser start <profile-id> [--headless] [--auto-close]",
+                                usage: "nst browser start <name-or-id> [--headless] [--auto-close]",
                             });
                         }
                     }
@@ -2340,7 +2355,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
 
             let profile_id = profile_id.ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser stop".to_string(),
-                usage: "nst browser stop <profile-id> | nst browser stop --profile <name-or-id>",
+                usage: "nst browser stop <name-or-id> | nst browser stop --profile <name-or-id>",
             })?;
 
             Ok(json!({
@@ -2405,7 +2420,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("cdp-url") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser cdp-url".to_string(),
-                usage: "nst browser cdp-url <profile-id>",
+                usage: "nst browser cdp-url <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2420,7 +2435,7 @@ fn parse_nst_browser(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("connect") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst browser connect".to_string(),
-                usage: "nst browser connect <profile-id>",
+                usage: "nst browser connect <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2562,7 +2577,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
         Some("show") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile show".to_string(),
-                usage: "nst profile show <profile-id>",
+                usage: "nst profile show <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2663,7 +2678,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile delete".to_string(),
-                    usage: "nst profile delete <profile-id> [profile-id...]",
+                    usage: "nst profile delete <name-or-id> [name-or-id...]",
                 });
             }
             Ok(json!({
@@ -2683,7 +2698,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                     if profile_ids.is_empty() {
                         return Err(ParseError::MissingArguments {
                             context: "nst profile cache clear".to_string(),
-                            usage: "nst profile cache clear <profile-id> [profile-id...]",
+                            usage: "nst profile cache clear <name-or-id> [name-or-id...]",
                         });
                     }
                     Ok(json!({
@@ -2698,7 +2713,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 }),
                 None => Err(ParseError::MissingArguments {
                     context: "nst profile cache".to_string(),
-                    usage: "nst profile cache clear <profile-id> [profile-id...]",
+                    usage: "nst profile cache clear <name-or-id> [name-or-id...]",
                 }),
             }
         }
@@ -2710,7 +2725,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                     if profile_ids.is_empty() {
                         return Err(ParseError::MissingArguments {
                             context: "nst profile cookies clear".to_string(),
-                            usage: "nst profile cookies clear <profile-id> [profile-id...]",
+                            usage: "nst profile cookies clear <name-or-id> [name-or-id...]",
                         });
                     }
                     Ok(json!({
@@ -2725,7 +2740,7 @@ fn parse_nst_profile(rest: &[&str], id: &str) -> Result<Value, ParseError> {
                 }),
                 None => Err(ParseError::MissingArguments {
                     context: "nst profile cookies".to_string(),
-                    usage: "nst profile cookies clear <profile-id> [profile-id...]",
+                    usage: "nst profile cookies clear <name-or-id> [name-or-id...]",
                 }),
             }
         }
@@ -2743,7 +2758,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
         Some("show") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile proxy show".to_string(),
-                usage: "nst profile proxy show <profile-id>",
+                usage: "nst profile proxy show <name-or-id>",
             })?;
             Ok(json!({
                 "id": id,
@@ -2761,7 +2776,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile proxy batch-update".to_string(),
-                    usage: "nst profile proxy batch-update <profile-id> [profile-id...] --host <host> --port <port> [--type <type>]",
+                    usage: "nst profile proxy batch-update <name-or-id> [name-or-id...] --host <host> --port <port> [--type <type>]",
                 });
             }
 
@@ -2805,7 +2820,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
                         if other.starts_with("--") {
                             return Err(ParseError::InvalidValue {
                                 message: format!("unknown flag '{}' for nst profile proxy batch-update", other),
-                                usage: "nst profile proxy batch-update <profile-id> [profile-id...] --host <host> --port <port> [--type <type>]",
+                                usage: "nst profile proxy batch-update <name-or-id> [name-or-id...] --host <host> --port <port> [--type <type>]",
                             });
                         }
                     }
@@ -2825,7 +2840,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile proxy batch-reset".to_string(),
-                    usage: "nst profile proxy batch-reset <profile-id> [profile-id...]",
+                    usage: "nst profile proxy batch-reset <name-or-id> [name-or-id...]",
                 });
             }
             Ok(json!({
@@ -2837,7 +2852,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
         Some("update") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile proxy update".to_string(),
-                usage: "nst profile proxy update <profile-id> --host <host> --port <port> [--type <type>]",
+                usage: "nst profile proxy update <name-or-id> --host <host> --port <port> [--type <type>]",
             })?;
 
             let mut proxy_config = json!({});
@@ -2880,7 +2895,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
                         if other.starts_with("--") {
                             return Err(ParseError::InvalidValue {
                                 message: format!("unknown flag '{}' for nst profile proxy update", other),
-                                usage: "nst profile proxy update <profile-id> --host <host> --port <port> [--type <type>]",
+                                usage: "nst profile proxy update <name-or-id> --host <host> --port <port> [--type <type>]",
                             });
                         }
                     }
@@ -2900,7 +2915,7 @@ fn parse_nst_profile_proxy(rest: &[&str], id: &str) -> Result<Value, ParseError>
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile proxy reset".to_string(),
-                    usage: "nst profile proxy reset <profile-id> [profile-id...]",
+                    usage: "nst profile proxy reset <name-or-id> [name-or-id...]",
                 });
             }
             Ok(json!({
@@ -2936,14 +2951,14 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
         Some("update") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile tags update".to_string(),
-                usage: "nst profile tags update <profile-id> <tag-name>[:<color>] [tag-name[:<color>]...]",
+                usage: "nst profile tags update <name-or-id> <tag-name>[:<color>] [tag-name[:<color>]...]",
             })?;
 
             let tag_specs: Vec<&str> = rest[2..].iter().map(|s| s.as_ref()).collect();
             if tag_specs.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags update".to_string(),
-                    usage: "nst profile tags update <profile-id> <tag-name>[:<color>] [tag-name[:<color>]...]",
+                    usage: "nst profile tags update <name-or-id> <tag-name>[:<color>] [tag-name[:<color>]...]",
                 });
             }
 
@@ -2978,7 +2993,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-create".to_string(),
-                    usage: "nst profile tags batch-create <profile-id> [profile-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
+                    usage: "nst profile tags batch-create <name-or-id> [name-or-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
                 });
             }
 
@@ -2989,7 +3004,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if tag_specs.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-create".to_string(),
-                    usage: "nst profile tags batch-create <profile-id> [profile-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
+                    usage: "nst profile tags batch-create <name-or-id> [name-or-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
                 });
             }
 
@@ -3024,7 +3039,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-update".to_string(),
-                    usage: "nst profile tags batch-update <profile-id> [profile-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
+                    usage: "nst profile tags batch-update <name-or-id> [name-or-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
                 });
             }
 
@@ -3035,7 +3050,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if tag_specs.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-update".to_string(),
-                    usage: "nst profile tags batch-update <profile-id> [profile-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
+                    usage: "nst profile tags batch-update <name-or-id> [name-or-id...] <tag-name>[:<color>] [tag-name[:<color>]...]",
                 });
             }
 
@@ -3065,7 +3080,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags batch-clear".to_string(),
-                    usage: "nst profile tags batch-clear <profile-id> [profile-id...]",
+                    usage: "nst profile tags batch-clear <name-or-id> [name-or-id...]",
                 });
             }
             Ok(json!({
@@ -3077,12 +3092,12 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
         Some("create") => {
             let profile_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile tags create".to_string(),
-                usage: "nst profile tags create <profile-id> <tag-name>",
+                usage: "nst profile tags create <name-or-id> <tag-name>",
             })?;
 
             let tag_name = rest.get(2).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile tags create".to_string(),
-                usage: "nst profile tags create <profile-id> <tag-name>",
+                usage: "nst profile tags create <name-or-id> <tag-name>",
             })?;
 
             // TypeScript expects a single tag string, not an array
@@ -3098,7 +3113,7 @@ fn parse_nst_profile_tags(rest: &[&str], id: &str) -> Result<Value, ParseError> 
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile tags clear".to_string(),
-                    usage: "nst profile tags clear <profile-id> [profile-id...]",
+                    usage: "nst profile tags clear <name-or-id> [name-or-id...]",
                 });
             }
             Ok(json!({
@@ -3122,7 +3137,7 @@ fn parse_nst_profile_groups(rest: &[&str], id: &str) -> Result<Value, ParseError
         Some("batch-change") => {
             let group_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile groups batch-change".to_string(),
-                usage: "nst profile groups batch-change <group-id> <profile-id> [profile-id...]",
+                usage: "nst profile groups batch-change <group-id> <name-or-id> [name-or-id...]",
             })?;
 
             let profile_ids: Vec<&str> = rest[2..].iter().map(|s| s.as_ref()).collect();
@@ -3130,7 +3145,7 @@ fn parse_nst_profile_groups(rest: &[&str], id: &str) -> Result<Value, ParseError
                 return Err(ParseError::MissingArguments {
                     context: "nst profile groups batch-change".to_string(),
                     usage:
-                        "nst profile groups batch-change <group-id> <profile-id> [profile-id...]",
+                        "nst profile groups batch-change <group-id> <name-or-id> [name-or-id...]",
                 });
             }
 
@@ -3144,14 +3159,14 @@ fn parse_nst_profile_groups(rest: &[&str], id: &str) -> Result<Value, ParseError
         Some("change") => {
             let group_id = rest.get(1).ok_or_else(|| ParseError::MissingArguments {
                 context: "nst profile groups change".to_string(),
-                usage: "nst profile groups change <group-id> <profile-id> [profile-id...]",
+                usage: "nst profile groups change <group-id> <name-or-id> [name-or-id...]",
             })?;
 
             let profile_ids: Vec<&str> = rest[2..].iter().map(|s| s.as_ref()).collect();
             if profile_ids.is_empty() {
                 return Err(ParseError::MissingArguments {
                     context: "nst profile groups change".to_string(),
-                    usage: "nst profile groups change <group-id> <profile-id> [profile-id...]",
+                    usage: "nst profile groups change <group-id> <name-or-id> [name-or-id...]",
                 });
             }
 
@@ -3231,6 +3246,21 @@ mod tests {
     fn test_cookies_get() {
         let cmd = parse_command(&test_args("cookies"), &default_flags()).unwrap();
         assert_eq!(cmd["action"], "cookies_get");
+    }
+
+    #[test]
+    fn test_verify_with_profile_flag() {
+        let cmd =
+            parse_command(&test_args("verify --profile my-profile"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "verify");
+        assert_eq!(cmd["nstProfileName"], "my-profile");
+    }
+
+    #[test]
+    fn test_verify_with_positional_profile() {
+        let cmd = parse_command(&test_args("verify my-profile"), &default_flags()).unwrap();
+        assert_eq!(cmd["action"], "verify");
+        assert_eq!(cmd["nstProfileName"], "my-profile");
     }
 
     #[test]

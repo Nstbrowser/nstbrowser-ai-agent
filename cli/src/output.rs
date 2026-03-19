@@ -745,6 +745,81 @@ pub fn print_response_with_opts(resp: &Response, action: Option<&str>, opts: &Ou
             return;
         }
 
+        // Cursor-paginated profile list
+        if let Some(profiles) = data.get("docs").and_then(|v| v.as_array()) {
+            let next_cursor = data
+                .get("nextCursor")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let prev_cursor = data
+                .get("prevCursor")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let has_more = data
+                .get("hasMore")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if profiles.is_empty() {
+                println!("{}", color::dim("No profiles found"));
+            } else {
+                println!(
+                    "{}",
+                    color::bold(&format!("Profiles page ({}):", profiles.len()))
+                );
+                for p in profiles {
+                    let name = p
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("(unnamed)");
+                    let profile_id = p.get("profileId").and_then(|v| v.as_str()).unwrap_or("");
+                    let platform = p.get("platform").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let platform_name = match platform {
+                        1 => "macOS",
+                        2 => "Windows",
+                        3 => "Linux",
+                        _ => "Unknown",
+                    };
+
+                    let proxy_info = p
+                        .get("proxyResult")
+                        .and_then(|pr| pr.as_object())
+                        .and_then(|pr| pr.get("ip"))
+                        .and_then(|ip| ip.as_str())
+                        .map(|ip| format!(" [{}]", color::cyan(ip)))
+                        .unwrap_or_default();
+
+                    println!(
+                        "  {} {}{}",
+                        color::green(name),
+                        color::dim(&format!(
+                            "({}, {})",
+                            profile_id.chars().take(8).collect::<String>(),
+                            platform_name
+                        )),
+                        proxy_info
+                    );
+                }
+            }
+
+            println!(
+                "{} {}",
+                color::info_indicator(),
+                if has_more {
+                    "More profiles are available."
+                } else {
+                    "End of profile list."
+                }
+            );
+            if !next_cursor.is_empty() {
+                println!("  Next cursor: {}", color::dim(next_cursor));
+            }
+            if !prev_cursor.is_empty() {
+                println!("  Prev cursor: {}", color::dim(prev_cursor));
+            }
+            return;
+        }
+
         // Browser list (NST running browser instances)
         if let Some(browsers) = data.get("browsers").and_then(|v| v.as_array()) {
             if browsers.is_empty() {
@@ -2314,11 +2389,6 @@ Operations:
 Automatic State Persistence:
   Use --session-name to auto-save/restore state across restarts:
   nstbrowser-ai-agent --session-name myapp open https://example.com
-  Or set NSTBROWSER_AI_AGENT_SESSION_NAME environment variable.
-
-State Encryption:
-  Set NSTBROWSER_AI_AGENT_ENCRYPTION_KEY (64-char hex) for AES-256-GCM encryption.
-  Generate a key: openssl rand -hex 32
 
 Global Options:
   --json               Output as JSON
@@ -2348,9 +2418,6 @@ instance with separate cookies, storage, and state.
 Operations:
   (none)               Show current session name
   list                 List all active sessions
-
-Environment:
-  NSTBROWSER_AI_AGENT_SESSION    Default session name
 
 Global Options:
   --json               Output as JSON
@@ -2403,58 +2470,275 @@ Examples:
 "##
         }
 
+        "profile" => {
+            r##"
+nstbrowser-ai-agent profile - Manage Nstbrowser profiles
+
+Usage: nstbrowser-ai-agent profile <subcommand> [args]
+
+Use this command family when you need to inspect, create, update, or clean up
+Nstbrowser profiles before running browser automation.
+
+Profile List Commands:
+  profile list [--verbose]
+    Best for: choosing a profile by name before browser work
+    Output: readable profile summary (name, short ID, platform, proxy IP, tags)
+    --verbose  Return full profile objects, including fingerprint and proxy config
+
+  profile list-cursor [--page-size <size>] [--cursor <token>] [--direction next|prev]
+    Best for: large workspaces with many profiles
+    Output: one page of profiles plus next/prev cursor information
+    --page-size <size>   Limit number of profiles in this page
+    --cursor <token>     Continue from a cursor returned by the previous page
+    --direction <dir>    Page forward with next or backward with prev
+
+Profile Inspection:
+  profile show <name-or-id>
+    Best for: confirming group, proxy, tags, platform, and launch history for one profile
+
+Profile Creation:
+  profile create <name> [options]
+    Best for: preparing a clean profile before a new task
+    --platform <Windows|macOS|Linux>  Choose the spoofed platform
+    --kernel <version>                Request a preferred kernel milestone/version string
+    --group-id <id>                   Place the new profile into a specific Nstbrowser group
+    --proxy-host <host>               Proxy host for the new profile
+    --proxy-port <port>               Proxy port for the new profile
+    --proxy-type <http|https|socks5>  Proxy protocol
+    --proxy-username <user>           Proxy username
+    --proxy-password <pass>           Proxy password
+
+Profile Cleanup:
+  profile delete <name-or-id> [name-or-id...]
+    Best for: removing test profiles after validation or one-off tasks
+
+Proxy Commands:
+  profile proxy show <name-or-id>
+    Best for: checking the saved proxy config and last proxy check result
+
+  profile proxy update <name-or-id> --host <host> --port <port> [--type <type>] [--username <user>] [--password <pass>]
+    Best for: changing the proxy without recreating the profile
+
+  profile proxy reset <name-or-id> [name-or-id...]
+    Best for: removing custom proxy settings and returning to local/default routing
+
+Tag Commands:
+  profile tags list
+    Best for: seeing which tags already exist
+
+  profile tags create <name-or-id> <tag-name>
+    Best for: attaching one new tag to a single profile
+    Note: the CLI assigns a default tag color automatically
+
+  profile tags update <name-or-id> <tag-name>[:<color>] [tag-name[:<color>]...]
+    Best for: replacing the full tag set for one profile
+
+  profile tags clear <name-or-id> [name-or-id...]
+    Best for: removing all tags from one or more profiles
+
+Group Commands:
+  profile groups list
+    Best for: discovering valid group IDs before create/change operations
+
+  profile groups change <group-id> <name-or-id> [name-or-id...]
+    Best for: moving one or more profiles to a known group
+
+Common Global Options:
+  --json               Return machine-readable output
+  --session <name>     Route the command through a specific daemon session
+
+Examples:
+  nstbrowser-ai-agent profile list
+  nstbrowser-ai-agent profile list --verbose --json
+  nstbrowser-ai-agent profile list-cursor --page-size 20
+  nstbrowser-ai-agent profile list-cursor --page-size 20 --cursor "<token>" --direction next
+  nstbrowser-ai-agent profile show my-profile
+  nstbrowser-ai-agent profile create my-profile --platform Windows --kernel 128
+  nstbrowser-ai-agent profile create proxy-profile --group-id 254861a7-f1af-4b6c-99c5-059e5036ae49 --proxy-host 127.0.0.1 --proxy-port 8080 --proxy-type http --proxy-username user --proxy-password pass
+  nstbrowser-ai-agent profile proxy update my-profile --host 127.0.0.1 --port 8899 --type socks5 --username user --password pass
+  nstbrowser-ai-agent profile tags update my-profile qa:#8B5CF6 smoke:#22C55E
+  nstbrowser-ai-agent profile groups change 254861a7-f1af-4b6c-99c5-059e5036ae49 my-profile
+"##
+        }
+
+        "browser" => {
+            r##"
+nstbrowser-ai-agent browser - Manage Nstbrowser browser instances
+
+Usage: nstbrowser-ai-agent browser <subcommand> [args]
+
+Use this command family when you need to explicitly start, inspect, connect to,
+or stop Nstbrowser-managed browsers.
+
+Browser Instance Commands:
+  browser list
+    Best for: seeing which profile browsers or temporary browsers are already running
+    Output: browser name, short profile ID, platform, kernel, CDP port, running state
+
+  browser start <name-or-id> [--headless] [--auto-close]
+    Best for: explicitly starting a browser before page automation
+    --headless    Request headless launch
+    --auto-close  Ask NST to auto-close the browser when its owner exits
+
+  browser stop <name-or-id>
+    Best for: stopping one specific profile browser or one temporary browser by name
+
+  browser stop-all
+    Best for: clearing stuck once browsers or resetting the whole local NST browser state
+
+Temporary Browser Commands:
+  browser start-once [--platform <platform>] [--kernel <kernel>] [--headless] [--auto-close]
+    Best for: throwaway browser work that should not reuse a saved profile
+
+CDP / Debugging Commands:
+  browser pages <name-or-id>
+    Best for: listing debuggable pages inside one running browser
+
+  browser debugger <name-or-id>
+    Best for: getting the debugger port and WebSocket endpoint for one running browser
+
+  browser cdp-url <name-or-id>
+    Best for: fetching only the browser-level CDP WebSocket URL
+
+  browser cdp-url-once
+    Best for: quickly obtaining a temporary browser CDP WebSocket URL
+
+  browser connect <name-or-id>
+    Best for: starting the browser if needed and returning its CDP connection info
+
+  browser connect-once [--platform <platform>] [--kernel <kernel>]
+    Best for: one command that creates a temporary browser and returns CDP connection info
+
+Common Global Options:
+  --json               Return machine-readable output
+  --session <name>     Route the command through a specific daemon session
+
+Examples:
+  nstbrowser-ai-agent browser list
+  nstbrowser-ai-agent browser start my-profile --headless
+  nstbrowser-ai-agent browser pages my-profile
+  nstbrowser-ai-agent browser debugger my-profile --json
+  nstbrowser-ai-agent browser cdp-url my-profile --json
+  nstbrowser-ai-agent browser connect my-profile --json
+  nstbrowser-ai-agent browser start-once --platform Windows --kernel 128
+  nstbrowser-ai-agent browser cdp-url-once --json
+  nstbrowser-ai-agent browser connect-once --platform Windows --kernel 128 --json
+  nstbrowser-ai-agent browser stop my-profile
+  nstbrowser-ai-agent browser stop-all
+"##
+        }
+
+        "config" => {
+            r##"
+nstbrowser-ai-agent config - Manage NST connectivity settings
+
+Usage: nstbrowser-ai-agent config <subcommand> [args]
+
+Use config when you want to save NST connection settings once instead of typing
+them on every command.
+
+Subcommands:
+  config set key <value>     Save NST API key
+  config set host <value>    Save NST host
+  config set port <value>    Save NST port
+  config get key|host|port   Read one saved setting
+  config show                Print all saved settings
+  config unset key|host|port Remove one saved setting
+
+Documented NST connectivity variables:
+  NST_API_KEY
+  NST_HOST
+  NST_PORT
+
+Examples:
+  nstbrowser-ai-agent config set key YOUR_API_KEY
+  nstbrowser-ai-agent config set host 127.0.0.1
+  nstbrowser-ai-agent config set port 8848
+  nstbrowser-ai-agent config show
+  nstbrowser-ai-agent config get key
+"##
+        }
+
+        "verify" => {
+            r##"
+nstbrowser-ai-agent verify - Verify one profile and the current NST setup
+
+Usage:
+  nstbrowser-ai-agent verify <name-or-id>
+  nstbrowser-ai-agent verify --profile <name-or-id>
+
+Use verify before a real task when you want to confirm that:
+  - NST is reachable
+  - the target profile exists
+  - the browser can start for that profile
+  - a simple navigation smoke test succeeds
+
+Arguments:
+  <name-or-id>         Profile name or UUID to verify
+  --profile <value>    Same as the positional form above
+
+Output:
+  Human-readable mode prints a task-by-task checklist.
+  JSON mode returns a top-level status plus the verification details.
+
+Examples:
+  nstbrowser-ai-agent verify my-profile
+  nstbrowser-ai-agent verify --profile my-profile
+  nstbrowser-ai-agent verify --profile my-profile --json
+"##
+        }
+
+        "repair" => {
+            r##"
+nstbrowser-ai-agent repair - Attempt automatic NST recovery steps
+
+Usage: nstbrowser-ai-agent repair
+
+Use repair when NST state looks stale or inconsistent, for example when:
+  - browser instances are stuck
+  - a profile repeatedly fails to attach
+  - verify reports stale browser state
+
+What it does:
+  - stops running browsers that look stale
+  - cleans up expired saved state where applicable
+  - re-checks core NST connectivity
+
+Output:
+  Human-readable mode prints each repair task and whether it succeeded.
+  JSON mode returns the task map for programmatic inspection.
+
+Examples:
+  nstbrowser-ai-agent repair
+  nstbrowser-ai-agent repair --json
+"##
+        }
+
         "nst" => {
             r##"
 nstbrowser-ai-agent - Nstbrowser Integration
 
-Manage Nstbrowser profiles and browser instances for advanced fingerprinting
-and anti-detection capabilities.
+Manage Nstbrowser profiles, browser instances, and environment checks.
 
 Usage: nstbrowser-ai-agent <category> <subcommand> [args]
 
 Categories:
-  browser              Manage browser instances
-  profile              Manage browser profiles
+  nst status            Check whether the local Nstbrowser service is reachable
+  verify                Run a profile health check before real automation
+  repair                Attempt automatic recovery steps for stale NST state
+  profile               Manage Nstbrowser profiles
+  browser               Manage Nstbrowser browser instances
 
-Browser Commands:
-  browser list                        List running browser instances
-  browser start <profile-id>          Start browser for profile
-  browser start-once                  Start temporary browser without profile
-  browser stop <profile-id>           Stop browser instance
-  browser stop-all                    Stop all browser instances
-  browser cdp-url <profile-id>        Get CDP WebSocket URL for profile
-  browser cdp-url-once                Get CDP URL for temporary browser
-  browser connect <profile-id>        Connect and get CDP URL (starts if not running)
-  browser connect-once                Connect to temporary browser
+Recommended help entry points:
+  nstbrowser-ai-agent profile --help
+  nstbrowser-ai-agent browser --help
+  nstbrowser-ai-agent verify --help
+  nstbrowser-ai-agent repair --help
 
-Profile Commands:
-  profile list                        List all profiles
-    Options: --verbose                Include full profile data (cookies, fingerprints, etc.)
-  profile list-cursor                 List profiles with cursor pagination
-    Options: --page-size <n>  --cursor <token>
-  profile create <name>               Create new profile
-    Options: --platform <Windows|macOS|Linux>
-             --kernel <version>
-             --group-id <id>
-             --proxy-host <host> --proxy-port <port>
-             --proxy-type <http|https|socks5>
-             --proxy-username <user> --proxy-password <pass>
-  profile delete <id> [id...]         Delete profiles
-  profile proxy update <id>           Update proxy settings
-  profile proxy reset <id> [id...]    Reset proxy to local
-  profile tags list                   List all tags
-  profile tags create <id> <tag>      Add tags to profile
-  profile tags clear <id> [id...]     Clear profile tags
-  profile groups list                 List all groups
-  profile groups change <gid> <id>    Move profiles to group
-  profile cache clear <id> [id...]    Clear profile cache
-  profile cookies clear <id> [id...]  Clear profile cookies
-
-Environment Variables:
+NST Connectivity:
   NST_HOST                 Nstbrowser API host (default: 127.0.0.1)
   NST_PORT                 Nstbrowser API port (default: 8848)
   NST_API_KEY              Nstbrowser API key (required)
-  NST_PROFILE              Profile name or ID (UUID format auto-detected)
 
 Profile Resolution:
   When specifying a profile, the system automatically detects UUID format:
@@ -2483,46 +2767,37 @@ Options:
   --session <name>         Use specific session
 
 Examples:
-  # List all profiles
-  nstbrowser-ai-agent profile list
+  # Check connectivity first
+  nstbrowser-ai-agent nst status
+  nstbrowser-ai-agent verify --profile my-profile
 
-  # Create a new profile with all options
+  # Inspect profiles
+  nstbrowser-ai-agent profile list
+  nstbrowser-ai-agent profile list --verbose --json
+  nstbrowser-ai-agent profile show my-profile
+
+  # Create and prepare a clean profile
   nstbrowser-ai-agent profile create myprofile \
     --platform Windows \
-    --kernel "128" \
-    --group-id "254861a7-f1af-4b6c-99c5-059e5036ae49" \
+    --kernel 128 \
+    --group-id 254861a7-f1af-4b6c-99c5-059e5036ae49 \
     --proxy-host 127.0.0.1 --proxy-port 1080 --proxy-type socks5
 
-  # Start browser with profile
-  nstbrowser-ai-agent browser start profile-123
+  # Update profile metadata
+  nstbrowser-ai-agent profile proxy update myprofile --host 127.0.0.1 --port 8899 --type socks5
+  nstbrowser-ai-agent profile tags update myprofile smoke:#22C55E qa:#8B5CF6
+  nstbrowser-ai-agent profile groups change 254861a7-f1af-4b6c-99c5-059e5036ae49 myprofile
 
-  # Launch browser using Nstbrowser provider with profile name
-  nstbrowser-ai-agent --profile myprofile
-
-  # Launch browser using Nstbrowser provider with profile ID (auto-detected)
-  nstbrowser-ai-agent --profile "527e7b55-ca19-4422-89e4-88af4cf0f543"
-
-  # Both work the same way - UUID pattern is auto-detected
-  nstbrowser-ai-agent --profile proxy_ph
-  nstbrowser-ai-agent --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b
-
-  # Launch browser using Nstbrowser provider (once profile, temporary)
-  nstbrowser-ai-agent
-
-  # Launch browser using environment variable (backward compatible)
-  NST_PROFILE=myprofile nstbrowser-ai-agent
-  nstbrowser-ai-agent open https://example.com
-
-  # Update proxy settings
-  nstbrowser-ai-agent profile proxy update profile-123 \
-    --host 127.0.0.1 --port 1080 --type http
-
-  # Batch operations
-  nstbrowser-ai-agent profile delete profile-1 profile-2 profile-3
-  nstbrowser-ai-agent profile cache clear profile-1 profile-2
+  # Start, inspect, and stop browsers
+  nstbrowser-ai-agent browser start myprofile --headless
+  nstbrowser-ai-agent browser pages myprofile --json
+  nstbrowser-ai-agent browser cdp-url myprofile --json
+  nstbrowser-ai-agent browser stop myprofile
+  nstbrowser-ai-agent browser start-once --platform Windows --kernel 128
+  nstbrowser-ai-agent browser stop-all
 
 Note: Requires Nstbrowser client to be installed and running.
-      Set NST_API_KEY environment variable before using.
+      Set NST_API_KEY before using.
 "##
         }
 
@@ -2712,67 +2987,66 @@ Updates:
   update check               Check for available updates
 
 NST Agent:
-  status                     Check if NST agent is running
+  nst status                 Check if NST agent is running
 
 Snapshot Options:
   -i, --interactive          Only interactive elements
+  -C, --cursor               Include cursor-interactive custom elements
   -c, --compact              Remove empty structural elements
   -d, --depth <n>            Limit tree depth
   -s, --selector <sel>       Scope to CSS selector
 
-Default Provider:
-  By default, nstbrowser-ai-agent uses Nstbrowser as the browser provider.
-  This means you don't need to specify -p nst unless you want to be explicit.
-  
-  All browser operations are performed through Nstbrowser profiles.
+Nstbrowser Workflow:
+  nstbrowser-ai-agent is designed for Nstbrowser-managed browsers.
+  In normal usage, first choose a healthy profile, then keep using the same
+  --profile value on every related browser command.
 
 Quick Start with Nstbrowser:
   # Set your API key (required)
   export NST_API_KEY="your-api-key"
-  
-  # Launch browser with profile
+
+  # Discover or create a profile
+  nstbrowser-ai-agent profile list
+  nstbrowser-ai-agent verify --profile my-profile
+
+  # Run browser actions with the same profile
   nstbrowser-ai-agent --profile my-profile open https://example.com
-  
-  # Or use temporary browser
-  nstbrowser-ai-agent browser start-once
-  
-  # Nstbrowser management
-  nstbrowser-ai-agent profile list               # List profiles
-  nstbrowser-ai-agent browser list               # List running browsers
+  nstbrowser-ai-agent --profile my-profile snapshot -i
+  nstbrowser-ai-agent --profile my-profile click @e1
 
 Options:
-  --session <name>           Isolated session (or NSTBROWSER_AI_AGENT_SESSION env)
-  --state <path>             Load storage state from JSON file (or NSTBROWSER_AI_AGENT_STATE env)
+  --session <name>           Isolated daemon session
+                             Reuse the same session to keep browser state.
+                             If you change --profile in that session, the daemon switches
+                             to the newly requested Nstbrowser profile.
+  --state <path>             Load storage state from JSON file
   --headers <json>           HTTP headers scoped to URL's origin (for auth)
-  --executable-path <path>   Custom browser executable (or NSTBROWSER_AI_AGENT_EXECUTABLE_PATH)
   --extension <path>         Load browser extensions (repeatable)
-  --args <args>              Browser launch args, comma or newline separated (or NSTBROWSER_AI_AGENT_ARGS)
+  --args <args>              Browser launch args, comma or newline separated
                              e.g., --args "--no-sandbox,--disable-blink-features=AutomationControlled"
-  --user-agent <ua>          Custom User-Agent (or NSTBROWSER_AI_AGENT_USER_AGENT)
-  --proxy <server>           Proxy server URL (or NSTBROWSER_AI_AGENT_PROXY)
+  --user-agent <ua>          Custom User-Agent
+  --proxy <server>           Proxy server URL
                              e.g., --proxy "http://user:pass@127.0.0.1:7890"
-  --proxy-bypass <hosts>     Bypass proxy for these hosts (or NSTBROWSER_AI_AGENT_PROXY_BYPASS)
+  --proxy-bypass <hosts>     Bypass proxy for these hosts
                              e.g., --proxy-bypass "localhost,*.internal.com"
   --ignore-https-errors      Ignore HTTPS certificate errors
-  --allow-file-access        Allow file:// URLs to access local files (Chromium only)
-  -p, --provider <name>      Browser provider: nst (default)
-  --profile <name-or-id>     Connect to Nstbrowser profile by name or ID (auto-detected)
+  --profile <name-or-id>     Select Nstbrowser profile by name or ID (auto-detected)
                              Accepts profile name (e.g., "proxy_ph") or UUID
                              (e.g., "ef2b083a-8f77-4a7f-8441-a8d56bbd832b")
   --json                     JSON output
   --full, -f                 Full page screenshot
   --annotate                 Annotated screenshot with numbered labels and legend
-  --color-scheme <scheme>    Color scheme: dark, light, no-preference (or NSTBROWSER_AI_AGENT_COLOR_SCHEME)
-  --download-path <path>     Default download directory (or NSTBROWSER_AI_AGENT_DOWNLOAD_PATH)
+  --color-scheme <scheme>    Color scheme: dark, light, no-preference
+  --download-path <path>     Default download directory
   --session-name <name>      Auto-save/restore session state (cookies, localStorage)
-  --content-boundaries       Wrap page output in boundary markers (or NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES)
-  --max-output <chars>       Truncate page output to N chars (or NSTBROWSER_AI_AGENT_MAX_OUTPUT)
-  --allowed-domains <list>   Restrict navigation domains (or NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS)
-  --action-policy <path>     Action policy JSON file (or NSTBROWSER_AI_AGENT_ACTION_POLICY)
-  --confirm-actions <list>   Categories requiring confirmation (or NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS)
-  --confirm-interactive      Interactive confirmation prompts; auto-denies if stdin is not a TTY (or NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE)
-  --native                   [Experimental] Use native Rust daemon instead of Node.js (or NSTBROWSER_AI_AGENT_NATIVE)
-  --config <path>            Use a custom config file (or NSTBROWSER_AI_AGENT_CONFIG env)
+  --content-boundaries       Wrap page output in boundary markers
+  --max-output <chars>       Truncate page output to N chars
+  --allowed-domains <list>   Restrict navigation domains
+  --action-policy <path>     Action policy JSON file
+  --confirm-actions <list>   Categories requiring confirmation
+  --confirm-interactive      Interactive confirmation prompts; auto-denies if stdin is not a TTY
+  --native                   [Experimental] Use native Rust daemon instead of Node.js
+  --config <path>            Use a custom config file
   --debug                    Debug output
   --version, -V              Show version
 
@@ -2791,85 +3065,43 @@ Configuration:
   Extensions from user and project configs are merged (not replaced).
 
   Example nstbrowser-ai-agent.json:
-    {{"headed": true, "proxy": "http://localhost:8080", "profile": "./browser-data"}}
+    {{"headed": true, "proxy": "http://localhost:8080", "profile": "task-profile"}}
 
-.env File Support:
-  Environment variables can be stored in .env files for easier configuration:
-    1. .nstbrowser-ai-agent.env    Project-specific (highest priority)
-    2. .env                        Standard environment file
-
-  Example .nstbrowser-ai-agent.env:
-    NST_API_KEY=your-api-key-here
-    NST_HOST=api.nstbrowser.io
-    NSTBROWSER_AI_AGENT_DEBUG=1
-
-  Note: Never commit .env files with API keys to version control!
-
-Environment:
-  NSTBROWSER_AI_AGENT_CONFIG           Path to config file (or use --config)
-  NSTBROWSER_AI_AGENT_SESSION          Session name (default: "default")
-  NSTBROWSER_AI_AGENT_SESSION_NAME     Auto-save/restore state persistence name
-  NSTBROWSER_AI_AGENT_ENCRYPTION_KEY   64-char hex key for AES-256-GCM state encryption
-  NSTBROWSER_AI_AGENT_STATE_EXPIRE_DAYS Auto-delete states older than N days (default: 30)
-  NSTBROWSER_AI_AGENT_NO_UPDATE_CHECK  Disable automatic update checks (set to 1)
-  NSTBROWSER_AI_AGENT_EXECUTABLE_PATH  Custom browser executable path
-  NSTBROWSER_AI_AGENT_EXTENSIONS       Comma-separated browser extension paths
-  NSTBROWSER_AI_AGENT_HEADED           Show browser window (not headless)
-  NSTBROWSER_AI_AGENT_JSON             JSON output
-  NSTBROWSER_AI_AGENT_FULL             Full page screenshot
-  NSTBROWSER_AI_AGENT_ANNOTATE         Annotated screenshot with numbered labels and legend
-  NSTBROWSER_AI_AGENT_DEBUG            Debug output
-  NSTBROWSER_AI_AGENT_IGNORE_HTTPS_ERRORS Ignore HTTPS certificate errors
-  NSTBROWSER_AI_AGENT_PROVIDER         Browser provider (default: nst)
-  NSTBROWSER_AI_AGENT_ALLOW_FILE_ACCESS Allow file:// URLs to access local files
-  NSTBROWSER_AI_AGENT_COLOR_SCHEME     Color scheme preference (dark, light, no-preference)
-  NSTBROWSER_AI_AGENT_DOWNLOAD_PATH    Default download directory for browser downloads
-  NSTBROWSER_AI_AGENT_DEFAULT_TIMEOUT  Default Playwright timeout in ms (default: 25000)
-  NSTBROWSER_AI_AGENT_STREAM_PORT      Enable WebSocket streaming on port (e.g., 9223)
-  NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES Wrap page output in boundary markers
-  NSTBROWSER_AI_AGENT_MAX_OUTPUT       Max characters for page output
-  NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS  Comma-separated allowed domain patterns
-  NSTBROWSER_AI_AGENT_ACTION_POLICY    Path to action policy JSON file
-  NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS  Action categories requiring confirmation
-  NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE Enable interactive confirmation prompts
-  NSTBROWSER_AI_AGENT_NATIVE           Use native Rust daemon (experimental, no Node.js/Playwright)
-  NST_API_KEY                    Nstbrowser API key (required for nst provider, default provider)
+NST Connectivity:
+  NST_API_KEY                    Nstbrowser API key
   NST_HOST                       Nstbrowser API host (default: localhost)
   NST_PORT                       Nstbrowser API port (default: 8848)
-  NST_PROFILE                    Profile name for Nstbrowser launch
 
 Installation:
   npm install -g nstbrowser-ai-agent           # Install globally (recommended)
-  npx nstbrowser-ai-agent open example.com     # Or run without installing
+  npx nstbrowser-ai-agent profile list         # Or run without installing
 
 Examples:
-  # Using Nstbrowser (default provider)
+  # Using Nstbrowser with a persistent profile
   export NST_API_KEY="your-api-key"
-  nstbrowser-ai-agent open example.com         # Uses Nstbrowser by default
-  nstbrowser-ai-agent snapshot -i              # Interactive elements only
-  nstbrowser-ai-agent click @e2                # Click by ref from snapshot
-  nstbrowser-ai-agent fill @e3 "test@example.com"
-  
-  # Using Nstbrowser profiles
+  nstbrowser-ai-agent verify --profile my-profile
   nstbrowser-ai-agent --profile my-profile open example.com
-  nstbrowser-ai-agent browser start-once       # Temporary browser
+  nstbrowser-ai-agent --profile my-profile snapshot -i
+  nstbrowser-ai-agent --profile my-profile click @e1
   
+  # Temporary browser
+  nstbrowser-ai-agent browser start-once
+
   # Other examples
   nstbrowser-ai-agent find role button click --name Submit
-  nstbrowser-ai-agent get text @e1
+  nstbrowser-ai-agent get text @e1 --profile my-profile
   nstbrowser-ai-agent screenshot --full
   nstbrowser-ai-agent screenshot --annotate    # Labeled screenshot for vision models
-  nstbrowser-ai-agent wait --load networkidle  # Wait for slow pages to load
-  nstbrowser-ai-agent --color-scheme dark open example.com  # Dark mode
-  nstbrowser-ai-agent --profile ~/.myapp open example.com    # Persistent profile
-  nstbrowser-ai-agent --session-name myapp open example.com  # Auto-save/restore state
+  nstbrowser-ai-agent wait --load networkidle --profile my-profile
+  nstbrowser-ai-agent --color-scheme dark --profile my-profile open example.com
+  nstbrowser-ai-agent --session-name myapp --profile my-profile open example.com
 
 Command Chaining:
-  Chain commands with && in a single shell call (browser persists via daemon):
+  Chain commands with && only when every command stays on the same browser context:
 
-  nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent snapshot -i
-  nstbrowser-ai-agent fill @e1 "user@example.com" && nstbrowser-ai-agent fill @e2 "pass" && nstbrowser-ai-agent click @e3
-  nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent screenshot page.png
+  nstbrowser-ai-agent --profile my-profile open example.com && nstbrowser-ai-agent --profile my-profile wait --load networkidle && nstbrowser-ai-agent --profile my-profile snapshot -i
+  nstbrowser-ai-agent --profile my-profile fill @e1 "user@example.com" && nstbrowser-ai-agent --profile my-profile fill @e2 "pass" && nstbrowser-ai-agent --profile my-profile click @e3
+  nstbrowser-ai-agent --profile my-profile open example.com && nstbrowser-ai-agent --profile my-profile wait --load networkidle && nstbrowser-ai-agent --profile my-profile screenshot page.png
 "#
     );
 }
@@ -2954,6 +3186,7 @@ pub fn print_version() {
     println!("nstbrowser-ai-agent {}", env!("CARGO_PKG_VERSION"));
 }
 
+#[allow(dead_code)]
 /// Print error message when Nstbrowser is not configured
 pub fn show_nst_not_configured_error(validation_error: &str) {
     eprintln!("{} {}", color::error_indicator(), validation_error);
@@ -2975,14 +3208,14 @@ pub fn show_nst_not_configured_error(validation_error: &str) {
         color::dim("nstbrowser-ai-agent config set key your-api-key-here")
     );
     eprintln!();
-    eprintln!("     Method 2: Set environment variable");
+    eprintln!("     Method 2: Export NST_API_KEY");
     eprintln!(
         "       {}",
         color::dim("export NST_API_KEY=your-api-key-here")
     );
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#fast-start");
 }
 
 /// Print error message when Nstbrowser is not configured for NST-specific commands
@@ -3011,16 +3244,17 @@ pub fn show_nst_not_configured_error_for_nst_command(validation_error: &str, com
         color::dim("nstbrowser-ai-agent config set key your-api-key-here")
     );
     eprintln!();
-    eprintln!("     Method 2: Set environment variable");
+    eprintln!("     Method 2: Export NST_API_KEY");
     eprintln!(
         "       {}",
         color::dim("export NST_API_KEY=your-api-key-here")
     );
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#fast-start");
 }
 
+#[allow(dead_code)]
 /// Print error message when Nstbrowser is not configured
 pub fn show_nst_not_configured_error_with_local_alternative(validation_error: &str) {
     eprintln!("{} {}", color::error_indicator(), validation_error);
@@ -3040,16 +3274,17 @@ pub fn show_nst_not_configured_error_with_local_alternative(validation_error: &s
         color::dim("nstbrowser-ai-agent config set key your-api-key-here")
     );
     eprintln!();
-    eprintln!("     Method 2: Set environment variable");
+    eprintln!("     Method 2: Export NST_API_KEY");
     eprintln!(
         "       {}",
         color::dim("export NST_API_KEY=your-api-key-here")
     );
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#nstbrowser-integration");
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#fast-start");
 }
 
+#[allow(dead_code)]
 /// Print error message for invalid Nstbrowser configuration
 pub fn show_nst_config_invalid_error(field: &str, reason: &str) {
     eprintln!(
@@ -3099,6 +3334,7 @@ pub fn show_nst_config_invalid_error(field: &str, reason: &str) {
     eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#configuration");
 }
 
+#[allow(dead_code)]
 /// Print error message for Nstbrowser connection failures
 pub fn show_nst_connection_error(error_details: &str) {
     eprintln!(
@@ -3131,6 +3367,7 @@ pub fn show_nst_connection_error(error_details: &str) {
     eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent/issues");
 }
 
+#[allow(dead_code)]
 /// Print error message for profile-related errors
 pub fn show_nst_profile_error(operation: &str, error_details: &str) {
     eprintln!(
@@ -3161,5 +3398,5 @@ pub fn show_nst_profile_error(operation: &str, error_details: &str) {
     }
     eprintln!();
     eprintln!("{} Documentation:", color::info_indicator());
-    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#profile-management");
+    eprintln!("  https://github.com/nstbrowser/nstbrowser-ai-agent#common-workflows");
 }

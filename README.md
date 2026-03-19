@@ -1,6 +1,27 @@
 # nstbrowser-ai-agent
 
-Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback.
+Browser automation CLI for Nstbrowser workflows. Fast Rust CLI with a Node.js daemon backend.
+
+## Fast Start
+
+If you only need the shortest path to a working setup:
+
+```bash
+npm install -g nstbrowser-ai-agent
+nstbrowser-ai-agent config set key YOUR_API_KEY
+nstbrowser-ai-agent nst status
+nstbrowser-ai-agent profile list
+nstbrowser-ai-agent verify --profile YOUR_PROFILE
+nstbrowser-ai-agent --profile YOUR_PROFILE open https://example.com
+nstbrowser-ai-agent --profile YOUR_PROFILE snapshot -i
+```
+
+Important:
+- Start the Nstbrowser desktop client first.
+- Generate refs with `snapshot` or `screenshot --annotate` before using `@e1`, `@e2`, and similar refs.
+- Keep ref-based commands in the same browser context.
+- If you are not using `--session`, repeat the same `--profile` on every related browser command.
+- If you are using `--session`, changing `--profile` in that same session switches the daemon to the newly requested profile.
 
 ## Installation
 
@@ -131,11 +152,6 @@ pnpm link --global  # Makes nstbrowser-ai-agent available globally
 
 The CLI automatically checks for updates once every 24 hours and notifies you when a new version is available.
 
-**Disable automatic checks:**
-```bash
-export NSTBROWSER_AI_AGENT_NO_UPDATE_CHECK=1
-```
-
 ### Manual Update Check
 
 Check for updates manually:
@@ -167,11 +183,11 @@ npm install nstbrowser-ai-agent@latest
 
 The tool uses Nstbrowser by default, which handles browser management automatically. No additional dependencies are required.
 
-## Quick Start Examples
+## Common Workflows
 
 ### Using Temporary Browser (Fastest)
 
-For quick tests or one-time tasks:
+Use this only for throwaway work that does not need profile persistence:
 
 ```bash
 # Start temporary browser
@@ -183,8 +199,8 @@ nstbrowser-ai-agent open https://example.com
 # Take a snapshot
 nstbrowser-ai-agent snapshot -i
 
-# Close browser (auto-cleanup)
-nstbrowser-ai-agent close
+# Stop the temporary browser
+nstbrowser-ai-agent browser stop-all
 ```
 
 **Note:** Temporary browsers don't save session state.
@@ -200,18 +216,18 @@ nstbrowser-ai-agent profile list
 # Create a new profile (if needed)
 nstbrowser-ai-agent profile create my-profile
 
-# Set default profile
-export NST_PROFILE="my-profile"
+# Verify that the profile is healthy
+nstbrowser-ai-agent verify --profile my-profile
 
 # Open browser (auto-starts with profile)
-nstbrowser-ai-agent open https://example.com
+nstbrowser-ai-agent --profile my-profile open https://example.com
 
 # Interact with page
-nstbrowser-ai-agent snapshot -i
-nstbrowser-ai-agent click @e1
+nstbrowser-ai-agent --profile my-profile snapshot -i
+nstbrowser-ai-agent --profile my-profile click @e1
 
-# Close browser (session saved to profile)
-nstbrowser-ai-agent close
+# Stop browser for that profile
+nstbrowser-ai-agent browser stop my-profile
 ```
 
 ### Profile Specification for Browser Actions
@@ -291,31 +307,32 @@ nstbrowser-ai-agent open https://example.com --profile "abc-123-def-456-789"
 # Start a browser with a profile
 nstbrowser-ai-agent open https://example.com --profile "my-profile"
 
-# Later commands automatically connect to the same running browser
+# Later commands should keep using the same profile value
 nstbrowser-ai-agent click "#button" --profile "my-profile"
-# No restart needed - uses existing browser!
+# Reuse is automatic when the command stays on the same profile
 ```
 
-## Default Provider
+## Nstbrowser Workflow
 
-By default, nstbrowser-ai-agent uses **Nstbrowser** as the browser provider. This means you don't need to specify `-p nst` every time - it's automatic.
-
-### Using Nstbrowser (Default)
+nstbrowser-ai-agent is designed around **Nstbrowser**. In normal usage, you just point it at your Nstbrowser profiles and run commands.
 
 ```bash
 # Set your API key (required for Nstbrowser)
 export NST_API_KEY="your-api-key"
 
-# Launch browser (uses Nstbrowser by default)
-nstbrowser-ai-agent open example.com
-nstbrowser-ai-agent snapshot                    # Get accessibility tree with refs
-nstbrowser-ai-agent click @e2                   # Click by ref from snapshot
-nstbrowser-ai-agent fill @e3 "test@example.com" # Fill by ref
-nstbrowser-ai-agent get text @e1                # Get text by ref
-nstbrowser-ai-agent screenshot page.png
-nstbrowser-ai-agent close
+# Verify a healthy profile first
+nstbrowser-ai-agent profile list
+nstbrowser-ai-agent verify --profile my-profile
 
-# Nstbrowser management (no 'nst' prefix needed with default provider)
+# Launch browser through Nstbrowser
+nstbrowser-ai-agent --profile my-profile open example.com
+nstbrowser-ai-agent --profile my-profile snapshot -i
+nstbrowser-ai-agent --profile my-profile click @e1
+nstbrowser-ai-agent --profile my-profile get text @e1
+nstbrowser-ai-agent --profile my-profile screenshot page.png
+nstbrowser-ai-agent browser stop my-profile
+
+# Nstbrowser management
 nstbrowser-ai-agent profile list               # List profiles
 nstbrowser-ai-agent profile create my-profile  # Create profile
 nstbrowser-ai-agent browser list               # List running browsers
@@ -402,7 +419,13 @@ nstbrowser-ai-agent find last <sel> <action> [value]        # Last match
 nstbrowser-ai-agent find nth <n> <sel> <action> [value]     # Nth match
 ```
 
-**Actions:** `click`, `fill`, `type`, `hover`, `focus`, `check`, `uncheck`, `text`
+**Common actions:** `click`, `fill`, `check`, `hover`, `text`
+
+Action support depends on locator type:
+- `role`, `text`, `alt`, `title`: `click`, `hover`
+- `label`, `placeholder`: `click`, `fill`, `check`
+- `testid`: `click`, `fill`, `check`, `hover`
+- `first`, `last`, `nth`: `click`, `fill`, `check`, `hover`, `text`
 
 **Options:** `--name <name>` (filter role by accessible name), `--exact` (require exact text match)
 
@@ -553,9 +576,6 @@ Run multiple isolated browser instances:
 nstbrowser-ai-agent --session agent1 open site-a.com
 nstbrowser-ai-agent --session agent2 open site-b.com
 
-# Or via environment variable
-NSTBROWSER_AI_AGENT_SESSION=agent1 nstbrowser-ai-agent click "#btn"
-
 # List active sessions
 nstbrowser-ai-agent session list
 # Output:
@@ -597,9 +617,7 @@ nstbrowser-ai-agent config get key
 nstbrowser-ai-agent config unset key
 ```
 
-Configuration is stored in `~/.nst-ai-agent/config.json` and takes priority over environment variables.
-
-**Priority order:** Config file > Environment variables > Defaults
+Configuration is stored in `~/.nst-ai-agent/config.json`.
 
 ### Check NST Agent Status
 
@@ -615,65 +633,21 @@ nstbrowser-ai-agent nst status --json
 
 This command uses the `/api/agent/agent/info` endpoint to verify the NST service is accessible.
 
-## Persistent Profiles
-
-By default, browser state (cookies, localStorage, login sessions) is ephemeral and lost when the browser closes. Use `--profile` to persist state across browser restarts:
-
-```bash
-# Use a persistent profile directory
-nstbrowser-ai-agent --profile ~/.myapp-profile open myapp.com
-
-# Login once, then reuse the authenticated session
-nstbrowser-ai-agent --profile ~/.myapp-profile open myapp.com/dashboard
-
-# Or via environment variable
-NSTBROWSER_AI_AGENT_PROFILE=~/.myapp-profile nstbrowser-ai-agent open myapp.com
-```
-
-The profile directory stores:
-- Cookies and localStorage
-- IndexedDB data
-- Service workers
-- Browser cache
-- Login sessions
-
-**Tip**: Use different profile paths for different projects to keep their browser state isolated.
-
 ## Session Persistence
 
-Alternatively, use `--session-name` to automatically save and restore cookies and localStorage across browser restarts:
+Use `--session-name` to automatically save and restore cookies and storage across browser restarts while continuing to use Nstbrowser:
 
 ```bash
-# Auto-save/load state for "twitter" session
-nstbrowser-ai-agent --session-name twitter open twitter.com
+# Auto-save/load state for one persistent profile workflow
+nstbrowser-ai-agent --session-name myapp --profile my-profile open https://example.com
 
 # Login once, then state persists automatically
 # State files stored in ~/.nstbrowser-ai-agent/sessions/
-
-# Or via environment variable
-export NSTBROWSER_AI_AGENT_SESSION_NAME=twitter
-nstbrowser-ai-agent open twitter.com
-```
-
-### State Encryption
-
-Encrypt saved session data at rest with AES-256-GCM:
-
-```bash
-# Generate key: openssl rand -hex 32
-export NSTBROWSER_AI_AGENT_ENCRYPTION_KEY=<64-char-hex-key>
-
-# State files are now encrypted automatically
-nstbrowser-ai-agent --session-name secure open example.com
 ```
 
 | Variable | Description |
 |----------|-------------|
-| `NSTBROWSER_AI_AGENT_SESSION_NAME` | Auto-save/load state persistence name |
-| `NSTBROWSER_AI_AGENT_ENCRYPTION_KEY` | 64-char hex key for AES-256-GCM encryption |
-| `NSTBROWSER_AI_AGENT_STATE_EXPIRE_DAYS` | Auto-delete states older than N days (default: 30) |
-| `NSTBROWSER_AI_AGENT_PROVIDER` | Browser provider (default: nst) |
-| `NST_API_KEY` | Nstbrowser API key (required for nst provider, default provider) |
+| `NST_API_KEY` | Nstbrowser API key |
 | `NST_HOST` | Nstbrowser API host (default: localhost) |
 | `NST_PORT` | Nstbrowser API port (default: 8848) |
 
@@ -681,7 +655,7 @@ nstbrowser-ai-agent --session-name secure open example.com
 
 nstbrowser-ai-agent includes security features for safe AI agent deployments. All features are opt-in -- existing workflows are unaffected until you explicitly enable a feature:
 
-- **Authentication Vault** -- Store credentials locally (always encrypted), reference by name. The LLM never sees passwords. A key is auto-generated at `~/.nstbrowser-ai-agent/.encryption-key` if `NSTBROWSER_AI_AGENT_ENCRYPTION_KEY` is not set: `echo "pass" | nstbrowser-ai-agent auth save github --url https://github.com/login --username user --password-stdin` then `nstbrowser-ai-agent auth login github`
+- **Authentication Vault** -- Store credentials locally (always encrypted), reference by name. The LLM never sees passwords: `echo "pass" | nstbrowser-ai-agent auth save github --url https://github.com/login --username user --password-stdin` then `nstbrowser-ai-agent auth login github`
 - **Content Boundary Markers** -- Wrap page output in delimiters so LLMs can distinguish tool output from untrusted content: `--content-boundaries`
 - **Domain Allowlist** -- Restrict navigation to trusted domains (wildcards like `*.example.com` also match the bare domain): `--allowed-domains "example.com,*.example.com"`. Sub-resource requests (scripts, images, fetch) and WebSocket/EventSource connections to non-allowed domains are also blocked. Include any CDN domains your target pages depend on (e.g., `*.cdn.example.com`).
 - **Action Policy** -- Gate destructive actions with a static policy file: `--action-policy ./policy.json`
@@ -690,18 +664,9 @@ nstbrowser-ai-agent includes security features for safe AI agent deployments. Al
 
 | Variable | Description |
 |----------|-------------|
-| `NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES` | Wrap page output in boundary markers |
-| `NSTBROWSER_AI_AGENT_MAX_OUTPUT` | Max characters for page output |
-| `NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS` | Comma-separated allowed domain patterns |
-| `NSTBROWSER_AI_AGENT_ACTION_POLICY` | Path to action policy JSON file |
-| `NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS` | Action categories requiring confirmation |
-| `NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE` | Enable interactive confirmation prompts |
-| `NSTBROWSER_AI_AGENT_PROVIDER` | Browser provider (default: nst) |
-| `NST_API_KEY` | Nstbrowser API key (required for nst provider, default provider) |
+| `NST_API_KEY` | Nstbrowser API key |
 | `NST_HOST` | Nstbrowser API host (default: localhost) |
 | `NST_PORT` | Nstbrowser API port (default: 8848) |
-
-See the Security section below for details on environment variable handling.
 
 ## Snapshot Options
 
@@ -746,39 +711,38 @@ nstbrowser-ai-agent screenshot --annotate ./page.png
 nstbrowser-ai-agent click @e2     # Click the "Home" link labeled [2]
 ```
 
+Important: refs are session-scoped and order-dependent. Generate them with `snapshot` or `screenshot --annotate`, then use them in later commands within the same session.
+
 This is useful for multimodal AI models that can reason about visual layout, unlabeled icon buttons, canvas elements, or visual state that the text accessibility tree cannot capture.
 
 ## Options
 
 | Option | Description                                                                                                      |
 |--------|------------------------------------------------------------------------------------------------------------------|
-| `--session <name>` | Use isolated session (or `NSTBROWSER_AI_AGENT_SESSION` env)                                                            |
-| `--session-name <name>` | Auto-save/restore session state (or `NSTBROWSER_AI_AGENT_SESSION_NAME` env)                                            |
-| `--profile <path>` | Persistent browser profile directory (or `NSTBROWSER_AI_AGENT_PROFILE` env)                                            |
-| `--state <path>` | Load storage state from JSON file (or `NSTBROWSER_AI_AGENT_STATE` env)                                                 |
+| `--session <name>` | Use isolated session |
+| `--session-name <name>` | Auto-save/restore session state |
+| `--profile <name-or-id>` | Select NSTBrowser profile by name or UUID |
+| `--state <path>` | Load storage state from JSON file |
 | `--headers <json>` | Set HTTP headers scoped to the URL's origin                                                                      |
-| `--executable-path <path>` | Custom browser executable (or `NSTBROWSER_AI_AGENT_EXECUTABLE_PATH` env)                                               |
-| `--extension <path>` | Load browser extension (repeatable; or `NSTBROWSER_AI_AGENT_EXTENSIONS` env)                                           |
-| `--args <args>` | Browser launch args, comma or newline separated (or `NSTBROWSER_AI_AGENT_ARGS` env)                                    |
-| `--user-agent <ua>` | Custom User-Agent string (or `NSTBROWSER_AI_AGENT_USER_AGENT` env)                                                     |
-| `--proxy <url>` | Proxy server URL with optional auth (or `NSTBROWSER_AI_AGENT_PROXY` env)                                               |
-| `--proxy-bypass <hosts>` | Hosts to bypass proxy (or `NSTBROWSER_AI_AGENT_PROXY_BYPASS` env)                                                      |
+| `--extension <path>` | Load browser extension (repeatable) |
+| `--args <args>` | Browser launch args, comma or newline separated |
+| `--user-agent <ua>` | Custom User-Agent string |
+| `--proxy <url>` | Proxy server URL with optional auth |
+| `--proxy-bypass <hosts>` | Hosts to bypass proxy |
 | `--ignore-https-errors` | Ignore HTTPS certificate errors (useful for self-signed certs)                                                   |
-| `--allow-file-access` | Allow file:// URLs to access local files (Chromium only)                                                         |
-| `-p, --provider <name>` | Browser provider: `nst` (default), `local` (or `NSTBROWSER_AI_AGENT_PROVIDER` env)   |
 | `--json` | JSON output (for agents)                                                                                         |
 | `--full, -f` | Full page screenshot                                                                                             |
-| `--annotate` | Annotated screenshot with numbered element labels (or `NSTBROWSER_AI_AGENT_ANNOTATE` env)                              |
-| `--color-scheme <scheme>` | Color scheme: `dark`, `light`, `no-preference` (or `NSTBROWSER_AI_AGENT_COLOR_SCHEME` env)                             |
-| `--download-path <path>` | Default download directory (or `NSTBROWSER_AI_AGENT_DOWNLOAD_PATH` env)                                                |
-| `--content-boundaries` | Wrap page output in boundary markers for LLM safety (or `NSTBROWSER_AI_AGENT_CONTENT_BOUNDARIES` env)                  |
-| `--max-output <chars>` | Truncate page output to N characters (or `NSTBROWSER_AI_AGENT_MAX_OUTPUT` env)                                         |
-| `--allowed-domains <list>` | Comma-separated allowed domain patterns (or `NSTBROWSER_AI_AGENT_ALLOWED_DOMAINS` env)                                 |
-| `--action-policy <path>` | Path to action policy JSON file (or `NSTBROWSER_AI_AGENT_ACTION_POLICY` env)                                           |
-| `--confirm-actions <list>` | Action categories requiring confirmation (or `NSTBROWSER_AI_AGENT_CONFIRM_ACTIONS` env)                                |
-| `--confirm-interactive` | Interactive confirmation prompts; auto-denies if stdin is not a TTY (or `NSTBROWSER_AI_AGENT_CONFIRM_INTERACTIVE` env) |
-| `--native` | [Experimental] Use native Rust daemon instead of Node.js (or `NSTBROWSER_AI_AGENT_NATIVE` env)                         |
-| `--config <path>` | Use a custom config file (or `NSTBROWSER_AI_AGENT_CONFIG` env)                                                         |
+| `--annotate` | Annotated screenshot with numbered element labels |
+| `--color-scheme <scheme>` | Color scheme: `dark`, `light`, `no-preference` |
+| `--download-path <path>` | Default download directory |
+| `--content-boundaries` | Wrap page output in boundary markers for LLM safety |
+| `--max-output <chars>` | Truncate page output to N characters |
+| `--allowed-domains <list>` | Comma-separated allowed domain patterns |
+| `--action-policy <path>` | Path to action policy JSON file |
+| `--confirm-actions <list>` | Action categories requiring confirmation |
+| `--confirm-interactive` | Interactive confirmation prompts; auto-denies if stdin is not a TTY |
+| `--native` | [Experimental] Use native Rust daemon instead of Node.js |
+| `--config <path>` | Use a custom config file |
 | `--debug` | Debug output                                                                                                     |
 
 ## Configuration
@@ -791,8 +755,7 @@ Create an `nstbrowser-ai-agent.json` file to set persistent defaults instead of 
 
 1. `~/.nstbrowser-ai-agent/config.json` -- user-level defaults
 2. `./nstbrowser-ai-agent.json` -- project-level overrides (in working directory)
-3. `NSTBROWSER_AI_AGENT_*` environment variables override config file values
-4. CLI flags override everything
+3. CLI flags override everything
 
 **Example `nstbrowser-ai-agent.json`:**
 
@@ -800,20 +763,19 @@ Create an `nstbrowser-ai-agent.json` file to set persistent defaults instead of 
 {
   "headed": true,
   "proxy": "http://localhost:8080",
-  "profile": "./browser-data",
+  "profile": "twitter",
   "userAgent": "my-agent/1.0",
   "ignoreHttpsErrors": true
 }
 ```
 
-Use `--config <path>` or `NSTBROWSER_AI_AGENT_CONFIG` to load a specific config file instead of the defaults:
+Use `--config <path>` to load a specific config file instead of the defaults:
 
 ```bash
 nstbrowser-ai-agent --config ./ci-config.json open example.com
-NSTBROWSER_AI_AGENT_CONFIG=./ci-config.json nstbrowser-ai-agent open example.com
 ```
 
-All options from the table above can be set in the config file using camelCase keys (e.g., `--executable-path` becomes `"executablePath"`, `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility.
+All options from the table above can be set in the config file using camelCase keys (for example, `--proxy-bypass` becomes `"proxyBypass"`). Unknown keys are ignored for forward compatibility.
 
 Boolean flags accept an optional `true`/`false` value to override config settings. For example, `--headed false` disables `"headed": true` from config. A bare `--headed` is equivalent to `--headed true`.
 
@@ -821,56 +783,11 @@ Auto-discovered config files that are missing are silently ignored. If `--config
 
 > **Tip:** If your project-level `nstbrowser-ai-agent.json` contains environment-specific values (paths, proxies), consider adding it to `.gitignore`.
 
-### Environment Variables via .env Files
-
-You can store environment variables in `.env` files for easier configuration management:
-
-**Supported files (in priority order):**
-
-1. `.nstbrowser-ai-agent.env` -- project-specific configuration (highest priority)
-2. `.env` -- standard environment file
-
-**Example `.nstbrowser-ai-agent.env`:**
-
-```bash
-# Nstbrowser configuration
-NST_API_KEY=your-api-key-here
-NST_HOST=api.nstbrowser.io
-NST_PORT=443
-
-# Agent configuration
-NSTBROWSER_AI_AGENT_DEBUG=1
-NSTBROWSER_AI_AGENT_DEFAULT_TIMEOUT=30000
-```
-
-The `.env` files are loaded automatically when you run any command. Variables set in `.nstbrowser-ai-agent.env` take priority over `.env`.
-
-> **Security Note:** Never commit `.env` files containing API keys to version control. Add them to `.gitignore`.
-
-**Example `.gitignore`:**
-
-```
-.env
-.nstbrowser-ai-agent.env
-nstbrowser-ai-agent.json
-```
-
 ## Default Timeout
 
 The default Playwright timeout for standard operations (clicks, waits, fills, etc.) is 25 seconds. This is intentionally below the CLI's 30-second IPC read timeout so that Playwright returns a proper error instead of the CLI timing out with EAGAIN.
 
-Override the default timeout via environment variable:
-
-```bash
-# Set a longer timeout for slow pages (in milliseconds)
-export NSTBROWSER_AI_AGENT_DEFAULT_TIMEOUT=45000
-```
-
 > **Note:** Setting this above 30000 (30s) may cause EAGAIN errors on slow operations because the CLI's read timeout will expire before Playwright responds. The CLI retries transient errors automatically, but response times will increase.
-
-| Variable | Description |
-|----------|-------------|
-| `NSTBROWSER_AI_AGENT_DEFAULT_TIMEOUT` | Default Playwright timeout in ms (default: 25000) |
 
 ## Selectors
 
@@ -937,31 +854,31 @@ nstbrowser-ai-agent is visible @e2 --json
 
 ```bash
 # 1. Navigate and get snapshot
-nstbrowser-ai-agent open example.com
-nstbrowser-ai-agent snapshot -i --json   # AI parses tree and refs
+nstbrowser-ai-agent --profile my-profile open example.com
+nstbrowser-ai-agent --profile my-profile snapshot -i --json
 
 # 2. AI identifies target refs from snapshot
 # 3. Execute actions using refs
-nstbrowser-ai-agent click @e2
-nstbrowser-ai-agent fill @e3 "input text"
+nstbrowser-ai-agent --profile my-profile click @e2
+nstbrowser-ai-agent --profile my-profile fill @e3 "input text"
 
 # 4. Get new snapshot if page changed
-nstbrowser-ai-agent snapshot -i --json
+nstbrowser-ai-agent --profile my-profile snapshot -i --json
 ```
 
 ### Command Chaining
 
-Commands can be chained with `&&` in a single shell invocation. The browser persists via a background daemon, so chaining is safe and more efficient:
+Commands can be chained with `&&` when every command stays on the same browser context. In practice, that usually means repeating the same `--profile`:
 
 ```bash
 # Open, wait for load, and snapshot in one call
-nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent snapshot -i
+nstbrowser-ai-agent --profile my-profile open example.com && nstbrowser-ai-agent --profile my-profile wait --load networkidle && nstbrowser-ai-agent --profile my-profile snapshot -i
 
 # Chain multiple interactions
-nstbrowser-ai-agent fill @e1 "user@example.com" && nstbrowser-ai-agent fill @e2 "pass" && nstbrowser-ai-agent click @e3
+nstbrowser-ai-agent --profile my-profile fill @e1 "user@example.com" && nstbrowser-ai-agent --profile my-profile fill @e2 "pass" && nstbrowser-ai-agent --profile my-profile click @e3
 
 # Navigate and screenshot
-nstbrowser-ai-agent open example.com && nstbrowser-ai-agent wait --load networkidle && nstbrowser-ai-agent screenshot page.png
+nstbrowser-ai-agent --profile my-profile open example.com && nstbrowser-ai-agent --profile my-profile wait --load networkidle && nstbrowser-ai-agent --profile my-profile screenshot page.png
 ```
 
 Use `&&` when you don't need intermediate output. Run commands separately when you need to parse output first (e.g., snapshot to discover refs before interacting).
@@ -1011,72 +928,11 @@ For global headers (all domains), use `set headers`:
 nstbrowser-ai-agent set headers '{"X-Custom-Header": "value"}'
 ```
 
-## Custom Browser Executable
-
-Use a custom browser executable instead of the bundled Chromium. This is useful for:
-- **Serverless deployment**: Use lightweight Chromium builds like `@sparticuz/chromium` (~50MB vs ~684MB)
-- **System browsers**: Use an existing Chrome/Chromium installation
-- **Custom builds**: Use modified browser builds
-
-### CLI Usage
-
-```bash
-# Via flag
-nstbrowser-ai-agent --executable-path /path/to/chromium open example.com
-
-# Via environment variable
-NSTBROWSER_AI_AGENT_EXECUTABLE_PATH=/path/to/chromium nstbrowser-ai-agent open example.com
-```
-
-### Serverless Example (AWS Lambda)
-
-```typescript
-import chromium from '@sparticuz/chromium';
-import { BrowserManager } from 'nstbrowser-ai-agent';
-
-export async function handler() {
-  const browser = new BrowserManager();
-  await browser.launch({
-    executablePath: await chromium.executablePath(),
-    headless: true,
-  });
-  // ... use browser
-}
-```
-
-## Local Files
-
-Open and interact with local files (PDFs, HTML, etc.) using `file://` URLs:
-
-```bash
-# Enable file access (required for JavaScript to access local files)
-nstbrowser-ai-agent --allow-file-access open file:///path/to/document.pdf
-nstbrowser-ai-agent --allow-file-access open file:///path/to/page.html
-
-# Take screenshot of a local PDF
-nstbrowser-ai-agent --allow-file-access open file:///Users/me/report.pdf
-nstbrowser-ai-agent screenshot report.png
-```
-
-The `--allow-file-access` flag adds Chromium flags (`--allow-file-access-from-files`, `--allow-file-access`) that allow `file://` URLs to:
-- Load and render local files
-- Access other local files via JavaScript (XHR, fetch)
-- Load local resources (images, scripts, stylesheets)
-
-**Note:** This flag only works with Chromium. For security, it's disabled by default.
-
-
 Stream the browser viewport via WebSocket for live preview or "pair browsing" where a human can watch and interact alongside an AI agent.
 
 ### Enable Streaming
 
-Set the `NSTBROWSER_AI_AGENT_STREAM_PORT` environment variable:
-
-```bash
-NSTBROWSER_AI_AGENT_STREAM_PORT=9223 nstbrowser-ai-agent open example.com
-```
-
-This starts a WebSocket server on the specified port that streams the browser viewport and accepts input events.
+Start the CLI with streaming enabled by your deployment configuration. This starts a WebSocket server that streams the browser viewport and accepts input events.
 
 ### WebSocket Protocol
 
@@ -1191,12 +1047,7 @@ The native daemon is a pure Rust implementation that communicates with Chrome di
 ### Enabling Native Mode
 
 ```bash
-# Via flag
 nstbrowser-ai-agent --native open example.com
-
-# Via environment variable (recommended for persistent use)
-export NSTBROWSER_AI_AGENT_NATIVE=1
-nstbrowser-ai-agent open example.com
 ```
 
 Or add to your config file (`nstbrowser-ai-agent.json`):
@@ -1233,39 +1084,15 @@ Or add to your config file (`nstbrowser-ai-agent.json`):
 
 ## Usage with AI Agents
 
-### Just ask the agent
-
-The simplest approach -- just tell your agent to use it:
-
-```
-Use nstbrowser-ai-agent to test the login flow. Run nstbrowser-ai-agent --help to see available commands.
-```
-
-The `--help` output is comprehensive and most agents can figure it out from there.
-
-### AI Coding Assistants (recommended)
-
-Add the skill to your AI coding assistant for richer context:
+For coding assistants and terminal agents, install the skill:
 
 ```bash
 npx skills add nstbrowser/nstbrowser-ai-agent
 ```
 
-This works with Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Goose, OpenCode, and Windsurf. The skill is fetched from the repository, so it stays up to date automatically -- do not copy `SKILL.md` from `node_modules` as it will become stale.
+This works with Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Goose, OpenCode, and Windsurf. The skill is fetched from the repository, so it stays up to date automatically.
 
-### Claude Code
-
-Install as a Claude Code skill:
-
-```bash
-npx skills add nstbrowser/nstbrowser-ai-agent
-```
-
-This adds the skill to `.claude/skills/nstbrowser-ai-agent/SKILL.md` in your project. The skill teaches Claude Code the full nstbrowser-ai-agent workflow, including the snapshot-ref interaction pattern, session management, and timeout handling.
-
-### AGENTS.md / CLAUDE.md
-
-For more consistent results, add to your project or global instructions file:
+For more consistent results, add guidance like this to `AGENTS.md` or `CLAUDE.md`:
 
 ```markdown
 ## Browser Automation
@@ -1280,170 +1107,110 @@ Core workflow:
 5. Re-snapshot after page changes
 ```
 
-## Nstbrowser Integration
+## Nstbrowser Reference
 
-[Nstbrowser](https://www.nstbrowser.io) provides advanced browser fingerprinting and anti-detection capabilities for web automation. It offers local browser instances with customizable fingerprints, proxy management, and profile persistence.
-
-**Nstbrowser is the default provider** - you don't need to specify `-p nst` unless you want to be explicit.
-
-**Setup:**
-
-1. Download and install the Nstbrowser client from [nstbrowser.io](https://www.nstbrowser.io)
-2. Start the Nstbrowser client application
-3. Get your API key from the Nstbrowser dashboard
-
-**Usage:**
+Use these as the main Nstbrowser-specific management commands. When you want the
+full CLI reference for a category, run:
 
 ```bash
-# Set environment variables
-export NST_API_KEY="your-api-key"
-export NST_HOST="localhost"  # Optional, default: localhost
-export NST_PORT="8848"       # Optional, default: 8848
-
-# Launch browser (uses Nstbrowser by default)
-nstbrowser-ai-agent open https://example.com
-
-# Or use a named profile
-export NST_PROFILE="my-profile"
-nstbrowser-ai-agent open https://example.com
-
-# Or be explicit with -p nst
-nstbrowser-ai-agent -p nst open https://example.com
+nstbrowser-ai-agent profile --help
+nstbrowser-ai-agent browser --help
+nstbrowser-ai-agent verify --help
+nstbrowser-ai-agent repair --help
 ```
 
-Or use environment variables for persistent configuration:
+### Profile Commands
 
-```bash
-export NSTBROWSER_AI_AGENT_PROVIDER=nst  # Optional, nst is default
-export NST_API_KEY="your-api-key"
-export NST_PROFILE="my-profile"
-nstbrowser-ai-agent open https://example.com
-```
+- `profile list`
+  Best for: picking a profile name before browser automation.
+  Parameters: none by default, or `--verbose` for the full NST profile object.
+  Result: human-readable mode prints profile name, short ID, platform, proxy IP, group, and tags when available.
 
-**Profile Management:**
+- `profile list-cursor --page-size <size> [--cursor <token>] [--direction next|prev]`
+  Best for: large profile collections where `profile list` is too broad.
+  Parameters:
+  `--page-size` controls how many profiles come back in one page.
+  `--cursor` continues from a cursor returned by the previous page.
+  `--direction` chooses whether that cursor is used as the next page or previous page anchor.
+  Result: human-readable mode prints `Profiles page (N):` plus `Next cursor` / `Prev cursor` when available.
 
-```bash
-# With default NST provider (NST_API_KEY set), no 'nst' prefix needed:
-nstbrowser-ai-agent profile list                    # List all profiles
-nstbrowser-ai-agent profile create myprofile \      # Create new profile
-  --proxy-host 127.0.0.1 --proxy-port 1080 --proxy-enabled
+- `profile show <name-or-id>`
+  Best for: confirming one profile's group, proxy, tags, platform, and last launch info before using it.
 
-# Traditional explicit syntax still works:
-nstbrowser-ai-agent nst profile list
-nstbrowser-ai-agent nst profile create myprofile \
-  --proxy-host 127.0.0.1 --proxy-port 1080 --proxy-enabled
+- `profile create <name> [--platform <Windows|macOS|Linux>] [--kernel <version>] [--group-id <id>]`
+  Best for: creating a clean profile for a new task.
+  `--kernel` requests a preferred kernel milestone; NST may normalize it to a currently supported version.
+  Extra proxy parameters:
+  `--proxy-host <host>`, `--proxy-port <port>`, `--proxy-type <http|https|socks5>`, `--proxy-username <user>`, `--proxy-password <pass>`.
+  Result: returns the created profile and its `profileId`.
 
-# Update proxy settings
-nstbrowser-ai-agent profile proxy update profile-123 \
-  --host 127.0.0.1 --port 1080 --type http
+- `profile proxy show <name-or-id>`
+  Best for: checking saved proxy configuration and the most recent proxy result.
 
-# Manage tags
-nstbrowser-ai-agent profile tags create profile-123 "production"
-nstbrowser-ai-agent profile tags list
+- `profile proxy update <name-or-id> --host <host> --port <port> [--type <type>] [--username <user>] [--password <pass>]`
+  Best for: changing proxy settings without recreating the profile.
 
-# Manage groups
-nstbrowser-ai-agent profile groups list
-nstbrowser-ai-agent profile groups change group-id profile-123
+- `profile proxy reset <name-or-id> [name-or-id...]`
+  Best for: removing custom proxy settings and returning to local/default routing.
 
-# List profiles with cursor pagination (for large datasets)
-nstbrowser-ai-agent profile list-cursor --page-size 50
-nstbrowser-ai-agent profile list-cursor --cursor "token" --page-size 50
+- `profile tags list`, `profile tags create`, `profile tags update`, `profile tags clear`
+  Best for: organizing profiles for agent workflows such as `qa`, `smoke`, `proxy`, or `signup`.
+  `profile tags create` automatically assigns a default tag color so you only need to provide the tag name.
 
-# Clear cache and cookies
-nstbrowser-ai-agent profile cache clear profile-123
-nstbrowser-ai-agent profile cookies clear profile-123
+- `profile groups list`, `profile groups change <group-id> <name-or-id> [name-or-id...]`
+  Best for: finding valid group IDs and moving profiles into the right NST group.
 
-# Delete profiles (supports batch operations)
-nstbrowser-ai-agent profile delete profile-1 profile-2 profile-3
-```
+### Browser Commands
 
-**Profile Selection (Name or ID):**
+- `browser list`
+  Best for: seeing which profile browsers or temporary browsers are already running.
 
-The `--profile` flag accepts either a profile name or profile ID (UUID). The system automatically detects UUID patterns:
+- `browser start <name-or-id> [--headless] [--auto-close]`
+  Best for: starting a known profile explicitly before automation.
+  `--headless` requests headless launch.
+  `--auto-close` asks NST to close that browser automatically when the owner exits.
 
-```bash
-# By profile name
-nstbrowser-ai-agent --profile my-profile open example.com
-nstbrowser-ai-agent browser start proxy_ph
+- `browser pages <name-or-id>`
+  Best for: listing debuggable pages for one running browser.
 
-# By profile ID (UUID format auto-detected)
-nstbrowser-ai-agent --profile ef2b083a-8f77-4a7f-8441-a8d56bbd832b open example.com
-nstbrowser-ai-agent browser start ef2b083a-8f77-4a7f-8441-a8d56bbd832b
+- `browser debugger <name-or-id>`
+  Best for: getting the debugger port and browser WebSocket endpoint.
 
-# Both work the same way - no need to remember which flag to use
-# The system automatically detects if you're using a UUID or a name
-```
+- `browser cdp-url <name-or-id>`
+  Best for: fetching only the browser-level CDP WebSocket URL.
 
-**Browser Instance Management:**
+- `browser connect <name-or-id>`
+  Best for: starting a browser if needed and immediately returning connection details.
 
-```bash
-# With default NST provider (NST_API_KEY set), no 'nst' prefix needed:
-nstbrowser-ai-agent browser list                    # List running instances
-nstbrowser-ai-agent browser start profile-123       # Start browser for profile
-nstbrowser-ai-agent browser start-once              # Start temporary browser
-nstbrowser-ai-agent browser stop profile-123        # Stop browser instance
-nstbrowser-ai-agent browser stop-all                # Stop all instances
-nstbrowser-ai-agent browser pages profile-123       # Get browser pages/tabs
-nstbrowser-ai-agent browser debugger profile-123    # Get debugger URL
-nstbrowser-ai-agent browser cdp-url profile-123     # Get CDP WebSocket URL
-nstbrowser-ai-agent browser cdp-url-once            # Get CDP URL for temp browser
-nstbrowser-ai-agent browser connect profile-123     # Connect and get CDP URL
-nstbrowser-ai-agent browser connect-once            # Connect to temp browser
+- `browser start-once [--platform <platform>] [--kernel <kernel>] [--headless] [--auto-close]`
+  Best for: throwaway work that should not reuse a saved profile.
 
-# Traditional explicit syntax still works:
-nstbrowser-ai-agent nst browser list
-nstbrowser-ai-agent nst browser start profile-123
-nstbrowser-ai-agent nst browser stop profile-123
-nstbrowser-ai-agent nst browser stop-all
-```
+- `browser cdp-url-once`
+  Best for: getting the temporary browser CDP WebSocket URL without first naming a profile.
 
-**Environment Variables:**
+- `browser connect-once [--platform <platform>] [--kernel <kernel>]`
+  Best for: one command that creates a temporary browser and returns connection details.
 
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Description</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>NST_API_KEY</code></td>
-<td>Nstbrowser API key (required)</td>
-<td>(none)</td>
-</tr>
-<tr>
-<td><code>NST_HOST</code></td>
-<td>Nstbrowser API host</td>
-<td><code>localhost</code></td>
-</tr>
-<tr>
-<td><code>NST_PORT</code></td>
-<td>Nstbrowser API port</td>
-<td><code>8848</code></td>
-</tr>
+- `browser stop <name-or-id>` and `browser stop-all`
+  Best for: cleanup when a profile browser or once browser should be stopped.
 
-</tbody>
-</table>
+### Environment and Repair Commands
 
-**Features:**
+- `nst status`
+  Best for: checking whether the local Nstbrowser service is reachable at all.
 
-- **Advanced Fingerprinting**: Customize browser fingerprints to avoid detection
-- **Profile Management**: Create and manage multiple browser profiles with different configurations
-- **Proxy Support**: Configure proxies per profile with authentication
-- **Tag System**: Organize profiles with tags for easy management
-- **Group Management**: Organize profiles into groups
-- **Local Execution**: Runs locally on your machine, no cloud dependency
-- **Batch Operations**: Perform operations on multiple profiles simultaneously
+- `verify <name-or-id>` or `verify --profile <name-or-id>`
+  Best for: smoke-testing one profile before a real task.
+  Result: verifies NST reachability, profile resolution, browser start, and a simple navigation path.
 
-**Requirements:**
+- `repair`
+  Best for: recovering from stale or inconsistent NST state.
+  Result: runs automatic cleanup and returns a task-by-task result map.
 
-- Nstbrowser client must be installed and running
-- API key from Nstbrowser dashboard
-- Local network access to Nstbrowser API (default: localhost:8848)
-
-When enabled, nstbrowser-ai-agent connects to your local Nstbrowser instance via CDP. All standard nstbrowser-ai-agent commands work identically, with the added benefit of Nstbrowser's anti-detection features.
+Important:
+- `--profile` accepts either a profile name or UUID.
+- A new profile name can be auto-created on first browser use.
+- Only `NST_API_KEY`, `NST_HOST`, and `NST_PORT` are documented for NST connectivity.
 
 ## Troubleshooting
 
@@ -1451,11 +1218,16 @@ If you encounter issues:
 
 **Quick Diagnostic Commands:**
 ```bash
-# Comprehensive environment check
-nstbrowser-ai-agent diagnose
+# Check NST desktop connection
+nstbrowser-ai-agent nst status
+
+# Confirm profile access
+nstbrowser-ai-agent profile list
 
 # Test browser functionality
-nstbrowser-ai-agent verify [--profile <name-or-id>]
+nstbrowser-ai-agent verify [name-or-id]
+# Also supported:
+nstbrowser-ai-agent verify --profile <name-or-id>
 
 # Attempt automatic fixes
 nstbrowser-ai-agent repair
