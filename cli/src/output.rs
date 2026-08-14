@@ -1746,7 +1746,8 @@ nstbrowser-ai-agent close - Close the browser
 
 Usage: nstbrowser-ai-agent close [--profile <name-or-id>]
 
-Closes the browser instance for the current session.
+Closes the browser instance for the current session. If session context is unavailable,
+closes the sole running Agent browser; use --profile when multiple browsers are running.
 
 Aliases: quit, exit
 

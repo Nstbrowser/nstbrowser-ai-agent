@@ -732,6 +732,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
 
     match result {
         Ok(data) => success_response(&id, data),
+        Err(e) if action == "close" => error_response(&id, &e),
         Err(e) => error_response(&id, &super::browser::to_ai_friendly_error(&e)),
     }
 }
@@ -1243,13 +1244,25 @@ async fn handle_evaluate(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
     Ok(json!({ "result": result, "origin": url }))
 }
 
+/// Close the explicit or attached browser, recovering only an unambiguous Agent target.
 async fn handle_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let is_nst_provider = env::var("NSTBROWSER_AI_AGENT_PROVIDER")
+        .map(|provider| provider == "nst")
+        .unwrap_or_else(|_| env::var("NST_API_KEY").is_ok());
     let profile = cmd
         .get("profile")
         .or_else(|| cmd.get("nstProfileId"))
         .or_else(|| cmd.get("nstProfileName"))
-        .and_then(|v| v.as_str());
-    if let Some(profile) = profile {
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .or_else(|| {
+            if is_nst_provider {
+                state.current_profile.clone()
+            } else {
+                None
+            }
+        });
+    if let Some(profile) = profile.as_deref() {
         let api_key = env::var("NST_API_KEY")
             .map_err(|_| "NST API key is required to close a profile browser".to_string())?;
         let host = env::var("NST_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -1258,38 +1271,94 @@ async fn handle_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(8848);
         let client = super::nst_client::NstClient::new(&host, port, &api_key);
+        let browsers = client.get_browsers().await?;
+        let running_browsers: Vec<_> = browsers
+            .iter()
+            .filter(|browser| {
+                browser.running
+                    && (browser.profile_id.as_deref() == Some(profile)
+                        || browser.name.as_deref() == Some(profile))
+            })
+            .collect();
+        if running_browsers.len() > 1 {
+            return Err(format!(
+                "Multiple running browsers are named \"{}\". Use the profile ID to choose one.",
+                profile
+            ));
+        }
+        if let Some(browser) = running_browsers.first() {
+            let profile_id = browser
+                .profile_id
+                .as_deref()
+                .ok_or_else(|| format!("Running browser \"{}\" has no profile ID", profile))?;
+            client.stop_browser(profile_id).await?;
+            state.browser = None;
+            state.current_profile = None;
+            state.ref_map.clear();
+
+            return Ok(json!({
+                "closed": true,
+                "stopped": true,
+                "profileId": profile_id,
+                "profileName": browser.name.as_deref().unwrap_or(profile),
+            }));
+        }
+
         let profiles = client.get_profiles(Some(profile)).await?;
         let target = profiles
             .iter()
             .find(|candidate| candidate.profile_id == profile || candidate.name == profile)
             .ok_or_else(|| format!("Profile not found: \"{}\"", profile))?;
-        let browsers = client.get_browsers().await?;
-        let running = browsers
-            .iter()
-            .find(|browser| {
-                browser.running && browser.profile_id.as_deref() == Some(&target.profile_id)
-            });
 
-        let Some(_browser) = running else {
+        return Ok(json!({
+            "closed": true,
+            "stopped": false,
+            "alreadyStopped": true,
+            "profileId": target.profile_id,
+            "profileName": target.name,
+        }));
+    }
+
+    if is_nst_provider {
+        let api_key = env::var("NST_API_KEY")
+            .map_err(|_| "NST API key is required to close a browser".to_string())?;
+        let host = env::var("NST_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let port = env::var("NST_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(8848);
+        let client = super::nst_client::NstClient::new(&host, port, &api_key);
+        let browsers = client.get_browsers().await?;
+        let running_browsers: Vec<_> = browsers.iter().filter(|browser| browser.running).collect();
+        if running_browsers.len() > 1 {
+            return Err(format!(
+                "{} browsers are running and this CLI session has no attached browser. Use \"close --profile <name-or-id>\" to choose one.",
+                running_browsers.len()
+            ));
+        }
+        if let Some(browser) = running_browsers.first() {
+            let profile_id = browser
+                .profile_id
+                .as_deref()
+                .ok_or_else(|| "Running browser has no profile ID".to_string())?;
+            client.stop_browser(profile_id).await?;
+            state.browser = None;
+            state.current_profile = None;
+            state.ref_map.clear();
+            return Ok(json!({
+                "closed": true,
+                "stopped": true,
+                "profileId": profile_id,
+                "profileName": browser.name.as_deref(),
+            }));
+        }
+        if state.browser.is_none() {
             return Ok(json!({
                 "closed": true,
                 "stopped": false,
                 "alreadyStopped": true,
-                "profileId": target.profile_id,
-                "profileName": target.name,
             }));
-        };
-        client.stop_browser(&target.profile_id).await?;
-        state.browser = None;
-        state.current_profile = None;
-        state.ref_map.clear();
-
-        return Ok(json!({
-            "closed": true,
-            "stopped": true,
-            "profileId": target.profile_id,
-            "profileName": target.name,
-        }));
+        }
     }
 
     if let Some(ref mgr) = state.browser {

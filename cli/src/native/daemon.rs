@@ -184,7 +184,12 @@ where
                     break;
                 }
 
-                if is_close {
+                if is_close
+                    && response
+                        .get("success")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false)
+                {
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     process::exit(0);
                 }

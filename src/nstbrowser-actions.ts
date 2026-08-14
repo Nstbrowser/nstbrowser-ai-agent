@@ -15,7 +15,7 @@ import type {
 import { resolveProfileId, resolveProfileIds, getProfileByNameOrId } from './nstbrowser-utils.js';
 import { loadNstConfig } from './config-loader.js';
 import { cleanupExpiredStates } from './state-utils.js';
-import { resolveBrowserProfile, isOnceBrowser } from './browser-profile-resolver.js';
+import { resolveBrowserProfile } from './browser-profile-resolver.js';
 
 /**
  * Execute a Nstbrowser command
@@ -176,44 +176,40 @@ async function handleBrowserStop(
   command: { id: string; action: 'nst_browser_stop'; profileId: string },
   client: NstbrowserClient
 ): Promise<Response> {
-  // First, get all browsers to check if this is a once browser
+  // Running browsers are authoritative and support exact ID or name targeting.
   const browsers = await client.getBrowsers();
 
-  // Try to find browser by name first (for once browsers)
-  const browserByName = browsers.find((b) => b.name === command.profileId && b.running);
-
-  if (browserByName && isOnceBrowser(browserByName)) {
-    // This is a once/temporary browser
-    await client.stopBrowser(browserByName.profileId);
+  const runningBrowsers = browsers.filter(
+    (browser) =>
+      browser.running &&
+      (browser.profileId === command.profileId || browser.name === command.profileId)
+  );
+  if (runningBrowsers.length > 1) {
+    return errorResponse(
+      command.id,
+      `Multiple running browsers are named "${command.profileId}". Use the profile ID to choose one.`
+    );
+  }
+  const runningBrowser = runningBrowsers[0];
+  if (runningBrowser) {
+    await client.stopBrowser(runningBrowser.profileId);
     return successResponse(command.id, {
       stopped: true,
-      profileId: browserByName.profileId,
-      message: `Stopped temporary browser ${command.profileId}`,
+      profileId: runningBrowser.profileId,
+      profileName: runningBrowser.name,
+      message: `Stopped browser for profile "${runningBrowser.name}" (ID: ${runningBrowser.profileId})`,
     });
   }
 
-  // Regular profile: use resolveProfileId to handle both names and IDs
-  const profileId = await resolveProfileId(client, command.profileId);
-  const profile = await getProfileByNameOrId(client, profileId);
-
-  const runningBrowser = browsers.find((b) => b.profileId === profileId && b.running);
-  if (!runningBrowser) {
-    return successResponse(command.id, {
-      stopped: false,
-      alreadyStopped: true,
-      profileId,
-      profileName: profile.name,
-      message: `Browser for profile "${profile.name}" (ID: ${profileId}) is already stopped`,
-    });
-  }
-
-  await client.stopBrowser(profileId);
+  const profile = await getProfileByNameOrId(client, command.profileId);
+  const profileId = profile.profileId;
 
   return successResponse(command.id, {
-    stopped: true,
-    profileId: profile.profileId,
+    stopped: false,
+    alreadyStopped: true,
+    profileId,
     profileName: profile.name,
-    message: `Stopped browser for profile "${profile.name}" (ID: ${profile.profileId})`,
+    message: `Browser for profile "${profile.name}" (ID: ${profileId}) is already stopped`,
   });
 }
 

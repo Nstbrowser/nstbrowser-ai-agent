@@ -384,7 +384,8 @@ nstbrowser-ai-agent close [--profile <name-or-id>]                # Close browse
 
 `close` never starts or creates a browser. With `--profile`, it resolves the running browser and
 stops it through the Nstbrowser Agent API; without `--profile`, it closes the browser attached to
-the current CLI session.
+the current CLI session. If that session context was lost, it closes the sole running Agent browser;
+when multiple browsers are running, specify `--profile` so it never guesses.
 
 ### Get Info
 

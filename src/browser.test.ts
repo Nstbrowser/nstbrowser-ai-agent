@@ -1249,6 +1249,79 @@ describe('BrowserManager NST close', () => {
     );
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
   });
+
+  it('stops only the current temporary browser instead of all browsers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            err: false,
+            data: [
+              {
+                profileId: 'regular-profile',
+                name: 'Regular profile',
+                running: true,
+                once: false,
+              },
+              {
+                profileId: 'temporary-browser',
+                name: 'nst_123',
+                running: true,
+                once: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ err: false, data: null }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const manager = new BrowserManager() as unknown as Record<string, unknown> & BrowserManager;
+    manager.nstSessionId = 'once';
+    manager.nstApiKey = 'test-key';
+    manager.nstHost = '127.0.0.1';
+    manager.nstPort = 8848;
+
+    await manager.close();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'http://127.0.0.1:8848/api/v2/browsers/temporary-browser'
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
+  });
+
+  it('does not guess when multiple temporary browsers are running', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          err: false,
+          data: [
+            { profileId: 'temporary-1', name: 'nst_1', running: true, once: true },
+            { profileId: 'temporary-2', name: 'nst_2', running: true, once: true },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const manager = new BrowserManager() as unknown as Record<string, unknown> & BrowserManager;
+    manager.nstSessionId = 'once';
+    manager.nstApiKey = 'test-key';
+    manager.nstHost = '127.0.0.1';
+    manager.nstPort = 8848;
+
+    await expect(manager.close()).rejects.toThrow('Cannot safely identify');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });
 
 describe('getDefaultTimeout', () => {

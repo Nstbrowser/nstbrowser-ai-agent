@@ -900,8 +900,7 @@ export class BrowserManager {
   /**
    * Close a Nstbrowser session via API
    * Profile browsers are stopped by their exact profile ID. Temporary sessions
-   * use the Agent's once-browser cleanup endpoint because they have no stable ID
-   * when created through the CDP connect endpoint.
+   * are resolved to one exact running Agent browser and rejected if ambiguous.
    */
   private async closeNstbrowserSession(profileId: string): Promise<void> {
     if (!this.nstApiKey || !this.nstHost || !this.nstPort) return;
@@ -909,8 +908,15 @@ export class BrowserManager {
     const { NstbrowserClient } = await import('./nstbrowser-client.js');
     const client = new NstbrowserClient(this.nstHost, this.nstPort, this.nstApiKey);
     if (profileId === 'once') {
-      // For once browsers, the Agent API uses the collection endpoint.
-      await client.stopAllBrowsers();
+      const { isOnceBrowser } = await import('./browser-profile-resolver.js');
+      const onceBrowsers = (await client.getBrowsers()).filter(isOnceBrowser);
+      if (onceBrowsers.length === 0) return;
+      if (onceBrowsers.length > 1) {
+        throw new Error(
+          `Cannot safely identify the current temporary browser: ${onceBrowsers.length} temporary browsers are running. Stop it by ID with "browser stop <id>".`
+        );
+      }
+      await client.stopBrowser(onceBrowsers[0].profileId);
       return;
     }
 

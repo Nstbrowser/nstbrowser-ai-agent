@@ -1187,11 +1187,17 @@ async function handleContent(
   return successResponse(command.id, { html, origin: page.url() });
 }
 
+/** Close the explicit or attached browser, recovering only an unambiguous Agent target. */
 async function handleClose(
   command: Command & { action: 'close'; profile?: string },
   browser: BrowserManager
 ): Promise<Response> {
-  const profile = command.profile || process.env.NST_PROFILE_ID || process.env.NST_PROFILE;
+  // An attached browser is the current session target. Only fall back to the
+  // environment default when this daemon has no active browser context.
+  const hasAttachedBrowser = !command.profile && browser.isLaunched();
+  const profile =
+    command.profile ||
+    (!hasAttachedBrowser ? process.env.NST_PROFILE_ID || process.env.NST_PROFILE : undefined);
   if (profile) {
     const response = await executeNstbrowserCommand({
       id: command.id,
@@ -1205,6 +1211,42 @@ async function handleClose(
       closed: true,
       ...(response.data as Record<string, unknown>),
     });
+  }
+
+  // If the session daemon was lost, a single running Agent browser is the only
+  // unambiguous close target. Never guess when multiple browsers are running.
+  const provider = process.env.NSTBROWSER_AI_AGENT_PROVIDER;
+  if (!hasAttachedBrowser && (!provider || provider === 'nst') && loadNstConfig()) {
+    const response = await executeNstbrowserCommand({
+      id: command.id,
+      action: 'nst_browser_list',
+    });
+    if (!response.success) return response;
+
+    const runningBrowsers = (
+      (response.data as { browsers?: Array<{ profileId: string; running: boolean }> })?.browsers ||
+      []
+    ).filter((candidate) => candidate.running);
+    if (runningBrowsers.length > 1) {
+      return errorResponse(
+        command.id,
+        `${runningBrowsers.length} browsers are running and this CLI session has no attached browser. Use "close --profile <name-or-id>" to choose one.`
+      );
+    }
+    if (runningBrowsers.length === 1) {
+      const stopResponse = await executeNstbrowserCommand({
+        id: command.id,
+        action: 'nst_browser_stop',
+        profileId: runningBrowsers[0].profileId,
+      });
+      if (!stopResponse.success) return stopResponse;
+      return successResponse(command.id, {
+        closed: true,
+        ...(stopResponse.data as Record<string, unknown>),
+      });
+    }
+
+    return successResponse(command.id, { closed: true, stopped: false, alreadyStopped: true });
   }
 
   await browser.close();

@@ -194,7 +194,7 @@ export async function resolveBrowserProfile(
     }
 
     // Verify the profile exists
-    const profiles = await client.getProfiles();
+    const profiles = await client.getProfiles({ name: profileId });
     const profile = profiles.find((p) => p.profileId === profileId);
 
     if (!profile) {

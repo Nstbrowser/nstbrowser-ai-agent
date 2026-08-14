@@ -61,4 +61,79 @@ describe('Nstbrowser browser stop', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'GET' });
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'GET' });
   });
+
+  it('stops a running profile by its exact browser name', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            err: false,
+            data: [
+              {
+                profileId: 'a152a370-7866-461c-b858-6b8fdbd2ce4a',
+                name: 'NST_901 [332]',
+                running: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ err: false, data: null }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      executeNstbrowserCommand({
+        id: 'stop-name-test',
+        action: 'nst_browser_stop',
+        profileId: 'NST_901 [332]',
+      })
+    ).resolves.toMatchObject({
+      success: true,
+      data: {
+        stopped: true,
+        profileId: 'a152a370-7866-461c-b858-6b8fdbd2ce4a',
+        profileName: 'NST_901 [332]',
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toContain(
+      '/api/v2/browsers/a152a370-7866-461c-b858-6b8fdbd2ce4a'
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
+  });
+
+  it('does not guess when multiple running profiles have the same name', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          err: false,
+          data: [
+            { profileId: 'profile-1', name: 'Duplicate', running: true },
+            { profileId: 'profile-2', name: 'Duplicate', running: true },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      executeNstbrowserCommand({
+        id: 'stop-duplicate-name-test',
+        action: 'nst_browser_stop',
+        profileId: 'Duplicate',
+      })
+    ).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('Use the profile ID'),
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });

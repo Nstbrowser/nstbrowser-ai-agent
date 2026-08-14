@@ -204,6 +204,8 @@ nstbrowser-ai-agent snapshot -i
 
 `close` only stops an existing browser; it never starts or creates one. Use
 `close --profile <name-or-id>` to stop a specific NST profile browser through the Agent API.
+If session context is unavailable, bare `close` stops the sole running Agent browser and requires
+`--profile` when multiple browsers are running.
 
 ## Useful Global Options
 
