@@ -571,7 +571,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "title" => handle_title(state).await,
         "content" => handle_content(state).await,
         "evaluate" => handle_evaluate(cmd, state).await,
-        "close" => handle_close(state).await,
+        "close" => handle_close(cmd, state).await,
         "snapshot" => handle_snapshot(cmd, state).await,
         "screenshot" => handle_screenshot(cmd, state).await,
         "click" => handle_click(cmd, state).await,
@@ -1243,7 +1243,55 @@ async fn handle_evaluate(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
     Ok(json!({ "result": result, "origin": url }))
 }
 
-async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
+async fn handle_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let profile = cmd
+        .get("profile")
+        .or_else(|| cmd.get("nstProfileId"))
+        .or_else(|| cmd.get("nstProfileName"))
+        .and_then(|v| v.as_str());
+    if let Some(profile) = profile {
+        let api_key = env::var("NST_API_KEY")
+            .map_err(|_| "NST API key is required to close a profile browser".to_string())?;
+        let host = env::var("NST_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let port = env::var("NST_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(8848);
+        let client = super::nst_client::NstClient::new(&host, port, &api_key);
+        let profiles = client.get_profiles(Some(profile)).await?;
+        let target = profiles
+            .iter()
+            .find(|candidate| candidate.profile_id == profile || candidate.name == profile)
+            .ok_or_else(|| format!("Profile not found: \"{}\"", profile))?;
+        let browsers = client.get_browsers().await?;
+        let running = browsers
+            .iter()
+            .find(|browser| {
+                browser.running && browser.profile_id.as_deref() == Some(&target.profile_id)
+            });
+
+        let Some(_browser) = running else {
+            return Ok(json!({
+                "closed": true,
+                "stopped": false,
+                "alreadyStopped": true,
+                "profileId": target.profile_id,
+                "profileName": target.name,
+            }));
+        };
+        client.stop_browser(&target.profile_id).await?;
+        state.browser = None;
+        state.current_profile = None;
+        state.ref_map.clear();
+
+        return Ok(json!({
+            "closed": true,
+            "stopped": true,
+            "profileId": target.profile_id,
+            "profileName": target.name,
+        }));
+    }
+
     if let Some(ref mgr) = state.browser {
         if let Some(ref session_name) = state.session_name {
             if let Ok(session_id) = mgr.active_session_id() {

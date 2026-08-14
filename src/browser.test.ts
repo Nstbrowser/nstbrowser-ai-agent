@@ -1221,6 +1221,36 @@ describe('BrowserManager', () => {
   });
 });
 
+describe('BrowserManager NST close', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('stops the active profile through the Agent API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ err: false, data: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const manager = new BrowserManager() as unknown as Record<string, unknown> & BrowserManager;
+    manager.nstSessionId = 'a152a370-7866-461c-b858-6b8fdbd2ce4a';
+    manager.nstApiKey = 'test-key';
+    manager.nstHost = '127.0.0.1';
+    manager.nstPort = 8848;
+
+    await manager.close();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://127.0.0.1:8848/api/v2/browsers/a152a370-7866-461c-b858-6b8fdbd2ce4a'
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
+  });
+});
+
 describe('getDefaultTimeout', () => {
   const originalEnv = { ...process.env };
 

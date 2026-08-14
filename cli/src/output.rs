@@ -1744,7 +1744,7 @@ Examples:
             r##"
 nstbrowser-ai-agent close - Close the browser
 
-Usage: nstbrowser-ai-agent close
+Usage: nstbrowser-ai-agent close [--profile <name-or-id>]
 
 Closes the browser instance for the current session.
 
@@ -1753,10 +1753,12 @@ Aliases: quit, exit
 Global Options:
   --json               Output as JSON
   --session <name>     Use specific session
+  --profile <name-or-id>  Close a specific NST profile browser
 
 Examples:
   nstbrowser-ai-agent close
   nstbrowser-ai-agent close --session mysession
+  nstbrowser-ai-agent close --profile 527e7b55-ca19-4422-89e4-88af4cf0f543
 "##
         }
 

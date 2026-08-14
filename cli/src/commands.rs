@@ -638,7 +638,10 @@ pub fn parse_command(args: &[String], flags: &Flags) -> Result<Value, ParseError
         }
 
         // === Close ===
-        "close" | "quit" | "exit" => Ok(json!({ "id": id, "action": "close" })),
+        "close" | "quit" | "exit" => Ok(add_profile_fields(
+            json!({ "id": id, "action": "close" }),
+            flags,
+        )),
 
         // === Authentication Vault ===
         "auth" => {
@@ -3238,6 +3241,18 @@ mod tests {
 
     fn test_args(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn test_close_with_profile() {
+        let mut flags = default_flags();
+        flags.nst_profile = Some("a152a370-7866-461c-b858-6b8fdbd2ce4a".to_string());
+        let cmd = parse_command(&test_args("close"), &flags).unwrap();
+        assert_eq!(cmd["action"], "close");
+        assert_eq!(
+            cmd["nstProfileId"],
+            "a152a370-7866-461c-b858-6b8fdbd2ce4a"
+        );
     }
 
     // === Cookies Tests ===

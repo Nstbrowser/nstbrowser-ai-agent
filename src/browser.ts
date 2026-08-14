@@ -899,31 +899,22 @@ export class BrowserManager {
 
   /**
    * Close a Nstbrowser session via API
-   * Only stops the browser if it's a temporary "once" browser
-   * Profile browsers are left running for reuse
+   * Profile browsers are stopped by their exact profile ID. Temporary sessions
+   * use the Agent's once-browser cleanup endpoint because they have no stable ID
+   * when created through the CDP connect endpoint.
    */
   private async closeNstbrowserSession(profileId: string): Promise<void> {
     if (!this.nstApiKey || !this.nstHost || !this.nstPort) return;
 
-    // Only stop "once" browsers (temporary browsers)
-    // Profile browsers should stay running for reuse
+    const { NstbrowserClient } = await import('./nstbrowser-client.js');
+    const client = new NstbrowserClient(this.nstHost, this.nstPort, this.nstApiKey);
     if (profileId === 'once') {
-      try {
-        // For once browsers, we stop all temporary browsers
-        await fetch(`http://${this.nstHost}:${this.nstPort}/api/v2/browsers/`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': this.nstApiKey,
-          },
-          body: JSON.stringify([]), // Empty array stops all once browsers
-        });
-      } catch (error) {
-        console.error('Failed to stop Nstbrowser once session:', error);
-      }
+      // For once browsers, the Agent API uses the collection endpoint.
+      await client.stopAllBrowsers();
+      return;
     }
-    // For profile browsers, we don't stop them - just disconnect
-    // This allows the browser to stay running for subsequent commands
+
+    await client.stopBrowser(profileId);
   }
 
   /**
@@ -2541,9 +2532,7 @@ export class BrowserManager {
     }
 
     if (this.nstSessionId) {
-      await this.closeNstbrowserSession(this.nstSessionId).catch((error) => {
-        console.error('Failed to close Nstbrowser session:', error);
-      });
+      await this.closeNstbrowserSession(this.nstSessionId);
       this.browser = null;
     } else if (this.cdpEndpoint !== null) {
       // CDP: only disconnect, don't close external app's pages

@@ -6,6 +6,7 @@ import type { BrowserManager, ScreencastFrame } from './browser.js';
 import { getAppDir } from './daemon.js';
 import { resolveBrowserProfile, extractProfileOptions } from './browser-profile-resolver.js';
 import { NstbrowserClient } from './nstbrowser-client.js';
+import { executeNstbrowserCommand } from './nstbrowser-actions.js';
 import { loadNstConfig } from './config-loader.js';
 import {
   type ActionPolicy,
@@ -321,6 +322,7 @@ export async function executeCommand(command: Command, browser: BrowserManager):
     // Skip launch command as it already handles its own profile resolution
     if (
       command.action !== 'launch' &&
+      command.action !== 'close' &&
       command.action !== 'state_list' &&
       command.action !== 'state_show' &&
       command.action !== 'state_clean' &&
@@ -1186,9 +1188,25 @@ async function handleContent(
 }
 
 async function handleClose(
-  command: Command & { action: 'close' },
+  command: Command & { action: 'close'; profile?: string },
   browser: BrowserManager
 ): Promise<Response> {
+  const profile = command.profile || process.env.NST_PROFILE_ID || process.env.NST_PROFILE;
+  if (profile) {
+    const response = await executeNstbrowserCommand({
+      id: command.id,
+      action: 'nst_browser_stop',
+      profileId: profile,
+    });
+
+    if (!response.success) return response;
+
+    return successResponse(command.id, {
+      closed: true,
+      ...(response.data as Record<string, unknown>),
+    });
+  }
+
   await browser.close();
   return successResponse(command.id, { closed: true });
 }

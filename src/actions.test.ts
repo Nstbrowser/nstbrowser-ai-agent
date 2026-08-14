@@ -1,5 +1,73 @@
-import { describe, it, expect } from 'vitest';
-import { toAIFriendlyError } from './actions.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { BrowserManager } from './browser.js';
+import { executeCommand, toAIFriendlyError } from './actions.js';
+
+const { executeNstbrowserCommandMock } = vi.hoisted(() => ({
+  executeNstbrowserCommandMock: vi.fn(),
+}));
+
+vi.mock('./nstbrowser-actions.js', () => ({
+  executeNstbrowserCommand: executeNstbrowserCommandMock,
+}));
+
+describe('executeCommand', () => {
+  beforeEach(() => {
+    executeNstbrowserCommandMock.mockReset();
+  });
+
+  it('closes without resolving or launching a browser first', async () => {
+    const browser = {
+      isLaunched: vi.fn(() => {
+        throw new Error('close must not inspect browser launch state');
+      }),
+      close: vi.fn(),
+    } as unknown as BrowserManager;
+
+    await expect(executeCommand({ id: 'close-test', action: 'close' }, browser)).resolves.toEqual({
+      id: 'close-test',
+      success: true,
+      data: { closed: true },
+    });
+    expect(browser.isLaunched).not.toHaveBeenCalled();
+    expect(browser.close).toHaveBeenCalledOnce();
+  });
+
+  it('stops an explicit NST profile through the Agent without touching the browser manager', async () => {
+    executeNstbrowserCommandMock.mockResolvedValue({
+      id: 'close-profile-test',
+      success: true,
+      data: { stopped: true, profileId: 'a152a370-7866-461c-b858-6b8fdbd2ce4a' },
+    });
+    const browser = {
+      close: vi.fn(),
+    } as unknown as BrowserManager;
+
+    await expect(
+      executeCommand(
+        {
+          id: 'close-profile-test',
+          action: 'close',
+          profile: 'a152a370-7866-461c-b858-6b8fdbd2ce4a',
+        },
+        browser
+      )
+    ).resolves.toEqual({
+      id: 'close-profile-test',
+      success: true,
+      data: {
+        closed: true,
+        stopped: true,
+        profileId: 'a152a370-7866-461c-b858-6b8fdbd2ce4a',
+      },
+    });
+    expect(executeNstbrowserCommandMock).toHaveBeenCalledWith({
+      id: 'close-profile-test',
+      action: 'nst_browser_stop',
+      profileId: 'a152a370-7866-461c-b858-6b8fdbd2ce4a',
+    });
+    expect(browser.close).not.toHaveBeenCalled();
+  });
+});
 
 describe('toAIFriendlyError', () => {
   describe('element blocked by overlay', () => {

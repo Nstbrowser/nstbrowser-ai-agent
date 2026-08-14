@@ -194,9 +194,18 @@ async function handleBrowserStop(
 
   // Regular profile: use resolveProfileId to handle both names and IDs
   const profileId = await resolveProfileId(client, command.profileId);
-
-  // Get profile details to show in response
   const profile = await getProfileByNameOrId(client, profileId);
+
+  const runningBrowser = browsers.find((b) => b.profileId === profileId && b.running);
+  if (!runningBrowser) {
+    return successResponse(command.id, {
+      stopped: false,
+      alreadyStopped: true,
+      profileId,
+      profileName: profile.name,
+      message: `Browser for profile "${profile.name}" (ID: ${profileId}) is already stopped`,
+    });
+  }
 
   await client.stopBrowser(profileId);
 

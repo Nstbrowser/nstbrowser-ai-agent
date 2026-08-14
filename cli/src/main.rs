@@ -611,6 +611,7 @@ fn main() {
             exit(1);
         }
     };
+    let is_close_command = cmd.get("action").and_then(|v| v.as_str()) == Some("close");
 
     // Handle --password-stdin for auth save
     if cmd.get("action").and_then(|v| v.as_str()) == Some("auth_save") {
@@ -821,7 +822,7 @@ fn main() {
     }
 
     // Auto-connect to existing browser
-    if flags.auto_connect {
+    if flags.auto_connect && !is_close_command {
         let mut launch_cmd = json!({
             "id": gen_id(),
             "action": "launch",
@@ -861,7 +862,7 @@ fn main() {
 
     // Connect via CDP if --cdp flag is set
     // Accepts either a port number (e.g., "9222") or a full URL (e.g., "ws://..." or "wss://...")
-    if let Some(ref cdp_value) = flags.cdp {
+    if let Some(cdp_value) = flags.cdp.as_ref().filter(|_| !is_close_command) {
         let mut launch_cmd = if cdp_value.starts_with("ws://")
             || cdp_value.starts_with("wss://")
             || cdp_value.starts_with("http://")
@@ -999,7 +1000,7 @@ fn main() {
         }
 
         // Skip launch for NST API commands - they only need API access, not a browser
-        if !is_nst_api_command {
+        if !is_nst_api_command && !is_close_command {
             let mut launch_cmd = json!({
                 "id": gen_id(),
                 "action": "launch",
@@ -1061,6 +1062,7 @@ fn main() {
         || flags.download_path.is_some())
         && flags.cdp.is_none()
         && flags.provider.is_none()
+        && !is_close_command
     {
         let mut launch_cmd = json!({
             "id": gen_id(),

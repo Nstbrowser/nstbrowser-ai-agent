@@ -382,6 +382,10 @@ nstbrowser-ai-agent eval <js> [--profile <name-or-id>]            # Run JavaScri
 nstbrowser-ai-agent close [--profile <name-or-id>]                # Close browser (aliases: quit, exit)
 ```
 
+`close` never starts or creates a browser. With `--profile`, it resolves the running browser and
+stops it through the Nstbrowser Agent API; without `--profile`, it closes the browser attached to
+the current CLI session.
+
 ### Get Info
 
 ```bash

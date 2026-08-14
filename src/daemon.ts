@@ -536,6 +536,10 @@ export async function startDaemon(options?: {
             const response = await executeCommand(parseResult.command, manager);
             await safeWrite(socket, serializeResponse(response) + '\n');
 
+            // Keep the daemon and its target context alive when the Agent rejects
+            // the stop request so the caller can retry safely.
+            if (!response.success) continue;
+
             if (!shuttingDown) {
               shuttingDown = true;
               setTimeout(() => {

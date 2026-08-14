@@ -129,6 +129,18 @@ impl NstClient {
         Ok(())
     }
 
+    /// Stop a running browser by its exact profile ID.
+    pub async fn stop_browser(&self, profile_id: &str) -> Result<(), String> {
+        let url = format!("{}/api/v2/browsers/{}", self.base_url, profile_id);
+        let response: NstApiResponse<Value> = self.request("DELETE", &url, None).await?;
+
+        if response.err {
+            return Err(response.msg.unwrap_or_else(|| "Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
     /// Make HTTP request to NST API
     async fn request<T: serde::de::DeserializeOwned>(
         &self,

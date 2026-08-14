@@ -885,7 +885,7 @@ export interface ContentCommand extends BaseCommand, ProfileAwareCommand {
   selector?: string;
 }
 
-export interface CloseCommand extends BaseCommand {
+export interface CloseCommand extends BaseCommand, ProfileAwareCommand {
   action: 'close';
 }
 
