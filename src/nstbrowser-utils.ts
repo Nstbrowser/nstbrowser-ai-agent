@@ -50,7 +50,7 @@ export function clearProfileCache(): void {
  *
  * This function attempts to resolve a profile by:
  * 1. Detecting if input is UUID format (profile ID)
- * 2. If UUID, looking up by ID directly
+ * 2. If UUID, returning it for the target API to validate
  * 3. If not UUID, searching by name
  * 4. If multiple profiles with same name, returning first one
  *
@@ -73,27 +73,15 @@ export async function resolveProfileId(
 
   const trimmedInput = nameOrId.trim();
 
+  // Profile-specific API endpoints are the authoritative validation point.
+  if (isUUID(trimmedInput)) {
+    return trimmedInput;
+  }
+
   try {
     // Always bypass cache for Profile Name lookups to avoid stale data
     // Profile Names may have just been created and not yet in cache
     const profiles = await getCachedProfiles(client, true);
-
-    // Step 1: Check if input is UUID format
-    if (isUUID(trimmedInput)) {
-      // Try to find by ID
-      const profileById = profiles.find((p) => p.profileId === trimmedInput);
-      if (profileById) {
-        return profileById.profileId;
-      }
-      // UUID format but not found
-      throw new NstbrowserError(
-        `Profile ID not found: "${trimmedInput}"`,
-        ERROR_CODES.PROFILE_NOT_FOUND,
-        404
-      );
-    }
-
-    // Step 2: Search by name (not UUID format)
     const profilesByName = profiles.filter((p) => p.name === trimmedInput);
 
     if (profilesByName.length === 0) {
@@ -113,7 +101,6 @@ export async function resolveProfileId(
       }
     }
 
-    // Return first match (whether single or multiple)
     return profilesByName[0].profileId;
   } catch (error) {
     // If it's already a NstbrowserError, re-throw it
@@ -164,8 +151,14 @@ export async function resolveProfileIds(
  * @returns True if profile exists, false otherwise
  */
 export async function profileExists(client: NstbrowserClient, nameOrId: string): Promise<boolean> {
+  const trimmedInput = nameOrId.trim();
+  if (isUUID(trimmedInput)) {
+    const profiles = await client.getProfiles({ name: trimmedInput });
+    return profiles.some((profile) => profile.profileId === trimmedInput);
+  }
+
   try {
-    await resolveProfileId(client, nameOrId);
+    await resolveProfileId(client, trimmedInput);
     return true;
   } catch (error) {
     if (error instanceof NstbrowserError && error.code === ERROR_CODES.PROFILE_NOT_FOUND) {
@@ -185,21 +178,28 @@ export async function profileExists(client: NstbrowserClient, nameOrId: string):
  * @throws {NstbrowserError} If profile is not found
  */
 export async function getProfileByNameOrId(client: NstbrowserClient, nameOrId: string) {
+  const trimmedInput = nameOrId.trim();
+  if (isUUID(trimmedInput)) {
+    const profiles = await client.getProfiles({ name: trimmedInput });
+    const profileById = profiles.find((profile) => profile.profileId === trimmedInput);
+    if (profileById) return profileById;
+
+    throw new NstbrowserError(
+      `Profile not found: "${trimmedInput}"`,
+      ERROR_CODES.PROFILE_NOT_FOUND,
+      404
+    );
+  }
+
   const profiles = await client.getProfiles();
+  const profileByName = profiles.find((profile) => profile.name === trimmedInput);
+  if (profileByName) return profileByName;
 
-  // Try to find by ID first
-  const profileById = profiles.find((p) => p.profileId === nameOrId);
-  if (profileById) {
-    return profileById;
-  }
-
-  // Try to find by name
-  const profileByName = profiles.find((p) => p.name === nameOrId);
-  if (profileByName) {
-    return profileByName;
-  }
-
-  throw new NstbrowserError(`Profile not found: "${nameOrId}"`, ERROR_CODES.PROFILE_NOT_FOUND, 404);
+  throw new NstbrowserError(
+    `Profile not found: "${trimmedInput}"`,
+    ERROR_CODES.PROFILE_NOT_FOUND,
+    404
+  );
 }
 
 /**

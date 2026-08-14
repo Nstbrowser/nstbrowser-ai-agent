@@ -230,7 +230,7 @@ pub async fn resolve_browser_profile(
         }
 
         // Verify the profile exists
-        let profiles = client.get_profiles(None).await?;
+        let profiles = client.get_profiles(Some(pid)).await?;
         let profile = profiles.iter().find(|p| p.profile_id == *pid);
 
         if profile.is_none() {
