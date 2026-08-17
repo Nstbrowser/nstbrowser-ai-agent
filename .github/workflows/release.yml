@@ -47,6 +47,45 @@ jobs:
             echo "✗ Version unchanged ($CURRENT_VERSION), skipping release"
           fi
 
+  quality:
+    name: Test Release
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check TypeScript
+        run: |
+          pnpm run format:check
+          pnpm run typecheck
+          pnpm test
+
+      - name: Check Rust
+        run: |
+          cargo clippy --manifest-path cli/Cargo.toml --all-targets
+          cargo test --manifest-path cli/Cargo.toml
+
   # Build native binaries for all platforms
   build-binaries:
     name: Build ${{ matrix.name }}
@@ -166,7 +205,7 @@ jobs:
   # Publish to npm and create GitHub release
   publish:
     name: Publish to npm
-    needs: [check-version, build-binaries]
+    needs: [check-version, quality, build-binaries]
     if: needs.check-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:

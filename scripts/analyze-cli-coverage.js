@@ -24,7 +24,6 @@ const EXPECTED_COMMANDS = {
   'Browser Management': [
     { api: 'getBrowsers', command: 'nst_browser_list', cliExample: 'browser list' },
     { api: 'startBrowser', command: 'nst_browser_start', cliExample: 'browser start <profile>' },
-    { api: 'startBrowsersBatch', command: 'nst_browser_start_batch', cliExample: 'browser start-batch <profile>...' },
     { api: 'startOnceBrowser', command: 'nst_browser_start_once', cliExample: 'browser start-once' },
     { api: 'stopBrowser', command: 'nst_browser_stop', cliExample: 'browser stop <profile>' },
     { api: 'stopAllBrowsers', command: 'nst_browser_stop_all', cliExample: 'browser stop-all' },

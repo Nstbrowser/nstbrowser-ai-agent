@@ -5344,6 +5344,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_close_without_browser() {
+        // This unit test covers the local close path. An NST-configured environment
+        // would turn it into a live Agent integration test and may stop a real browser.
+        if env::var("NSTBROWSER_AI_AGENT_PROVIDER")
+            .map(|provider| provider == "nst")
+            .unwrap_or_else(|_| env::var("NST_API_KEY").is_ok())
+        {
+            return;
+        }
         let mut state = DaemonState::new();
         let cmd = json!({ "action": "close", "id": "test-3" });
         let result = execute_command(&cmd, &mut state).await;

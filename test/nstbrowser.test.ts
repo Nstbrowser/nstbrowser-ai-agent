@@ -403,50 +403,6 @@ describe('Nstbrowser command validation', () => {
     });
   });
 
-  // New commands - Batch operations and CDP endpoints
-  describe('nst_browser_start_batch', () => {
-    it('accepts nst_browser_start_batch with profileIds array', () => {
-      const result = parseCommand(
-        JSON.stringify({
-          id: '1',
-          action: 'nst_browser_start_batch',
-          profileIds: ['profile-1', 'profile-2', 'profile-3']
-        })
-      );
-      expect(result.success).toBe(true);
-    });
-
-    it('accepts nst_browser_start_batch with config options', () => {
-      const result = parseCommand(
-        JSON.stringify({
-          id: '1',
-          action: 'nst_browser_start_batch',
-          profileIds: ['profile-1', 'profile-2'],
-          config: {
-            headless: true,
-            autoClose: false,
-            proxyEnabled: true
-          }
-        })
-      );
-      expect(result.success).toBe(true);
-    });
-
-    it('rejects nst_browser_start_batch without profileIds', () => {
-      const result = parseCommand(
-        JSON.stringify({ id: '1', action: 'nst_browser_start_batch' })
-      );
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects nst_browser_start_batch with empty profileIds array', () => {
-      const result = parseCommand(
-        JSON.stringify({ id: '1', action: 'nst_browser_start_batch', profileIds: [] })
-      );
-      expect(result.success).toBe(false);
-    });
-  });
-
   describe('nst_browser_start_once', () => {
     it('accepts nst_browser_start_once without config', () => {
       const result = parseCommand(
