@@ -14,7 +14,7 @@
     "nstbrowser-ai-agent": "./bin/nstbrowser-ai-agent.js"
   },
   "scripts": {
-    "prepare": "husky",
+    "prepare": "node scripts/generate-version.js && husky",
     "version:sync": "node scripts/sync-version.js",
     "version": "pnpm run version:sync && git add cli/Cargo.toml",
     "prebuild": "node scripts/generate-version.js",
